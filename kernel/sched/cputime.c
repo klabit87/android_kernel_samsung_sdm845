@@ -37,6 +37,18 @@ void disable_sched_clock_irqtime(void)
 	sched_clock_irqtime = 0;
 }
 
+static void irqtime_account_delta(struct irqtime *irqtime, u64 delta,
+				  enum cpu_usage_stat idx)
+{
+	u64 *cpustat = kcpustat_this_cpu->cpustat;
+
+	u64_stats_update_begin(&irqtime->sync);
+	cpustat[idx] += delta;
+	irqtime->total += delta;
+	irqtime->tick_delta += delta;
+	u64_stats_update_end(&irqtime->sync);
+}
+
 /*
  * Called before incrementing preempt_count on {soft,}irq_enter
  * and before decrementing preempt_count on {soft,}irq_exit.
@@ -44,7 +56,6 @@ void disable_sched_clock_irqtime(void)
 void irqtime_account_irq(struct task_struct *curr)
 {
 	struct irqtime *irqtime = this_cpu_ptr(&cpu_irqtime);
-	u64 *cpustat = kcpustat_this_cpu->cpustat;
 	s64 delta;
 	int cpu;
 	u64 wallclock;
@@ -58,7 +69,6 @@ void irqtime_account_irq(struct task_struct *curr)
 	delta = wallclock - irqtime->irq_start_time;
 	irqtime->irq_start_time += delta;
 
-	u64_stats_update_begin(&irqtime->sync);
 	/*
 	 * We do not account for softirq time from ksoftirqd here.
 	 * We want to continue accounting softirq time to ksoftirqd thread
@@ -66,18 +76,9 @@ void irqtime_account_irq(struct task_struct *curr)
 	 * that do not consume any time, but still wants to run.
 	 */
 	if (hardirq_count())
-		irqtime->hardirq_time += delta;
+		irqtime_account_delta(irqtime, delta, CPUTIME_IRQ);
 	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd())
-		irqtime->softirq_time += delta;
-	else
-		account = false;
-
-	u64_stats_update_end(&irqtime->sync);
-
-	if (account)
-		sched_account_irqtime(cpu, curr, delta, wallclock);
-	else if (curr != this_cpu_ksoftirqd())
-		sched_account_irqstart(cpu, curr, wallclock);
+		irqtime_account_delta(irqtime, delta, CPUTIME_SOFTIRQ);
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
 
