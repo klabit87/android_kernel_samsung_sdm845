@@ -51,7 +51,6 @@ static int sdcardfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	 * whether the base obbpath has been changed or not
 	 */
 	if (is_obbpath_invalid(dentry)) {
-		d_drop(dentry);
 		return 0;
 	}
 
@@ -73,14 +72,12 @@ static int sdcardfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	spin_lock(&lower_dentry->d_lock);
 	if (d_unhashed(lower_dentry)) {
 		spin_unlock(&lower_dentry->d_lock);
-		d_drop(dentry);
 		err = 0;
 		goto out;
 	}
 	spin_unlock(&lower_dentry->d_lock);
 
 	if (parent_lower_dentry != lower_cur_parent_dentry) {
-		d_drop(dentry);
 		err = 0;
 		goto out;
 	}
@@ -94,7 +91,6 @@ static int sdcardfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	}
 
 	if (!qstr_case_eq(&dentry->d_name, &lower_dentry->d_name)) {
-		__d_drop(dentry);
 		err = 0;
 	}
 
@@ -113,7 +109,6 @@ static int sdcardfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	if (inode) {
 		data = top_data_get(SDCARDFS_I(inode));
 		if (!data || data->abandoned) {
-			d_drop(dentry);
 			err = 0;
 		}
 		if (data)
