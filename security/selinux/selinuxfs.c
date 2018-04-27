@@ -144,7 +144,6 @@ module_param(enable_selinuxfake, int, 0644);
 static int selinux_usermode = 0;
 module_param(selinux_usermode, int, 0644);
 
-static int user_selinux_enforcing = 0;
 static ssize_t sel_read_enforce(struct file *filp, char __user *buf,
 				size_t count, loff_t *ppos)
 {

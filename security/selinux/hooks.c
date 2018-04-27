@@ -182,7 +182,6 @@ static int __init enforcing_setup(char *str)
 	unsigned long enforcing;
 	if (!kstrtoul(str, 0, &enforcing))
 		selinux_enforcing = 0;
-#endif
 	return 1;
 }
 __setup("enforcing=", enforcing_setup);
@@ -3014,6 +3013,7 @@ static int selinux_sb_kern_mount(struct super_block *sb, int flags, void *data)
 	struct common_audit_data ad;
 	int rc;
 
+	rc = superblock_doinit(sb, data);
 #ifdef CONFIG_RKP_KDP	
 	if ((rc = security_integrity_current()))
 		return rc;
@@ -3021,11 +3021,11 @@ static int selinux_sb_kern_mount(struct super_block *sb, int flags, void *data)
 
 	rc = superblock_doinit(sb, data);
 	if (rc)
-		goto out;
+		return rc;
 
 	/* Allow all mounts performed by the kernel */
 	if (flags & MS_KERNMOUNT)
-		goto 0;
+		return 0;
 
 	ad.type = LSM_AUDIT_DATA_DENTRY;
 	ad.u.dentry = sb->s_root;
@@ -7412,10 +7412,10 @@ static struct nf_hook_ops selinux_nf_ops[] = {
 
 static int __init selinux_nf_ip_init(void)
 {
-	return 0;
+	int err;
 
 	if (!selinux_enabled)
-		goto out;
+		return 0;
 
 	printk(KERN_DEBUG "SELinux:  Registering netfilter hooks\n");
 
