@@ -4395,16 +4395,6 @@ non_fips_alg:
 	return -EINVAL;
 }
 
-int testmgr_crypto_proc_init(void)
-{
-#ifdef CONFIG_CRYPTO_FIPS
-	crypto_init_proc(&IN_FIPS_ERROR);
-#else
-	crypto_init_proc();
-#endif
-	return 0;
-}
-EXPORT_SYMBOL_GPL(testmgr_crypto_proc_init);
 
 #endif /* CONFIG_CRYPTO_MANAGER_DISABLE_TESTS */
 
