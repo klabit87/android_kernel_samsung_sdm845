@@ -108,6 +108,13 @@ enum sched_boost_policy sched_boost_policy(void)
 
 static void _sched_set_boost(int type)
 {
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+	if (type > 0)
+		stune_boost("top-app");
+	else
+		reset_stune_boost("top-app");
+#endif // CONFIG_DYNAMIC_STUNE_BOOST
+
 	switch (type) {
 	case NO_BOOST: /* All boost clear */
 		if (boost_refcount[FULL_THROTTLE_BOOST] > 0) {
