@@ -30,6 +30,9 @@ static unsigned int freq_aggr_threshold_backup;
 
 static int boost_refcount[MAX_NUM_BOOST_TYPE];
 
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+static int boost_slot;
+#endif // CONFIG_DYNAMIC_STUNE_BOOST
 
 static inline void boost_kick(int cpu)
 {
@@ -110,9 +113,9 @@ static void _sched_set_boost(int type)
 {
 #ifdef CONFIG_DYNAMIC_STUNE_BOOST
 	if (type > 0)
-		do_stune_sched_boost("top-app");
+		do_stune_sched_boost("top-app", &boost_slot);
 	else
-		reset_stune_boost("top-app");
+		reset_stune_boost("top-app", boost_slot);
 #endif // CONFIG_DYNAMIC_STUNE_BOOST
 
 	switch (type) {
