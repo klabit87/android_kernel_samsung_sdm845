@@ -1433,6 +1433,7 @@ static struct cpuhp_step cpuhp_ap_states[] = {
 		.name			= "KMAP:dying",
 		.startup.single		= NULL,
 		.teardown.single	= kmap_remove_unused_cpu,
+	},
 	[CPUHP_AP_SMPCFD_DYING] = {
 		.name			= "smpcfd:dying",
 		.startup.single		= NULL,

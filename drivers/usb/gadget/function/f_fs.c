@@ -4196,14 +4196,13 @@ static void ffs_closed(struct ffs_data *ffs)
 	if (ffs_obj->opts)
 		opts = ffs_obj->opts;
 	else
-		goto done;	
+		goto done;
 
 	/* to get updated refcount atomic variable value */
 	smp_mb__before_atomic();
 	if (opts->no_configfs || !opts->func_inst.group.cg_item.ci_parent
 	    || !atomic_read(&opts->func_inst.group.cg_item.ci_kref.refcount))
 		goto done;
-	}
 
 	ci = opts->func_inst.group.cg_item.ci_parent->ci_parent;
 	ffs_dev_unlock();
