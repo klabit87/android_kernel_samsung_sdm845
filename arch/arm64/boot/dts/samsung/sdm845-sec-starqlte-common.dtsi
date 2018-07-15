@@ -1,0 +1,581 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "sdm845-sec-star-audio.dtsi"
+#include "../../../../drivers/motor/tuning/starqlte_motor_tuning.dtsi"
+#include "../../../../drivers/leds/tuning/starqlte_led_tuning.dtsi"
+#include <dt-bindings/input/input.h>
+
+/{
+	reserved-memory {
+		/*
+		 * Note: For TZapp, need to change XBL(QseeComDxe.h) and
+		 *       TZ(oem_config.xml), too.
+		 */
+		/delete-node/ removed_region@85fc0000;
+		removed_region: removed_region {
+			no-map;
+			reg = <0 0x85FC0000 0 0x5540000>;
+		};
+
+		/delete-node/ camera_region@8bf00000;
+		pil_camera_mem: camera_region@8bf00000 {
+			compatible = "removed-dma-pool";
+			no-map;
+			reg = <0 0x8db00000 0 0x500000>;
+		};
+
+		/*
+		 * We need this region only if we use Qualcomm WiFi solution,
+		 * otherwise no need.
+		 */
+		wlan_fw_region: wlan_fw_region@8df00000 {
+			/delete-property/ reg;
+		};
+
+		camera_mem: camera_mem_region {
+			reg = <0x0 0xC0000000 0x0 0x14000000>;
+		};
+	};
+
+	aliases {
+		i2c22 = &i2c_22;
+		spi2 = &qupv3_se2_spi;
+	};
+
+};
+
+&soc {
+	qcom_seecom: qseecom@86d00000 {
+		reg = <0x86D00000 0x4800000>;
+	};
+
+	qcom,ion {
+		qcom,ion-heap@30 { /* CAMERA HEAP  */
+			reg = <30>;
+			memory-region = <&camera_mem>;
+			qcom,ion-heap-type = "CARVEOUT";
+		};
+	};
+
+	rpmh-regulator-vsa2 {
+	};
+	rpmh-regulator-ldoa28 {
+		regulator-l28 {
+			qcom,init-voltage = <3000000>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_HPM>;
+		};
+	};
+
+	/* sensor ldo control gpio */
+	qcom,ssc@5c00000 {
+		/* GPIO control sensor LDO */
+		qcom,gpio-sensor-ldo = <&tlmm 8 0>;
+		pinctrl-names = "default", "sleep", "idle";
+		pinctrl-0 = <&sensor_ldo_default>;
+		pinctrl-1 = <&sensor_ldo_active>;
+		pinctrl-2 = <&sensor_ldo_active>;
+	};
+
+	i2c_22: i2c@22 { /* pcal6524*/
+		cell-index = <22>;
+		compatible = "i2c-gpio";
+		gpios = <&tlmm 123 0 /* sda */
+			&tlmm 124 0 /* scl */
+		>;
+		i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c_22_active>;
+
+		expander_gpios: pcal6524@22 {
+			compatible = "pcal6524,gpio-expander";
+			gpio-controller;
+			#gpio-cells = <2>;
+			reg = <0x22>;
+			pinctrl-names = "expander_reset_setting";
+			pinctrl-0 = <&expander_reset_active>;
+			pcal6524,gpio_start = <300>;
+			pcal6524,ngpio = <24>;
+			pcal6524,reset-gpio = <&tlmm 69 0>;
+			pcal6524,vdd-supply = <&pm8998_s4>;
+			pcal6524,support_initialize = <1>;
+			/* config, 24 ~ 0, 1bit configure[1:input, 0:output]*/
+			pcal6524,config = <0x7FFFFF>;    /* P2[01111111] P1[11111111] P0[11111111] */
+			/* data_out, 24 ~ 0, 1bit configure[1:high, 0:low]*/
+			pcal6524,data_out = <0x000000>;  /* P2[00000000] P1[00000000] P0[00000000] */
+			/* pull_reg, 8 ~ 0, 2bit configure[00:no_pull, 01:pull_down, 10:pull_up, 11:not used] */
+			pcal6524,pull_reg_p0 = <0x0000>; /* 00 00 00 00 / 00 00 00 00 */
+			pcal6524,pull_reg_p1 = <0x0000>; /* 00 00 00 00 / 00 00 00 00 */
+			pcal6524,pull_reg_p2 = <0x0000>; /* 00 00 00 00 / 00 00 00 00 */
+		};
+	};
+
+	i2c_17: i2c@17 { /* SW I2C */
+		cell-index = <17>;
+		compatible = "i2c-gpio";
+		gpios = <&tlmm 114 0 /* sda */
+			&tlmm 115 0 /* scl */
+		>;
+		#i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		sx9320-i2c@28 {
+			compatible = "sx9320";
+			reg = <0x28>;
+			pinctrl-names = "default", "grip_active", "grip_suspend";
+			pinctrl-0 = <&grip_i2c_active &grip_int_active>;
+			pinctrl-1 = <&grip_i2c_active &grip_int_active>;
+			pinctrl-2 = <&grip_i2c_suspend &grip_int_suspend>;
+
+			interrupt-parent = <&tlmm>;
+			interrupts = <79 0>;
+
+			sx9320,nirq-gpio = <&tlmm 79 0>;
+			/* only phase 3 enable */
+			sx9320,phen = <0x03>;
+			sx9320,gain = <0x01>;
+			sx9320,again = <0x08>;
+			sx9320,scan_period = <0x16>;
+			sx9320,range = <0x00>;
+			sx9320,sampling_freq = <0x00>;
+			sx9320,resolution = <0x07>;
+			sx9320,rawfilt = <0x01>;
+			sx9320,hyst = <0x01>;
+			sx9320,avgposfilt = <0x04>;
+			sx9320,avgnegfilt = <0x01>;
+			sx9320,avgthresh = <0x20>;
+			sx9320,debouncer = <0x01>;
+			sx9320,normal_thd = <0x1F>;
+			sx9320,afeph0 = <0x0>;
+			sx9320,afeph1 = <0x0>;
+			sx9320,afeph2 = <0x0>;
+			sx9320,afeph3 = <0x4>;
+		};
+	};
+
+	usb_noti: usb-notifier {
+		compatible = "samsung,usb-notifier";
+		qcom,disable_control_en = <1>;
+	};
+	tlmm: pinctrl@03400000 {
+		/delete-node/ qupv3_se6_4uart_pins;
+		qupv3_se6_uart_pins: qupv3_se6_uart_pins {
+			qupv3_se6_cts_active: qupv3_se6_cts_active {
+				mux {
+					pins = "gpio45";
+					function = "qup6";
+				};
+				config {
+					pins = "gpio45";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+
+			qupv3_se6_cts_sleep: qupv3_se6_cts_sleep {
+				config {
+					pins = "gpio45";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+
+			qupv3_se6_rtstx_active: qupv3_se6_rtstx_active {
+				mux {
+					pins = "gpio46", "gpio47";
+					function = "qup6";
+				};
+				config {
+					pins = "gpio46","gpio47";
+					drive-strength = <2>;
+					output-high;
+					bias-pull-up;
+				};
+			};
+
+			qupv3_se6_rtstx_sleep: qupv3_se6_rtstx_sleep {
+				config {
+					pins = "gpio46","gpio47";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+
+			qupv3_se6_rx_active: qupv3_se6_rx_active {
+				mux {
+					pins = "gpio48";
+					function = "qup6";
+				};
+				config {
+					pins = "gpio48";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+
+			qupv3_se6_rx_sleep: qupv3_se6_rx_sleep {
+				config {
+					pins = "gpio48";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+		};
+
+		bluetooth_bluesleep {
+			bt_wake_default: bt_wake_default {
+				bt-wake {
+					pins = "gpio136";
+					function = "gpio";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+			bt_hostwake_default: bt_hostwake_default {
+				bt-hostwake {
+					pins = "gpio108";
+					function = "gpio";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+		};
+	};
+
+	bcmdhd_wlan {
+		compatible = "android,bcmdhd_wlan";
+		wlan-en-gpio = <&tlmm 99 0>;
+		wlan-host-wake-gpio = <&tlmm 116 0>;
+		wlan-smmu-iova-address = <0xa0000000 0x10000000>;
+		pinctrl-name = "bcmdhd_wlan_en","bcmdhd_default";
+		pinctrl-0 = <&bcmdhd_wlan_en>;
+		pinctrl-1 = <&bcmdhd_default>;
+		status = "ok";
+	};
+
+	bt_driver {
+		compatible = "bcm,btdriver";  //bt_en
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt_en_default>;
+		bcm,bt-reset-gpio = <&pm8998_gpios 3 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
+
+	bt_bluesleep {
+		compatible = "bcm,bluesleep";
+		bcm,bt-wake-gpio = <&tlmm 136 0>;
+		bcm,bt-host-wake-gpio = <&tlmm 108 0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt_wake_default &bt_hostwake_default>;
+		status = "okay";
+	};
+
+	qupv3_se6_4uart: qcom,qup_uart@0x898000 {
+		compatible = "qcom,msm-geni-serial-hs", "qcom,msm-geni-uart";
+		reg = <0x898000 0x4000>;
+		reg-names = "se_phys";
+		clock-names = "se-clk", "m-ahb", "s-ahb";
+		clocks = <&clock_gcc GCC_QUPV3_WRAP0_S6_CLK>,
+			<&clock_gcc GCC_QUPV3_WRAP_0_M_AHB_CLK>,
+			<&clock_gcc GCC_QUPV3_WRAP_0_S_AHB_CLK>;
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&qupv3_se6_cts_active &qupv3_se6_rtstx_active &qupv3_se6_rx_active>;
+		pinctrl-1 = <&qupv3_se6_cts_sleep &qupv3_se6_rtstx_sleep &qupv3_se6_rx_sleep>;
+		interrupts-extended = <&intc GIC_SPI 607 0>;
+		status = "okay";
+		qcom,bus-mas = <MSM_BUS_MASTER_BLSP_1>;
+	};
+
+	rpmh-regulator-ldoa14 {
+		pm8998_l14: regulator-l14 {
+			regulator-name = "pm8998_l14";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1880000>;
+			qcom,init-voltage = <1800000>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+		};
+	};
+
+	cpufreq-boot-limit@2 {
+		compatible = "sec,cpufreq-boot-limit";
+		num-period = <1>;
+		limit-temp = <(-70)>;
+		limit-freq-table = <0 1536000 40000>;
+		limit-for-user-bin;
+		status = "ok";
+	};
+
+	sec_abc {
+		compatible = "samsung,sec_abc";
+		status = "okay";
+
+		gpu {
+			gpu,label="GPU fault";
+			gpu,threshold_count=<4>;
+			gpu,threshold_time=<1200>;
+		};
+		gpu_page {
+			gpu_page,label="GPU page fault";
+			gpu_page,threshold_count=<20>;
+			gpu_page,threshold_time=<1200>;
+		};
+		aicl {
+			aicl,label="battery aicl";
+			aicl,threshold_count=<5>;
+			aicl,threshold_time=<300>;
+		};
+	};
+
+	abc_hub {
+		compatible = "samsung,abc_hub";
+		status = "okay";
+
+		bootc {
+			bootc,time_spec_user = <50000>; /* user binary user build */
+			bootc,time_spec_eng = <90000>; /* user binary eng build */
+			bootc,time_spec_fac = <40000>; /* factory binary */
+		};
+	};
+};
+
+/delete-node/&slim_qca;
+
+&pm8998_gpios {
+	/delete-node/ key_home;
+	/delete-node/ key_vol_up;
+
+	nfc_clk {
+		nfc_clk_default: nfc_clk_default {
+			pins = "gpio21";
+			function = "normal";
+			input-enable;
+			power-source = <1>;
+		};
+	};
+};
+
+&qupv3_se2_spi {
+	status = "ok";
+	/delete-property/ pinctrl-1;
+	pinctrl-1 = <&qupv3_se2_spi_sleep_out>;
+	ese_spi@0 {
+		compatible = "p61";
+		reg = <0>;
+		spi-max-frequency = <16000000>;
+		p61-ap_vendor = "qualcomm";
+		/*clock-names = "pclk", "sclk";
+		 */
+		/*clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
+		 *	<&clock_gcc clk_gcc_blsp1_qup1_spi_apps_clk>;
+		 */
+	};
+};
+
+&qupv3_se10_i2c {
+	status = "ok";
+	pn547@2B {
+		compatible = "pn547";
+		reg = <0x2B>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <39 0>;
+		pn547,irq-gpio = <&tlmm 39 0>;
+		pn547,ven-gpio = <&expander_gpios 6 0>;
+		pn547,firm-gpio = <&expander_gpios 7 0>;
+		pn547,clk_req-gpio = <&pm8998_gpios 21 0x00>;
+		pn547,pwr_req =  <&expander_gpios 1 0>;
+		pn547,nfc_pvdd = "pm8998_l14";
+		pn547,ldo_control;
+		pn547,nfc_pm_clk;
+		clocks = <&clock_rpmh RPMH_LN_BB_CLK3>;
+		clock-names = "rf_clk";
+		qcom,clk-src = "BBCLK3";
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_clk_default>;
+	};
+};
+
+&qupv3_se11_i2c {
+	status = "ok";
+
+	touchscreen@48 {
+		status = "okay";
+		compatible = "sec,sec_ts";
+		reg = <0x48>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <120 0>;
+		pinctrl-names = "on_state", "off_state";
+		pinctrl-0 = <&attn_irq>;
+		pinctrl-1 = <&attn_irq>;
+		pressure-sensor = "Y";
+/*		sec,tsp-icid_gpio = <&expander_gpios 2 0>;*/
+/*		sec,icid_match_value = <1>;*/
+/*		sec,tsp-id_gpio = <&pm8005_gpios 1 0>;*/
+		sec,irq_gpio = <&tlmm 120 0x2008>;
+		sec,irq_type = <0x2008>;
+		sec,max_coords = <4096 4096>;   /* x y */
+		sec,mis_cal_check = <1>;
+		sec,regulator_dvdd = "pm8998_lvs2";
+		sec,regulator_avdd = "pm8998_l28";
+/*		sec,always_lpmode = <1>;*/
+		sec,tclm_level = <2>;
+		sec,afe_base = <0x09>;
+		sec,project_name = "Star1", "G960";
+		sec,firmware_name = "tsp_sec/y761_star1.fw", "tsp_sec/y761_star1.fw";
+		support_dex_mode;
+		sec,i2c-burstmax = <0x40>;
+	};
+};
+
+&soc {
+	/delete-node/ gpio_keys;
+	gpio_keys {
+		compatible = "gpio-keys";
+		input-name = "gpio-keys";
+		status = "okay";
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&pm8998_gpios 6 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEUP>;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+
+		key_wink {
+			label = "key_wink";
+			gpios = <&pm8998_gpios 19 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_WINK>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+	};
+
+	hall {
+		status = "okay";
+		compatible = "hall";
+		linux,input-type = <1>;
+		linux,code = <21>;
+		hall,gpio_flip_cover = <&pm8998_gpios 15 0x1>;
+		debounce-interval = <15>;
+	};
+
+	certify_hall {
+		compatible = "certify_hall";
+		linux,input-type = <1>;
+		linux,code = <27>;
+		certify_hall,gpio_certify_cover = <&pm8998_gpios 7 0x1>;
+		debounce-interval = <15>;
+	};
+};
+
+&firmware {
+	android {
+		fstab {
+			odm {
+				compatible = "android,odm";
+				dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/odm";
+				type = "ext4";
+				mnt_flags = "ro,errors=panic";
+				fsmgr_flags = "wait,verify";
+			};
+			system {
+				compatible = "android,system";
+				dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/system";
+				type = "ext4";
+				mnt_flags = "ro,errors=panic";
+				fsmgr_flags = "wait,verify";
+			};
+			vendor {
+				compatible = "android,vendor";
+				dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/vendor";
+				type = "ext4";
+				mnt_flags = "ro,barrier=1,discard";
+				fsmgr_flags = "wait,verify";
+			};
+		};
+	};
+};
+&sdhc_2 {
+	pinctrl-names = "active", "sleep", "default";
+	sec,tflash-en-gpio = <&expander_gpios 0 0>;     /* GPIO Expander P0_0 */
+	pinctrl-2 = <&sdc2_sim_det_default>;
+};
+
+&qupv3_se10_i2c {
+	status = "ok";
+	hrmsensor@57 {
+		compatible = "hrmsensor";
+		reg = <0x57>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <121 0>;
+		pinctrl-names = "sleep", "default", "idle";
+		pinctrl-0 = <&hrm_int_suspend>;
+		pinctrl-1 = <&hrm_int_suspend>;
+		pinctrl-2 = <&hrm_int_active>;
+		hrmsensor,hrm_int-gpio = <&tlmm 121 0x00>;
+		hrmsensor,hrm_boost_en-gpio = <&expander_gpios 23 0>;
+		hrmsensor_1p8-supply = <&pm8998_lvs1>;
+	};
+};
+
+&qusb_phy0 {
+	qcom,qusb-phy-init-seq =
+	/* <value reg_offset> */
+		<0x23 0x210 /* PWR_CTRL1 */
+		 0x03 0x04	/* PLL_ANALOG_CONTROLS_TWO */
+		 0x7c 0x18c /* PLL_CLOCK_INVERTERS */
+		 0x80 0x2c	/* PLL_CMODE */
+		 0x0a 0x184 /* PLL_LOCK_DELAY */
+		 0x19 0xb4	/* PLL_DIGITAL_TIMERS_TWO */
+		 0x40 0x194 /* PLL_BIAS_CONTROL_1 */
+		 0x1b 0x198 /* PLL_BIAS_CONTROL_2 */
+		 0x21 0x214 /* PWR_CTRL2 */
+		 0x0e 0x220 /* IMP_CTRL1 */
+		 0x58 0x224 /* IMP_CTRL2 */
+		 0x75 0x240 /* TUNE1 */
+		 0x29 0x244 /* TUNE2 */
+		 0xca 0x248 /* TUNE3 */
+		 0x02 0x24c /* TUNE4 */
+		 0x03 0x250 /* TUNE5 */
+		 0x00 0x23c /* CHG_CTRL2 */
+		 0x22 0x210>; /* PWR_CTRL1 */
+
+	qcom,qusb-phy-host-init-seq =
+	/* <value reg_offset> */
+		<0x23 0x210 /* PWR_CTRL1 */
+		 0x03 0x04	/* PLL_ANALOG_CONTROLS_TWO */
+		 0x7c 0x18c /* PLL_CLOCK_INVERTERS */
+		 0x80 0x2c	/* PLL_CMODE */
+		 0x0a 0x184 /* PLL_LOCK_DELAY */
+		 0x19 0xb4	/* PLL_DIGITAL_TIMERS_TWO */
+		 0x40 0x194 /* PLL_BIAS_CONTROL_1 */
+		 0x20 0x198 /* PLL_BIAS_CONTROL_2 */
+		 0x21 0x214 /* PWR_CTRL2 */
+		 0x0e 0x220 /* IMP_CTRL1 */
+		 0x58 0x224 /* IMP_CTRL2 */
+		 0x32 0x240 /* TUNE1 */
+		 0x29 0x244 /* TUNE2 */
+		 0xca 0x248 /* TUNE3 */
+		 0x02 0x24c /* TUNE4 */
+		 0x03 0x250 /* TUNE5 */
+		 0x00 0x23c /* CHG_CTRL2 */
+		 0x22 0x210>; /* PWR_CTRL1 */
+
+	qcom,diff_tune_host = <(0)>; /* efuse(0x3) + 4 = 7 for tune high value */
+	qcom,diff_tune_device = <(4)>;
+};
