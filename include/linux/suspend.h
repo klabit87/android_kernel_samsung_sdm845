@@ -9,6 +9,40 @@
 #include <linux/freezer.h>
 #include <asm/errno.h>
 
+enum suspend_stat_ex_type {
+	FAILED_FS_SYNC,
+	FAILED_FREEZE_TIMEOUT,
+	FAILED_NOTIFIER_CALL,
+	FAILED_PLATFORM_BEGIN,
+	FAILED_PLATFORM_PREPARE,
+	FAILED_PLATFORM_PREPARE_LATE,
+	FAILED_PLATFORM_PREPARE_NOIRQ,
+	FAILED_DISABLE_NONBOOT_CPUS,
+	FAILED_SYSCORE_SUSPEND,
+	FAILED_ENTER,
+	FAILED_DEV,
+	FAILED_WAKELOCK
+};
+
+#ifdef CONFIG_SEC_PM_SUSPEND_STATS_EX
+#include <linux/rbtree.h>
+#define SUSPEND_STATS_EX_POOL_MAX_NUM 100
+
+struct suspend_stat_ex_node {
+	struct rb_node __rb_node;
+	const char *name;
+	unsigned int type;
+	unsigned int count;
+};
+
+extern void suspend_stats_ex_save_failed(unsigned int type, void *obj);
+extern void suspend_stats_ex_print_failed(struct seq_file *s);
+#else
+static inline void suspend_stats_ex_save_failed(unsigned int type, void *obj)
+{
+}
+#endif
+
 #ifdef CONFIG_VT
 extern void pm_set_vt_switch(int);
 #else
@@ -434,6 +468,7 @@ extern bool pm_get_wakeup_count(unsigned int *count, bool block);
 extern bool pm_save_wakeup_count(unsigned int count);
 extern void pm_wakep_autosleep_enabled(bool set);
 extern void pm_print_active_wakeup_sources(void);
+extern void pm_get_active_wakeup_sources(char *pending_sources, size_t max);
 
 static inline void lock_system_sleep(void)
 {

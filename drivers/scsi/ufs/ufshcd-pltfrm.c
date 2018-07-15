@@ -40,7 +40,21 @@
 #include "ufshcd.h"
 #include "ufshcd-pltfrm.h"
 
-#define UFSHCD_DEFAULT_LANES_PER_DIRECTION		2
+static int ufshcd_parse_reset_info(struct ufs_hba *hba)
+{
+	int ret = 0;
+
+	hba->core_reset = devm_reset_control_get(hba->dev,
+				"core_reset");
+	if (IS_ERR(hba->core_reset)) {
+		ret = PTR_ERR(hba->core_reset);
+		dev_err(hba->dev, "core_reset unavailable,err = %d\n",
+				ret);
+		hba->core_reset = NULL;
+	}
+
+	return ret;
+}
 
 static int ufshcd_parse_clock_info(struct ufs_hba *hba)
 {
@@ -130,10 +144,11 @@ out:
 static int ufshcd_populate_vreg(struct device *dev, const char *name,
 		struct ufs_vreg **out_vreg)
 {
-	int ret = 0;
+	int len, ret = 0;
 	char prop_name[MAX_PROP_SIZE];
 	struct ufs_vreg *vreg = NULL;
 	struct device_node *np = dev->of_node;
+	const __be32 *prop;
 
 	if (!np) {
 		dev_err(dev, "%s: non DT initialization\n", __func__);
@@ -163,7 +178,7 @@ static int ufshcd_populate_vreg(struct device *dev, const char *name,
 	if (ret) {
 		dev_err(dev, "%s: unable to find %s err %d\n",
 				__func__, prop_name, ret);
-		goto out_free;
+		goto out;
 	}
 
 	vreg->min_uA = 0;
@@ -172,8 +187,16 @@ static int ufshcd_populate_vreg(struct device *dev, const char *name,
 			vreg->min_uV = UFS_VREG_VCC_1P8_MIN_UV;
 			vreg->max_uV = UFS_VREG_VCC_1P8_MAX_UV;
 		} else {
-			vreg->min_uV = UFS_VREG_VCC_MIN_UV;
-			vreg->max_uV = UFS_VREG_VCC_MAX_UV;
+			prop = of_get_property(np, "vcc-voltage-level", &len);
+			if (!prop || (len != (2 * sizeof(__be32)))) {
+				dev_warn(dev, "%s vcc-voltage-level property.\n",
+					prop ? "invalid format" : "no");
+				vreg->min_uV = UFS_VREG_VCC_MIN_UV;
+				vreg->max_uV = UFS_VREG_VCC_MAX_UV;
+			} else {
+				vreg->min_uV = be32_to_cpup(&prop[0]);
+				vreg->max_uV = be32_to_cpup(&prop[1]);
+			}
 		}
 	} else if (!strcmp(name, "vccq")) {
 		vreg->min_uV = UFS_VREG_VCCQ_MIN_UV;
@@ -185,9 +208,6 @@ static int ufshcd_populate_vreg(struct device *dev, const char *name,
 
 	goto out;
 
-out_free:
-	devm_kfree(dev, vreg);
-	vreg = NULL;
 out:
 	if (!ret)
 		*out_vreg = vreg;
@@ -226,7 +246,111 @@ out:
 	return err;
 }
 
-#ifdef CONFIG_PM
+static void ufshcd_parse_pm_levels(struct ufs_hba *hba)
+{
+	struct device *dev = hba->dev;
+	struct device_node *np = dev->of_node;
+
+	if (np) {
+		if (of_property_read_u32(np, "rpm-level", &hba->rpm_lvl))
+			hba->rpm_lvl = -1;
+		if (of_property_read_u32(np, "spm-level", &hba->spm_lvl))
+			hba->spm_lvl = -1;
+	}
+}
+
+static void ufshcd_parse_gear_limits(struct ufs_hba *hba)
+{
+	struct device *dev = hba->dev;
+	struct device_node *np = dev->of_node;
+	int ret;
+
+	if (!np)
+		return;
+
+	ret = of_property_read_u32(np, "limit-tx-hs-gear",
+		&hba->limit_tx_hs_gear);
+	if (ret)
+		hba->limit_tx_hs_gear = -1;
+
+	ret = of_property_read_u32(np, "limit-rx-hs-gear",
+		&hba->limit_rx_hs_gear);
+	if (ret)
+		hba->limit_rx_hs_gear = -1;
+
+	ret = of_property_read_u32(np, "limit-tx-pwm-gear",
+		&hba->limit_tx_pwm_gear);
+	if (ret)
+		hba->limit_tx_pwm_gear = -1;
+
+	ret = of_property_read_u32(np, "limit-rx-pwm-gear",
+		&hba->limit_rx_pwm_gear);
+	if (ret)
+		hba->limit_rx_pwm_gear = -1;
+}
+
+static void ufshcd_parse_cmd_timeout(struct ufs_hba *hba)
+{
+	struct device *dev = hba->dev;
+	struct device_node *np = dev->of_node;
+	int ret;
+
+	if (!np)
+		return;
+
+	ret = of_property_read_u32(np, "scsi-cmd-timeout",
+		&hba->scsi_cmd_timeout);
+	if (ret)
+		hba->scsi_cmd_timeout = 0;
+}
+
+static void ufshcd_parse_dev_ref_clk_freq(struct ufs_hba *hba)
+{
+	struct device *dev = hba->dev;
+	struct device_node *np = dev->of_node;
+	int ret;
+
+	if (!np)
+		return;
+
+	ret = of_property_read_u32(np, "dev-ref-clk-freq",
+				   &hba->dev_ref_clk_freq);
+	if (ret ||
+	    (hba->dev_ref_clk_freq < 0) ||
+	    (hba->dev_ref_clk_freq > REF_CLK_FREQ_52_MHZ))
+		/* default setting */
+		hba->dev_ref_clk_freq = REF_CLK_FREQ_26_MHZ;
+}
+
+static int ufshcd_parse_pinctrl_info(struct ufs_hba *hba)
+{
+	int ret = 0;
+
+	/* Try to obtain pinctrl handle */
+	hba->pctrl = devm_pinctrl_get(hba->dev);
+	if (IS_ERR(hba->pctrl)) {
+		ret = PTR_ERR(hba->pctrl);
+		hba->pctrl = NULL;
+	}
+
+	return ret;
+}
+
+static int ufshcd_parse_extcon_info(struct ufs_hba *hba)
+{
+	struct extcon_dev *extcon;
+
+	extcon = extcon_get_edev_by_phandle(hba->dev, 0);
+	if (IS_ERR(extcon) && PTR_ERR(extcon) != -ENODEV)
+		return PTR_ERR(extcon);
+
+	if (!IS_ERR(extcon))
+		hba->extcon = extcon;
+
+	return 0;
+}
+
+#ifdef CONFIG_SMP
 /**
  * ufshcd_pltfrm_suspend - suspend power management function
  * @dev: pointer to device handle
@@ -279,30 +403,15 @@ void ufshcd_pltfrm_shutdown(struct platform_device *pdev)
 }
 EXPORT_SYMBOL_GPL(ufshcd_pltfrm_shutdown);
 
-static void ufshcd_init_lanes_per_dir(struct ufs_hba *hba)
-{
-	struct device *dev = hba->dev;
-	int ret;
-
-	ret = of_property_read_u32(dev->of_node, "lanes-per-direction",
-		&hba->lanes_per_direction);
-	if (ret) {
-		dev_dbg(hba->dev,
-			"%s: failed to read lanes-per-direction, ret=%d\n",
-			__func__, ret);
-		hba->lanes_per_direction = UFSHCD_DEFAULT_LANES_PER_DIRECTION;
-	}
-}
-
 /**
  * ufshcd_pltfrm_init - probe routine of the driver
  * @pdev: pointer to Platform device handle
- * @vops: pointer to variant ops
+ * @var: pointer to variant specific data
  *
  * Returns 0 on success, non-zero value on failure
  */
 int ufshcd_pltfrm_init(struct platform_device *pdev,
-		       struct ufs_hba_variant_ops *vops)
+		       struct ufs_hba_variant *var)
 {
 	struct ufs_hba *hba;
 	void __iomem *mmio_base;
@@ -330,7 +439,7 @@ int ufshcd_pltfrm_init(struct platform_device *pdev,
 		goto out;
 	}
 
-	hba->vops = vops;
+	hba->var = var;
 
 	err = ufshcd_parse_clock_info(hba);
 	if (err) {
@@ -345,24 +454,43 @@ int ufshcd_pltfrm_init(struct platform_device *pdev,
 		goto dealloc_host;
 	}
 
-	pm_runtime_set_active(&pdev->dev);
-	pm_runtime_enable(&pdev->dev);
+	err = ufshcd_parse_reset_info(hba);
+	if (err) {
+		dev_err(&pdev->dev, "%s: reset parse failed %d\n",
+				__func__, err);
+		goto dealloc_host;
+	}
 
-	ufshcd_init_lanes_per_dir(hba);
+	err = ufshcd_parse_pinctrl_info(hba);
+	if (err) {
+		dev_dbg(&pdev->dev, "%s: unable to parse pinctrl data %d\n",
+				__func__, err);
+		/* let's not fail the probe */
+	}
+
+	ufshcd_parse_dev_ref_clk_freq(hba);
+	ufshcd_parse_pm_levels(hba);
+	ufshcd_parse_gear_limits(hba);
+	ufshcd_parse_cmd_timeout(hba);
+	err = ufshcd_parse_extcon_info(hba);
+	if (err)
+		goto dealloc_host;
+
+	if (!dev->dma_mask)
+		dev->dma_mask = &dev->coherent_dma_mask;
 
 	err = ufshcd_init(hba, mmio_base, irq);
 	if (err) {
-		dev_err(dev, "Initialization failed\n");
-		goto out_disable_rpm;
+		dev_err(dev, "Intialization failed\n");
+		goto dealloc_host;
 	}
 
 	platform_set_drvdata(pdev, hba);
 
-	return 0;
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_enable(&pdev->dev);
 
-out_disable_rpm:
-	pm_runtime_disable(&pdev->dev);
-	pm_runtime_set_suspended(&pdev->dev);
+	return 0;
 dealloc_host:
 	ufshcd_dealloc_host(hba);
 out:
@@ -372,6 +500,6 @@ EXPORT_SYMBOL_GPL(ufshcd_pltfrm_init);
 
 MODULE_AUTHOR("Santosh Yaragnavi <santosh.sy@samsung.com>");
 MODULE_AUTHOR("Vinayak Holikatti <h.vinayak@samsung.com>");
-MODULE_DESCRIPTION("UFS host controller Platform bus based glue driver");
+MODULE_DESCRIPTION("UFS host controller Pltform bus based glue driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(UFSHCD_DRIVER_VERSION);

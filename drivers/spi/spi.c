@@ -696,6 +696,16 @@ int spi_register_board_info(struct spi_board_info const *info, unsigned n)
 
 static void spi_set_cs(struct spi_device *spi, bool enable)
 {
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (spi->master->bus_num == CONFIG_SENSORS_FP_SPI_NUMBER)
+		return;
+#endif
+#ifdef CONFIG_ESE_SECURE
+	if (spi->master->bus_num == CONFIG_ESE_SPI_NUMBER)
+		return;
+#endif
+
+
 	if (spi->mode & SPI_CS_HIGH)
 		enable = !enable;
 

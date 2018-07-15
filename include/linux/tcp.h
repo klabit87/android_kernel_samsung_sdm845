@@ -334,6 +334,21 @@ struct tcp_sock {
 		u32	time;
 	} rcv_rtt_est;
 
+/* Network Pacemaker */
+#ifdef CONFIG_NETPM
+	u8 netpm_netif;
+	u8 netpm_rbuf_flag;
+	u32 netpm_rtt_min;
+	u32 netpm_srtt;
+	u32 netpm_rttvar;
+	int netpm_cwnd_est;
+	int netpm_tcp_rmem_max;
+	int netpm_tcp_rmem_max_base;
+	int netpm_rwnd_max_adjust; // the number of rwnd cut after last rwnd grown
+	int netpm_max_tput;
+	int netpm_rmem_max_curbdp[2];
+#endif
+
 /* Receiver queue space */
 	struct {
 		int	space;

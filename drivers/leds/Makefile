@@ -71,6 +71,14 @@ obj-$(CONFIG_LEDS_IS31FL319X)		+= leds-is31fl319x.o
 obj-$(CONFIG_LEDS_IS31FL32XX)		+= leds-is31fl32xx.o
 obj-$(CONFIG_LEDS_PM8058)		+= leds-pm8058.o
 obj-$(CONFIG_LEDS_MLXCPLD)		+= leds-mlxcpld.o
+obj-$(CONFIG_LEDS_SM5720_RGB)		+= leds-sm5720-rgb.o
+obj-$(CONFIG_LEDS_QPNP)			+= leds-qpnp.o
+obj-$(CONFIG_LEDS_QPNP_FLASH)		+= leds-qpnp-flash.o
+obj-$(CONFIG_LEDS_QPNP_FLASH_V2)	+= leds-qpnp-flash-v2.o
+obj-$(CONFIG_LEDS_QPNP_WLED)		+= leds-qpnp-wled.o
+obj-$(CONFIG_LEDS_QPNP_HAPTICS)	+= leds-qpnp-haptics.o
+obj-$(CONFIG_LEDS_S2MPB02)		+= leds-s2mpb02.o
+obj-$(CONFIG_LEDS_MAX77705_RGB)         += leds-max77705-rgb.o
 
 # LED SPI Drivers
 obj-$(CONFIG_LEDS_DAC124S085)		+= leds-dac124s085.o

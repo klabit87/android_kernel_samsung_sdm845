@@ -78,8 +78,7 @@ static int dapm_up_seq[] = {
 	[snd_soc_dapm_dai_link] = 2,
 	[snd_soc_dapm_dai_in] = 4,
 	[snd_soc_dapm_dai_out] = 4,
-	[snd_soc_dapm_aif_in] = 4,
-	[snd_soc_dapm_aif_out] = 4,
+	[snd_soc_dapm_adc] = 4,
 	[snd_soc_dapm_mic] = 5,
 	[snd_soc_dapm_mux] = 6,
 	[snd_soc_dapm_demux] = 6,
@@ -88,7 +87,8 @@ static int dapm_up_seq[] = {
 	[snd_soc_dapm_mixer] = 8,
 	[snd_soc_dapm_mixer_named_ctl] = 8,
 	[snd_soc_dapm_pga] = 9,
-	[snd_soc_dapm_adc] = 10,
+	[snd_soc_dapm_aif_in] = 9,
+	[snd_soc_dapm_aif_out] = 9,
 	[snd_soc_dapm_out_drv] = 11,
 	[snd_soc_dapm_hp] = 11,
 	[snd_soc_dapm_spk] = 11,
@@ -100,7 +100,9 @@ static int dapm_up_seq[] = {
 static int dapm_down_seq[] = {
 	[snd_soc_dapm_pre] = 0,
 	[snd_soc_dapm_kcontrol] = 1,
-	[snd_soc_dapm_adc] = 2,
+	[snd_soc_dapm_aif_in] = 2,
+	[snd_soc_dapm_aif_out] = 2,
+	[snd_soc_dapm_adc] = 5,
 	[snd_soc_dapm_hp] = 3,
 	[snd_soc_dapm_spk] = 3,
 	[snd_soc_dapm_line] = 3,
@@ -114,8 +116,6 @@ static int dapm_down_seq[] = {
 	[snd_soc_dapm_micbias] = 8,
 	[snd_soc_dapm_mux] = 9,
 	[snd_soc_dapm_demux] = 9,
-	[snd_soc_dapm_aif_in] = 10,
-	[snd_soc_dapm_aif_out] = 10,
 	[snd_soc_dapm_dai_in] = 10,
 	[snd_soc_dapm_dai_out] = 10,
 	[snd_soc_dapm_dai_link] = 11,
@@ -282,6 +282,8 @@ void dapm_mark_endpoints_dirty(struct snd_soc_card *card)
 	mutex_lock(&card->dapm_mutex);
 
 	list_for_each_entry(w, &card->widgets, list) {
+		if (w->ignore_suspend)
+			continue;
 		if (w->is_ep) {
 			dapm_mark_dirty(w, "Rechecking endpoints");
 			if (w->is_ep & SND_SOC_DAPM_EP_SINK)
@@ -740,7 +742,7 @@ static void dapm_set_mixer_path_status(struct snd_soc_dapm_path *p, int i)
 	unsigned int max = mc->max;
 	unsigned int mask = (1 << fls(max)) - 1;
 	unsigned int invert = mc->invert;
-	unsigned int val;
+	unsigned int val = 0;
 
 	if (reg != SND_SOC_NOPM) {
 		soc_dapm_read(p->sink->dapm, reg, &val);
@@ -1523,7 +1525,7 @@ static void dapm_seq_run(struct snd_soc_card *card,
 		/* Do we need to apply any queued changes? */
 		if (sort[w->id] != cur_sort || w->reg != cur_reg ||
 		    w->dapm != cur_dapm || w->subseq != cur_subseq) {
-			if (!list_empty(&pending))
+			if (cur_dapm && !list_empty(&pending))
 				dapm_seq_run_coalesced(card, &pending);
 
 			if (cur_dapm && cur_dapm->seq_notifier) {
@@ -1581,12 +1583,19 @@ static void dapm_seq_run(struct snd_soc_card *card,
 			break;
 		}
 
+		/*
+		 * Add this debug log to keep track of widgets being
+		 * powered-up and powered-down.
+		 */
+		dev_dbg(w->dapm->dev, "dapm: powering %s widget %s\n",
+			power_up ? "up" : "down", w->name);
+
 		if (ret < 0)
 			dev_err(w->dapm->dev,
 				"ASoC: Failed to apply widget power: %d\n", ret);
 	}
 
-	if (!list_empty(&pending))
+	if (cur_dapm && !list_empty(&pending))
 		dapm_seq_run_coalesced(card, &pending);
 
 	if (cur_dapm && cur_dapm->seq_notifier) {
@@ -1818,10 +1827,13 @@ static int dapm_power_widgets(struct snd_soc_card *card, int event)
 	LIST_HEAD(down_list);
 	ASYNC_DOMAIN_EXCLUSIVE(async_domain);
 	enum snd_soc_bias_level bias;
+	struct snd_soc_platform *p;
+	struct snd_soc_codec *c;
 
 	lockdep_assert_held(&card->dapm_mutex);
 
 	trace_snd_soc_dapm_start(card);
+	mutex_lock(&card->dapm_power_mutex);
 
 	list_for_each_entry(d, &card->dapm_list, list) {
 		if (dapm_idle_bias_off(d))
@@ -1899,7 +1911,9 @@ static int dapm_power_widgets(struct snd_soc_card *card, int event)
 	dapm_pre_sequence_async(&card->dapm, 0);
 	/* Run other bias changes in parallel */
 	list_for_each_entry(d, &card->dapm_list, list) {
-		if (d != &card->dapm)
+		p = snd_soc_dapm_to_platform(d);
+		c = snd_soc_dapm_to_codec(d);
+		if ((d != &card->dapm) && (c || p))
 			async_schedule_domain(dapm_pre_sequence_async, d,
 						&async_domain);
 	}
@@ -1923,7 +1937,9 @@ static int dapm_power_widgets(struct snd_soc_card *card, int event)
 
 	/* Run all the bias changes in parallel */
 	list_for_each_entry(d, &card->dapm_list, list) {
-		if (d != &card->dapm)
+		p = snd_soc_dapm_to_platform(d);
+		c = snd_soc_dapm_to_codec(d);
+		if ((d != &card->dapm) && (c || p))
 			async_schedule_domain(dapm_post_sequence_async, d,
 						&async_domain);
 	}
@@ -1940,6 +1956,7 @@ static int dapm_power_widgets(struct snd_soc_card *card, int event)
 	pop_dbg(card->dev, card->pop_time,
 		"DAPM sequencing finished, waiting %dms\n", card->pop_time);
 	pop_wait(card->pop_time);
+	mutex_unlock(&card->dapm_power_mutex);
 
 	trace_snd_soc_dapm_done(card);
 
@@ -2649,8 +2666,7 @@ static int snd_soc_dapm_add_path(struct snd_soc_dapm_context *dapm,
 		dapm_mark_dirty(widgets[dir], "Route added");
 	}
 
-	if (dapm->card->instantiated && path->connect)
-		dapm_path_invalidate(path);
+	dapm_path_invalidate(path);
 
 	return 0;
 err:
@@ -3953,6 +3969,9 @@ static void dapm_connect_dai_link_widgets(struct snd_soc_card *card,
 
 	for (i = 0; i < rtd->num_codecs; i++) {
 		struct snd_soc_dai *codec_dai = rtd->codec_dais[i];
+
+		if (!cpu_dai->component->codec)
+			continue;
 
 		/* connect BE DAI playback if widgets are valid */
 		if (codec_dai->playback_widget && cpu_dai->playback_widget) {

@@ -31,6 +31,18 @@
 #include <asm/thread_info.h>
 
 /*
+ * Stack pushing/popping (register pairs only). Equivalent to store decrement
+ * before, load increment after.
+ */
+	.macro	push, xreg1, xreg2
+	stp	\xreg1, \xreg2, [sp, # -16] !
+	.endm
+
+	.macro	pop, xreg1, xreg2
+	ldp	\xreg1, \xreg2, [sp], #16
+	.endm
+
+/*
  * Enable and disable interrupts.
  */
 	.macro	disable_irq
@@ -39,6 +51,27 @@
 
 	.macro	enable_irq
 	msr	daifclr, #2
+	.endm
+
+	.macro	save_and_disable_irq, flags
+	mrs	\flags, daif
+	msr	daifset, #2
+	.endm
+
+	.macro	restore_irq, flags
+	msr	daif, \flags
+	.endm
+
+/*
+ * Save/disable and restore interrupts.
+ */
+	.macro	save_and_disable_irqs, olddaif
+	mrs	\olddaif, daif
+	disable_irq
+	.endm
+
+	.macro	restore_irqs, olddaif
+	msr	daif, \olddaif
 	.endm
 
 /*
@@ -220,14 +253,25 @@ lr	.req	x30		// link register
 	.endm
 
 	/*
+	 * @dst: Result of per_cpu(sym, smp_processor_id())
 	 * @sym: The name of the per-cpu variable
-	 * @reg: Result of per_cpu(sym, smp_processor_id())
 	 * @tmp: scratch register
 	 */
-	.macro this_cpu_ptr, sym, reg, tmp
-	adr_l	\reg, \sym
+	.macro adr_this_cpu, dst, sym, tmp
+	adr_l	\dst, \sym
 	mrs	\tmp, tpidr_el1
-	add	\reg, \reg, \tmp
+	add	\dst, \dst, \tmp
+	.endm
+
+	/*
+	 * @dst: Result of READ_ONCE(per_cpu(sym, smp_processor_id()))
+	 * @sym: The name of the per-cpu variable
+	 * @tmp: scratch register
+	 */
+	.macro ldr_this_cpu dst, sym, tmp
+	adr_l	\dst, \sym
+	mrs	\tmp, tpidr_el1
+	ldr	\dst, [\dst, \tmp]
 	.endm
 
 /*
@@ -411,6 +455,26 @@ alternative_endif
 	movk	\reg, :abs_g1_nc:\val
 	.endif
 	movk	\reg, :abs_g0_nc:\val
+	.endm
+
+/*
+ * Return the current thread_info.
+ */
+	.macro	get_thread_info, rd
+	mrs	\rd, sp_el0
+	.endm
+
+/*
+ * Errata workaround post TTBR0_EL1 update.
+ */
+	.macro	post_ttbr0_update_workaround
+#ifdef CONFIG_CAVIUM_ERRATUM_27456
+alternative_if ARM64_WORKAROUND_CAVIUM_27456
+	ic	iallu
+	dsb	nsh
+	isb
+alternative_else_nop_endif
+#endif
 	.endm
 
 #endif	/* __ASM_ASSEMBLER_H */

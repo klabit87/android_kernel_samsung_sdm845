@@ -8,6 +8,7 @@ obj-$(CONFIG_OF) += of_regulator.o
 obj-$(CONFIG_REGULATOR_FIXED_VOLTAGE) += fixed.o
 obj-$(CONFIG_REGULATOR_VIRTUAL_CONSUMER) += virtual.o
 obj-$(CONFIG_REGULATOR_USERSPACE_CONSUMER) += userspace-consumer.o
+obj-$(CONFIG_REGULATOR_PROXY_CONSUMER) += proxy-consumer.o
 
 obj-$(CONFIG_REGULATOR_88PM800) += 88pm800.o
 obj-$(CONFIG_REGULATOR_88PM8607) += 88pm8607.o
@@ -87,7 +88,11 @@ obj-$(CONFIG_REGULATOR_RN5T618) += rn5t618-regulator.o
 obj-$(CONFIG_REGULATOR_RT5033)	+= rt5033-regulator.o
 obj-$(CONFIG_REGULATOR_S2MPA01) += s2mpa01.o
 obj-$(CONFIG_REGULATOR_S2MPS11) += s2mps11.o
+obj-$(CONFIG_REGULATOR_S2MPB02) += s2mpb02-regulator.o
+obj-$(CONFIG_REGULATOR_S2MPB03) += s2mpb03.o
 obj-$(CONFIG_REGULATOR_S5M8767) += s5m8767.o
+obj-$(CONFIG_REGULATOR_S2DOS03) += s2dos03-regulator.o
+obj-$(CONFIG_REGULATOR_S2DOS05) += s2dos05.o s2dos05_powermeter.o
 obj-$(CONFIG_REGULATOR_SKY81452) += sky81452-regulator.o
 obj-$(CONFIG_REGULATOR_STW481X_VMMC) += stw481x-vmmc.o
 obj-$(CONFIG_REGULATOR_TI_ABB) += ti-abb-regulator.o
@@ -113,5 +118,23 @@ obj-$(CONFIG_REGULATOR_WM8350) += wm8350-regulator.o
 obj-$(CONFIG_REGULATOR_WM8400) += wm8400-regulator.o
 obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
 
+obj-$(CONFIG_REGULATOR_CPR3) += cpr3-regulator.o cpr3-util.o cpr3-util-sec.o
+obj-$(CONFIG_REGULATOR_CPR3_HMSS) += cpr3-hmss-regulator.o
+obj-$(CONFIG_REGULATOR_CPR3_MMSS) += cpr3-mmss-regulator.o
+obj-$(CONFIG_REGULATOR_CPR4_APSS) += cpr4-apss-regulator.o
+obj-$(CONFIG_REGULATOR_CPR4_MMSS_LDO) += cpr4-mmss-ldo-regulator.o
+obj-$(CONFIG_REGULATOR_CPRH_KBSS) += cprh-kbss-regulator.o
+obj-$(CONFIG_REGULATOR_KRYO) += kryo-regulator.o
+obj-$(CONFIG_REGULATOR_MEM_ACC) += mem-acc-regulator.o
+obj-$(CONFIG_REGULATOR_MSM_GFX_LDO) += msm_gfx_ldo.o
+obj-$(CONFIG_REGULATOR_QPNP_LABIBB) += qpnp-labibb-regulator.o
+obj-$(CONFIG_REGULATOR_QPNP_LCDB) += qpnp-lcdb-regulator.o
+obj-$(CONFIG_REGULATOR_QPNP_OLEDB) += qpnp-oledb-regulator.o
+obj-$(CONFIG_REGULATOR_QPNP) += qpnp-regulator.o
+obj-$(CONFIG_REGULATOR_REFGEN) += refgen.o
+obj-$(CONFIG_REGULATOR_RPMH) += rpmh-regulator.o
+obj-$(CONFIG_REGULATOR_STUB) += stub-regulator.o
+
+obj-$(CONFIG_REGULATOR_S2ABB01) += s2abb01.o
 
 ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG

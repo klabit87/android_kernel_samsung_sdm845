@@ -1,0 +1,56 @@
+#
+# SAMSUNG device dedicated drivers
+#
+config SAMSUNG_PRODUCT_SHIP
+	bool "set up for product shipping"
+	default n
+
+config SEC_BSP
+	bool "Samsung BSP Feature"
+	default n
+	select MSM_BOOT_STATS
+	help
+	  Samsung BSP Feature.
+
+config DRV_SAMSUNG
+	bool "samsung device dedicated drivers option"
+	default y
+	help
+	  This is driver option for samsung sec_class
+	  Say y here to enable samsung classes for drivers
+	  Provide option of enabling sec class
+	  Supports sec drivers key, touch, sec_debug etc
+
+config SKU_THEME
+        bool "Enable SKU THEME"
+        depends on SEC_BSP
+        default n
+        help
+          This option is used to add sku theme Func.
+          Say Y if you want to enable this feature.
+
+config SEC_DEBUG_APPS_CLK_LOGGING
+	bool "Enable apps clk logging"
+	default n
+	depends on CLOCK_CPU_OSM
+	help
+	  Enable apps clk logging.
+
+config ARGOS
+	bool "Throughput monitoring Feature"
+	default n
+	help
+	  This option enables monitoring the data throughput and doing several actions for
+	  enhancing the performance such as adjusting the CPU freqency, allocating the tasks
+	  to the appropriate CPU and so on
+
+menu "Samsung Factory Feature"
+config SEC_FACTORY
+	bool "when it comes to sec factory mode"
+	default n
+	select SEC_DEBUG_FORCE_ERROR
+	select SEC_NAD
+	select SEC_PANIC_PCIE_ERR
+	help
+	  It will support a sec factory mode
+endmenu

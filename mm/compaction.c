@@ -635,18 +635,50 @@ isolate_freepages_range(struct compact_control *cc,
 }
 
 /* Similar to reclaim, but different enough that they don't share logic */
-static bool too_many_isolated(struct zone *zone)
+static bool __too_many_isolated(struct zone *zone, int safe)
 {
 	unsigned long active, inactive, isolated;
 
-	inactive = node_page_state(zone->zone_pgdat, NR_INACTIVE_FILE) +
+	if (safe) {
+		inactive = node_page_state_snapshot(zone->zone_pgdat,
+			NR_INACTIVE_FILE) +
+			node_page_state_snapshot(zone->zone_pgdat,
+			NR_INACTIVE_ANON);
+		active = node_page_state_snapshot(zone->zone_pgdat,
+			NR_ACTIVE_FILE) +
+			node_page_state_snapshot(zone->zone_pgdat,
+			NR_ACTIVE_ANON);
+		isolated = node_page_state_snapshot(zone->zone_pgdat,
+			NR_ISOLATED_FILE) +
+			node_page_state_snapshot(zone->zone_pgdat,
+			NR_ISOLATED_ANON);
+	} else {
+		inactive = node_page_state(zone->zone_pgdat, NR_INACTIVE_FILE) +
 			node_page_state(zone->zone_pgdat, NR_INACTIVE_ANON);
-	active = node_page_state(zone->zone_pgdat, NR_ACTIVE_FILE) +
+		active = node_page_state(zone->zone_pgdat, NR_ACTIVE_FILE) +
 			node_page_state(zone->zone_pgdat, NR_ACTIVE_ANON);
-	isolated = node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE) +
+		isolated = node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE) +
 			node_page_state(zone->zone_pgdat, NR_ISOLATED_ANON);
+	}
 
 	return isolated > (inactive + active) / 2;
+}
+
+/* Similar to reclaim, but different enough that they don't share logic */
+static bool too_many_isolated(struct compact_control *cc)
+{
+	/*
+	 * __too_many_isolated(safe=0) is fast but inaccurate, because it
+	 * doesn't account for the vm_stat_diff[] counters.  So if it looks
+	 * like too_many_isolated() is about to return true, fall back to the
+	 * slower, more accurate zone_page_state_snapshot().
+	 */
+	if (unlikely(__too_many_isolated(cc->zone, 0))) {
+		if (cc->mode != MIGRATE_ASYNC)
+			return __too_many_isolated(cc->zone, 1);
+	}
+
+	return false;
 }
 
 /**
@@ -686,7 +718,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 	 * list by either parallel reclaimers or compaction. If there are,
 	 * delay for some time until fewer pages are isolated
 	 */
-	while (unlikely(too_many_isolated(zone))) {
+	while (unlikely(too_many_isolated(cc))) {
 		/* async migration should just abort */
 		if (cc->mode == MIGRATE_ASYNC)
 			return 0;
@@ -790,6 +822,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		 * Skip any other type of page
 		 */
 		if (!PageLRU(page)) {
+#ifdef CONFIG_ZSWAP_MIGRATION_SUPPORT
 			/*
 			 * __PageMovable can return false positive so we need
 			 * to verify it under page_lock.
@@ -805,7 +838,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 				if (isolate_movable_page(page, isolate_mode))
 					goto isolate_success;
 			}
-
+#endif
 			goto isolate_fail;
 		}
 
@@ -852,8 +885,9 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		del_page_from_lru_list(page, lruvec, page_lru(page));
 		inc_node_page_state(page,
 				NR_ISOLATED_ANON + page_is_file_cache(page));
-
+#ifdef CONFIG_ZSWAP_MIGRATION_SUPPORT
 isolate_success:
+#endif
 		list_add(&page->lru, &cc->migratepages);
 		cc->nr_migratepages++;
 		nr_isolated++;

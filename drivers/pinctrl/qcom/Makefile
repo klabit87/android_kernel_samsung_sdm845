@@ -1,4 +1,5 @@
 # Qualcomm pin control drivers
+ccflags-y += $(KBUILD_FP_SENSOR_CFLAGS)
 obj-$(CONFIG_PINCTRL_MSM)	+= pinctrl-msm.o
 obj-$(CONFIG_PINCTRL_APQ8064)	+= pinctrl-apq8064.o
 obj-$(CONFIG_PINCTRL_APQ8084)	+= pinctrl-apq8084.o
@@ -11,7 +12,11 @@ obj-$(CONFIG_PINCTRL_MSM8916)	+= pinctrl-msm8916.o
 obj-$(CONFIG_PINCTRL_MSM8996)   += pinctrl-msm8996.o
 obj-$(CONFIG_PINCTRL_QDF2XXX)	+= pinctrl-qdf2xxx.o
 obj-$(CONFIG_PINCTRL_MDM9615)	+= pinctrl-mdm9615.o
+obj-$(CONFIG_PINCTRL_MSM8953)   += pinctrl-msm8953.o
 obj-$(CONFIG_PINCTRL_QCOM_SPMI_PMIC) += pinctrl-spmi-gpio.o
 obj-$(CONFIG_PINCTRL_QCOM_SPMI_PMIC) += pinctrl-spmi-mpp.o
 obj-$(CONFIG_PINCTRL_QCOM_SSBI_PMIC) += pinctrl-ssbi-gpio.o
 obj-$(CONFIG_PINCTRL_QCOM_SSBI_PMIC) += pinctrl-ssbi-mpp.o
+obj-$(CONFIG_PINCTRL_SDM845) += pinctrl-sdm845.o pinctrl-sdm845-v2.o
+obj-$(CONFIG_PINCTRL_SDM670) += pinctrl-sdm670.o
+obj-$(CONFIG_PINCTRL_SDXPOORWILLS)	+= pinctrl-sdxpoorwills.o

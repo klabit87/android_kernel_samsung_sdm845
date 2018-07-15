@@ -143,3 +143,65 @@ So, this provides a way for drivers to avoid those error messages on calls
 where allocation failures are not a problem, and shouldn't bother the logs.
 
 NOTE: At the moment DMA_ATTR_NO_WARN is only implemented on PowerPC.
+
+DMA_ATTR_STRONGLY_ORDERED
+-------------------------
+
+DMA_ATTR_STRONGLY_ORDERED allocates memory with a very restrictive type
+of mapping (no unaligned accesses, no re-ordering, no write merging, no
+buffering, no pre-fetching). This has severe performance penalties and
+should not be used for general purpose DMA allocations. It should only
+be used if one of the restrictions on strongly ordered memory is required.
+
+DMA_ATTR_NO_DELAYED_UNMAP
+-------------------------
+
+DMA_ATTR_NO_DELAYED_UNMAP is used only by the msm specific lazy mapping
+feature. By default, the lazy mapping and unmapping holds an additional
+reference so that when the buffer is freed, the mapping is not destroyed
+and can be re-used. By specifying this attribute, an additional reference
+will NOT be held by the lazy mapping code and it will be released as soon
+as the buffer is freed.
+
+DMA_ATTR_EXEC_MAPPING
+---------------------
+
+By default, the DMA mappings are non-executable. Some use cases might require
+an executable mapping. This attribute can be used to indicate to the DMA
+subsystem to create an executable mappings for the buffer.
+
+DMA_ATTR_IOMMU_USE_UPSTREAM_HINT
+--------------------------------
+
+DMA_ATTR_IOMMU_USE_UPSTREAM_HINT: Normally an smmu will override any bus
+attributes (i.e cacheablilty) provided by the client device. Some hardware
+may be designed to use the original attributes instead.
+
+DMA_ATTR_FORCE_COHERENT
+-----------------------
+
+When passed to a DMA map call the DMA_ATTR_FORCE_COHERENT DMA
+attribute can be used to force a buffer to be mapped as IO coherent.
+
+When the DMA_ATTR_FORCE_COHERENT attribute is set during a map call ensure
+that it is also set during for the matching unmap call to ensure that the
+correct cache maintenance is carried out.
+
+This DMA attribute is only currently supported for arm64 stage 1 IOMMU
+mappings.
+
+DMA_ATTR_FORCE_NON_COHERENT
+---------------------------
+
+When passed to a DMA map call the DMA_ATTR_FORCE_NON_COHERENT DMA
+attribute can be used to force a buffer to not be mapped as IO
+coherent.
+The DMA_ATTR_FORCE_NON_COHERENT DMA attribute overrides the buffer IO
+coherency configuration set by making the device IO coherent.
+
+When the DMA_ATTR_FORCE_NON_COHERENT attribute is set during a map call
+ensure that it is also set during for the matching unmap call to ensure
+that the correct cache maintenance is carried out.
+
+This DMA attribute is only currently supported for arm64 stage 1 IOMMU
+mappings.

@@ -21,12 +21,17 @@ struct mipi_dsi_device;
 #define MIPI_DSI_MSG_REQ_ACK	BIT(0)
 /* use Low Power Mode to transmit message */
 #define MIPI_DSI_MSG_USE_LPM	BIT(1)
+/* read mipi_dsi_msg.ctrl and unicast to only that ctrls */
+#define MIPI_DSI_MSG_UNICAST	BIT(2)
+/* Stack all commands until lastcommand bit and trigger all in one go */
+#define MIPI_DSI_MSG_LASTCOMMAND BIT(3)
 
 /**
  * struct mipi_dsi_msg - read/write DSI buffer
  * @channel: virtual channel id
  * @type: payload data type
  * @flags: flags controlling this message transmission
+ * @ctrl: ctrl index to transmit on
  * @tx_len: length of @tx_buf
  * @tx_buf: data to be written
  * @rx_len: length of @rx_buf
@@ -36,9 +41,14 @@ struct mipi_dsi_msg {
 	u8 channel;
 	u8 type;
 	u16 flags;
+	u32 ctrl;
 
 	size_t tx_len;
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	u8 *tx_buf;
+#else
 	const void *tx_buf;
+#endif
 
 	size_t rx_len;
 	void *rx_buf;
@@ -224,10 +234,17 @@ int mipi_dsi_turn_on_peripheral(struct mipi_dsi_device *dsi);
 int mipi_dsi_set_maximum_return_packet_size(struct mipi_dsi_device *dsi,
 					    u16 value);
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+ssize_t mipi_dsi_generic_write(struct mipi_dsi_device *dsi, void *payload,
+			       size_t size);
+ssize_t mipi_dsi_generic_read(struct mipi_dsi_device *dsi, void *params,
+			      size_t num_params, void *data, size_t size);
+#else
 ssize_t mipi_dsi_generic_write(struct mipi_dsi_device *dsi, const void *payload,
 			       size_t size);
 ssize_t mipi_dsi_generic_read(struct mipi_dsi_device *dsi, const void *params,
 			      size_t num_params, void *data, size_t size);
+#endif
 
 /**
  * enum mipi_dsi_dcs_tear_mode - Tearing Effect Output Line mode
@@ -247,8 +264,13 @@ enum mipi_dsi_dcs_tear_mode {
 #define MIPI_DSI_DCS_POWER_MODE_PARTIAL (1 << 5)
 #define MIPI_DSI_DCS_POWER_MODE_IDLE    (1 << 6)
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+ssize_t mipi_dsi_dcs_write_buffer(struct mipi_dsi_device *dsi,
+				  void *data, size_t len);
+#else
 ssize_t mipi_dsi_dcs_write_buffer(struct mipi_dsi_device *dsi,
 				  const void *data, size_t len);
+#endif
 ssize_t mipi_dsi_dcs_write(struct mipi_dsi_device *dsi, u8 cmd,
 			   const void *data, size_t len);
 ssize_t mipi_dsi_dcs_read(struct mipi_dsi_device *dsi, u8 cmd, void *data,

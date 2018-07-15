@@ -140,20 +140,20 @@ void arch_timer_reg_write(int access, enum arch_timer_reg reg, u32 val,
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			writel_relaxed(val, timer->base + CNTP_CTL);
+			writel_relaxed_no_log(val, timer->base + CNTP_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			writel_relaxed(val, timer->base + CNTP_TVAL);
+			writel_relaxed_no_log(val, timer->base + CNTP_TVAL);
 			break;
 		}
 	} else if (access == ARCH_TIMER_MEM_VIRT_ACCESS) {
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			writel_relaxed(val, timer->base + CNTV_CTL);
+			writel_relaxed_no_log(val, timer->base + CNTV_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			writel_relaxed(val, timer->base + CNTV_TVAL);
+			writel_relaxed_no_log(val, timer->base + CNTV_TVAL);
 			break;
 		}
 	} else {
@@ -171,20 +171,20 @@ u32 arch_timer_reg_read(int access, enum arch_timer_reg reg,
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			val = readl_relaxed(timer->base + CNTP_CTL);
+			val = readl_relaxed_no_log(timer->base + CNTP_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			val = readl_relaxed(timer->base + CNTP_TVAL);
+			val = readl_relaxed_no_log(timer->base + CNTP_TVAL);
 			break;
 		}
 	} else if (access == ARCH_TIMER_MEM_VIRT_ACCESS) {
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			val = readl_relaxed(timer->base + CNTV_CTL);
+			val = readl_relaxed_no_log(timer->base + CNTV_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			val = readl_relaxed(timer->base + CNTV_TVAL);
+			val = readl_relaxed_no_log(timer->base + CNTV_TVAL);
 			break;
 		}
 	} else {
@@ -268,6 +268,10 @@ static int arch_timer_shutdown_virt_mem(struct clock_event_device *clk)
 static int arch_timer_shutdown_phys_mem(struct clock_event_device *clk)
 {
 	return timer_shutdown(ARCH_TIMER_MEM_PHYS_ACCESS, clk);
+}
+u32 get_virtual_timer_tval(struct clock_event_device *clk)
+{
+	return arch_timer_reg_read(ARCH_TIMER_MEM_VIRT_ACCESS, ARCH_TIMER_REG_TVAL, clk);
 }
 
 static __always_inline void set_next_event(const int access, unsigned long evt,
@@ -441,15 +445,19 @@ static void arch_counter_set_user_access(void)
 {
 	u32 cntkctl = arch_timer_get_cntkctl();
 
-	/* Disable user access to the timers and the physical counter */
+	/* Disable user access to the timers */
 	/* Also disable virtual event stream */
 	cntkctl &= ~(ARCH_TIMER_USR_PT_ACCESS_EN
 			| ARCH_TIMER_USR_VT_ACCESS_EN
-			| ARCH_TIMER_VIRT_EVT_EN
-			| ARCH_TIMER_USR_PCT_ACCESS_EN);
+			| ARCH_TIMER_VIRT_EVT_EN);
 
-	/* Enable user access to the virtual counter */
-	cntkctl |= ARCH_TIMER_USR_VCT_ACCESS_EN;
+	/* Enable user access to the virtual and physical counters */
+	if (IS_ENABLED(CONFIG_ARM_ARCH_TIMER_VCT_ACCESS))
+		cntkctl |= ARCH_TIMER_USR_VCT_ACCESS_EN;
+	else
+		cntkctl &= ~ARCH_TIMER_USR_VCT_ACCESS_EN;
+
+	cntkctl |= ARCH_TIMER_USR_PCT_ACCESS_EN;
 
 	arch_timer_set_cntkctl(cntkctl);
 }
@@ -509,7 +517,8 @@ arch_timer_detect_rate(void __iomem *cntbase, struct device_node *np)
 	if (!acpi_disabled ||
 	    of_property_read_u32(np, "clock-frequency", &arch_timer_rate)) {
 		if (cntbase)
-			arch_timer_rate = readl_relaxed(cntbase + CNTFRQ);
+			arch_timer_rate = readl_relaxed_no_log(cntbase
+								+ CNTFRQ);
 		else
 			arch_timer_rate = arch_timer_get_cntfrq();
 	}
@@ -546,9 +555,9 @@ static u64 arch_counter_get_cntvct_mem(void)
 	u32 vct_lo, vct_hi, tmp_hi;
 
 	do {
-		vct_hi = readl_relaxed(arch_counter_base + CNTVCT_HI);
-		vct_lo = readl_relaxed(arch_counter_base + CNTVCT_LO);
-		tmp_hi = readl_relaxed(arch_counter_base + CNTVCT_HI);
+		vct_hi = readl_relaxed_no_log(arch_counter_base + CNTVCT_HI);
+		vct_lo = readl_relaxed_no_log(arch_counter_base + CNTVCT_LO);
+		tmp_hi = readl_relaxed_no_log(arch_counter_base + CNTVCT_HI);
 	} while (vct_hi != tmp_hi);
 
 	return ((u64) vct_hi << 32) | vct_lo;
@@ -826,6 +835,7 @@ static int __init arch_timer_common_init(void)
 
 	arch_timer_banner(arch_timers_present);
 	arch_counter_register(arch_timers_present);
+	clocksource_select_force();
 	return arch_timer_arch_init();
 }
 
@@ -933,7 +943,7 @@ static int __init arch_timer_mem_init(struct device_node *np)
 		return -ENXIO;
 	}
 
-	cnttidr = readl_relaxed(cntctlbase + CNTTIDR);
+	cnttidr = readl_relaxed_no_log(cntctlbase + CNTTIDR);
 
 	/*
 	 * Try to find a virtual capable frame. Otherwise fall back to a

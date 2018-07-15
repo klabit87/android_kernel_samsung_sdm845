@@ -7,18 +7,21 @@
 */
 
 #include "fuse_i.h"
+#include "fuse_passthrough.h"
 
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/poll.h>
 #include <linux/uio.h>
 #include <linux/miscdevice.h>
+#include <linux/namei.h>
 #include <linux/pagemap.h>
 #include <linux/file.h>
 #include <linux/slab.h>
 #include <linux/pipe_fs_i.h>
 #include <linux/swap.h>
 #include <linux/splice.h>
+#include <linux/freezer.h>
 
 MODULE_ALIAS_MISCDEV(FUSE_MINOR);
 MODULE_ALIAS("devname:fuse");
@@ -453,7 +456,9 @@ static void request_wait_answer(struct fuse_conn *fc, struct fuse_req *req)
 	 * Either request is already in userspace, or it was forced.
 	 * Wait it out.
 	 */
-	wait_event(req->waitq, test_bit(FR_FINISHED, &req->flags));
+	while (!test_bit(FR_FINISHED, &req->flags))
+		wait_event_freezable(req->waitq,
+				test_bit(FR_FINISHED, &req->flags));
 }
 
 static void __fuse_request_send(struct fuse_conn *fc, struct fuse_req *req)
@@ -546,9 +551,14 @@ ssize_t fuse_simple_request(struct fuse_conn *fc, struct fuse_args *args)
 	       args->out.numargs * sizeof(struct fuse_arg));
 	fuse_request_send(fc, req);
 	ret = req->out.h.error;
-	if (!ret && args->out.argvar) {
-		BUG_ON(args->out.numargs != 1);
-		ret = req->out.args[0].size;
+	if (!ret) {
+		if (args->out.argvar) {
+			WARN_ON(args->out.numargs != 1);
+			ret = req->out.args[0].size;
+		}
+
+		if (req->passthrough_filp != NULL)
+			args->out.passthrough_filp = req->passthrough_filp;
 	}
 	fuse_put_request(fc, req);
 
@@ -1880,7 +1890,14 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 		cs->move_pages = 0;
 
 	err = copy_out_args(cs, &req->out, nbytes);
+	if (req->in.h.opcode == FUSE_CANONICAL_PATH) {
+		req->out.h.error = kern_path((char *)req->out.args[0].value, 0,
+							req->canonical_path);
+	}
 	fuse_copy_finish(cs);
+
+	fuse_setup_passthrough(fc, req);
+
 
 	spin_lock(&fpq->lock);
 	clear_bit(FR_LOCKED, &req->flags);

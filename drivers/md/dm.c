@@ -69,6 +69,13 @@ struct dm_io {
 	struct dm_stats_aux stats_aux;
 };
 
+union map_info *dm_get_rq_mapinfo(struct request *rq)
+{
+	if (rq && rq->end_io_data)
+		return &((struct dm_rq_target_io *)rq->end_io_data)->info;
+
+	return NULL;
+}
 #define MINOR_ALLOCED ((void *)-1)
 
 /*
@@ -411,10 +418,10 @@ static int dm_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 }
 
 static int dm_grab_bdev_for_ioctl(struct mapped_device *md,
+				  struct dm_target **tgt,
 				  struct block_device **bdev,
 				  fmode_t *mode)
 {
-	struct dm_target *tgt;
 	struct dm_table *map;
 	int srcu_idx, r;
 
@@ -428,8 +435,8 @@ retry:
 	if (dm_table_get_num_targets(map) != 1)
 		goto out;
 
-	tgt = dm_table_get_target(map, 0);
-	if (!tgt->type->prepare_ioctl)
+	*tgt = dm_table_get_target(map, 0);
+	if (!(*tgt)->type->prepare_ioctl)
 		goto out;
 
 	if (dm_suspended_md(md)) {
@@ -437,7 +444,7 @@ retry:
 		goto out;
 	}
 
-	r = tgt->type->prepare_ioctl(tgt, bdev, mode);
+	r = (*tgt)->type->prepare_ioctl(*tgt, bdev, mode);
 	if (r < 0)
 		goto out;
 
@@ -458,9 +465,10 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 			unsigned int cmd, unsigned long arg)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct dm_target *tgt;
 	int r;
 
-	r = dm_grab_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_grab_bdev_for_ioctl(md, &tgt, &bdev, &mode);
 	if (r < 0)
 		return r;
 
@@ -475,7 +483,13 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 			goto out;
 	}
 
-	r =  __blkdev_driver_ioctl(bdev, mode, cmd, arg);
+	if (!strcmp(tgt->type->name, "dirty") &&
+		(tgt->type->ioctl) &&
+		(cmd == 1)) {
+		r = tgt->type->ioctl(tgt, cmd, arg);
+	} else {
+		r =  __blkdev_driver_ioctl(bdev, mode, cmd, arg);
+	}
 out:
 	bdput(bdev);
 	return r;
@@ -2695,11 +2709,12 @@ static int dm_pr_reserve(struct block_device *bdev, u64 key, enum pr_type type,
 			 u32 flags)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct dm_target *tgt;
 	const struct pr_ops *ops;
 	fmode_t mode;
 	int r;
 
-	r = dm_grab_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_grab_bdev_for_ioctl(md, &tgt, &bdev, &mode);
 	if (r < 0)
 		return r;
 
@@ -2716,11 +2731,12 @@ static int dm_pr_reserve(struct block_device *bdev, u64 key, enum pr_type type,
 static int dm_pr_release(struct block_device *bdev, u64 key, enum pr_type type)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct dm_target *tgt;
 	const struct pr_ops *ops;
 	fmode_t mode;
 	int r;
 
-	r = dm_grab_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_grab_bdev_for_ioctl(md, &tgt, &bdev, &mode);
 	if (r < 0)
 		return r;
 
@@ -2738,11 +2754,12 @@ static int dm_pr_preempt(struct block_device *bdev, u64 old_key, u64 new_key,
 			 enum pr_type type, bool abort)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct dm_target *tgt;
 	const struct pr_ops *ops;
 	fmode_t mode;
 	int r;
 
-	r = dm_grab_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_grab_bdev_for_ioctl(md, &tgt, &bdev, &mode);
 	if (r < 0)
 		return r;
 
@@ -2759,11 +2776,12 @@ static int dm_pr_preempt(struct block_device *bdev, u64 old_key, u64 new_key,
 static int dm_pr_clear(struct block_device *bdev, u64 key)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct dm_target *tgt;
 	const struct pr_ops *ops;
 	fmode_t mode;
 	int r;
 
-	r = dm_grab_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_grab_bdev_for_ioctl(md, &tgt, &bdev, &mode);
 	if (r < 0)
 		return r;
 

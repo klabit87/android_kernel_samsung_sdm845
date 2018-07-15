@@ -6,6 +6,11 @@ menu "Security options"
 
 source security/keys/Kconfig
 
+if ARCH_QCOM
+source security/pfe/Kconfig
+endif
+
+
 config SECURITY_DMESG_RESTRICT
 	bool "Restrict unprivileged access to the kernel syslog"
 	default n
@@ -17,6 +22,15 @@ config SECURITY_DMESG_RESTRICT
 	  unless the dmesg_restrict sysctl is explicitly set to (1).
 
 	  If you are unsure how to answer this question, answer N.
+
+config SECURITY_PERF_EVENTS_RESTRICT
+	bool "Restrict unprivileged use of performance events"
+	depends on PERF_EVENTS
+	help
+	  If you say Y here, the kernel.perf_event_paranoid sysctl
+	  will be set to 3 by default, and no unprivileged use of the
+	  perf_event_open syscall will be permitted unless it is
+	  changed.
 
 config SECURITY
 	bool "Enable different security models"
@@ -30,6 +44,11 @@ config SECURITY
 	  model will be used.
 
 	  If you are unsure how to answer this question, answer N.
+
+config SECURITY_WRITABLE_HOOKS
+	depends on SECURITY
+	bool
+	default n
 
 config SECURITYFS
 	bool "Enable the securityfs filesystem"
@@ -158,14 +177,29 @@ config HARDENED_USERCOPY_PAGESPAN
 	  been removed. This config is intended to be used only while
 	  trying to find such users.
 
+config NO_SDP_BASE
+	bool "disable SDP base"
+	default n
+	help
+	  This will disable SDP Base code.
+
+config FORTIFY_SOURCE
+	bool "Harden common str/mem functions against buffer overflows"
+	depends on ARCH_HAS_FORTIFY_SOURCE
+	help
+	  Detect overflows of buffers in common string and memory functions
+	  where the compiler can determine and validate the buffer sizes.
+
 source security/selinux/Kconfig
 source security/smack/Kconfig
 source security/tomoyo/Kconfig
 source security/apparmor/Kconfig
 source security/loadpin/Kconfig
 source security/yama/Kconfig
+source security/mstdrv/Kconfig
 
 source security/integrity/Kconfig
+source security/tz_iccc/Kconfig
 
 choice
 	prompt "Default security module"
@@ -203,6 +237,13 @@ config DEFAULT_SECURITY
 	default "tomoyo" if DEFAULT_SECURITY_TOMOYO
 	default "apparmor" if DEFAULT_SECURITY_APPARMOR
 	default "" if DEFAULT_SECURITY_DAC
+
+config TIMA_UEVENT
+	bool "Uevent message propagation for TIMA"
+	depends on TIMA
+	default y
+	help
+		Uevent messages for TIMA PKM/LKMAuth
 
 endmenu
 

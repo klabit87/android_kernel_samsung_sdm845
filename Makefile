@@ -1,4 +1,5 @@
 VERSION = 4
+
 PATCHLEVEL = 9
 SUBLEVEL = 65
 EXTRAVERSION =
@@ -346,7 +347,7 @@ include scripts/Kbuild.include
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
-CC		= $(CROSS_COMPILE)gcc
+REAL_CC		= $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
@@ -360,6 +361,10 @@ DEPMOD		= /sbin/depmod
 PERL		= perl
 PYTHON		= python
 CHECK		= sparse
+
+# Use the wrapper for the compiler.  This wrapper scans for new
+# warnings and causes the build to stop upon encountering them
+CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
 
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
@@ -561,7 +566,7 @@ scripts: scripts_basic include/config/auto.conf include/config/tristate.conf \
 
 # Objects we will link into vmlinux / subdirs we need to visit
 init-y		:= init/
-drivers-y	:= drivers/ sound/ firmware/
+drivers-y	:= drivers/ sound/ firmware/ techpack/
 net-y		:= net/
 libs-y		:= lib/
 core-y		:= usr/
@@ -654,6 +659,14 @@ KBUILD_CFLAGS += $(call cc-ifversion, -lt, 0409, \
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
 
+ifdef CONFIG_RKP_CFP_JOPP
+REAL_CC		= $(srctree)/tools/prebuilts/gcc-cfp-jopp-only/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+endif
+ifdef CONFIG_RKP_CFP_ROPP
+REAL_CC		= $(srctree)/tools/prebuilts/gcc-cfp-single/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+endif
 # check for 'asm goto'
 ifeq ($(shell $(CONFIG_SHELL) $(srctree)/scripts/gcc-goto.sh $(CC) $(KBUILD_CFLAGS)), y)
 	KBUILD_CFLAGS += -DCC_HAVE_ASM_GOTO
@@ -746,6 +759,17 @@ ifdef CONFIG_DEBUG_INFO_DWARF4
 KBUILD_CFLAGS	+= $(call cc-option, -gdwarf-4,)
 endif
 
+ifdef CONFIG_RKP_CFP_JOPP
+# Don't use jump tables for switch statements, since this generates indirect jump (br)
+# instructions, which are very dangerous for kernel control flow integrity.
+KBUILD_CFLAGS	+= -fno-jump-tables
+endif
+
+ifdef CONFIG_RKP_CFP_ROPP
+# Don't let gcc allocate these registers, they are reserved for use by static binary instrumentation.
+KBUILD_CFLAGS	+= -ffixed-x16 -ffixed-x17
+endif
+
 ifdef CONFIG_DEBUG_INFO_REDUCED
 KBUILD_CFLAGS 	+= $(call cc-option, -femit-struct-debug-baseonly) \
 		   $(call cc-option,-fno-var-tracking)
@@ -827,6 +851,14 @@ endif
 
 ifeq ($(CONFIG_STRIP_ASM_SYMS),y)
 LDFLAGS_vmlinux	+= $(call ld-option, -X,)
+endif
+
+ifneq ($(SEC_BUILD_CONF_USE_FINGERPRINT_TZ),false)
+  ifeq ($(CONFIG_SENSORS_FINGERPRINT),y)
+    ifneq ($(CONFIG_SEC_FACTORY),y)
+      export KBUILD_FP_SENSOR_CFLAGS := -DENABLE_SENSORS_FPRINT_SECURE
+    endif
+  endif
 endif
 
 # Default kernel image to build when no specific target is given.
@@ -1151,6 +1183,7 @@ headers_install: __headers
 	  $(error Headers not exportable for the $(SRCARCH) architecture))
 	$(Q)$(MAKE) $(hdr-inst)=include/uapi
 	$(Q)$(MAKE) $(hdr-inst)=arch/$(hdr-arch)/include/uapi/asm $(hdr-dst)
+	$(Q)$(MAKE) $(hdr-inst)=techpack
 
 PHONY += headers_check_all
 headers_check_all: headers_install_all
@@ -1160,6 +1193,7 @@ PHONY += headers_check
 headers_check: headers_install
 	$(Q)$(MAKE) $(hdr-inst)=include/uapi HDRCHECK=1
 	$(Q)$(MAKE) $(hdr-inst)=arch/$(hdr-arch)/include/uapi/asm $(hdr-dst) HDRCHECK=1
+	$(Q)$(MAKE) $(hdr-inst)=techpack HDRCHECK=1
 
 # ---------------------------------------------------------------------------
 # Kernel selftest

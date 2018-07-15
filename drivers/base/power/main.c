@@ -33,6 +33,7 @@
 #include <linux/cpufreq.h>
 #include <linux/cpuidle.h>
 #include <linux/timer.h>
+#include <linux/wakeup_reason.h>
 
 #include "../base.h"
 #include "power.h"
@@ -60,6 +61,146 @@ static DEFINE_MUTEX(dpm_list_mtx);
 static pm_message_t pm_transition;
 
 static int async_error;
+
+#ifdef CONFIG_SEC_PM_SUSPEND_STATS_EX
+#include <linux/sort.h>
+static struct suspend_stat_ex_node rb_node_pool[SUSPEND_STATS_EX_POOL_MAX_NUM];
+static int rb_node_pool_index;
+static bool overflowed;
+
+static char *suspend_ex_type_name(enum suspend_stat_ex_type type)
+{
+	switch (type) {
+	case FAILED_DEV:
+		return "device";
+	case FAILED_WAKELOCK:
+		return "wakelock";
+	default:
+		return " ";
+	}
+}
+
+static int cmpcount(const void *a, const void *b)
+{
+	const struct suspend_stat_ex_node **sa = (const struct suspend_stat_ex_node **)a;
+	const struct suspend_stat_ex_node **sb = (const struct suspend_stat_ex_node **)b;
+
+	return ((const struct suspend_stat_ex_node *)*sb)->count -
+		((const struct suspend_stat_ex_node *)*sa)->count;
+}
+
+static struct suspend_stat_ex_node *suspend_stat_ex_rb_insert_node
+	(struct suspend_stat_ex_node *source)
+{
+	static struct rb_root suspend_stats_ex_rb_root = RB_ROOT;
+	struct rb_root *root = &suspend_stats_ex_rb_root;
+	struct rb_node **p = &root->rb_node;
+	struct rb_node *parent = NULL;
+	struct suspend_stat_ex_node *node;
+	int result;
+	int len = strlen(source->name);
+
+	while (*p) {
+		parent = *p;
+		node = rb_entry(parent, struct suspend_stat_ex_node, __rb_node);
+		result = strncmp(node->name, source->name, len) + (node->type - source->type);
+		if (result > 0)
+			p = &(*p)->rb_left;
+		else if (result < 0)
+			p = &(*p)->rb_right;
+		else
+			return node;
+	}
+
+	if (!overflowed) {
+		rb_link_node(&source->__rb_node, parent, p);
+		rb_insert_color(&source->__rb_node, root);
+	}
+
+	return NULL;
+}
+
+void suspend_stats_ex_save_failed(unsigned int type, void *obj)
+{
+	static struct suspend_stat_ex_node temp_rb_node;
+	struct suspend_stat_ex_node *item, *exist_item;
+
+	if (!overflowed && rb_node_pool_index >= SUSPEND_STATS_EX_POOL_MAX_NUM)
+		overflowed = true;
+
+	if (!overflowed)
+		item = &rb_node_pool[rb_node_pool_index];
+	else
+		item = &temp_rb_node;
+
+	item->type = type;
+	item->count = 1;
+
+	switch (item->type) {
+	case FAILED_FS_SYNC:
+		item->name = "Filesystem sync";
+		break;
+	case FAILED_FREEZE_TIMEOUT:
+		item->name = "Task Freeze Timeout";
+		break;
+	case FAILED_NOTIFIER_CALL:
+		item->name = "pm notifier call";
+		break;
+	case FAILED_PLATFORM_BEGIN:
+		item->name = "Platform suspend begin";
+		break;
+	case FAILED_PLATFORM_PREPARE:
+		item->name = "Platform suspend prepare";
+		break;
+	case FAILED_PLATFORM_PREPARE_LATE:
+		item->name = "Platform suspend prepare late";
+		break;
+	case FAILED_PLATFORM_PREPARE_NOIRQ:
+		item->name = "Platform suspend prepare noirq";
+		break;
+	case FAILED_DISABLE_NONBOOT_CPUS:
+		item->name = "Disable nonboot cpus";
+		break;
+	case FAILED_SYSCORE_SUSPEND:
+		item->name = "Syscore suspend";
+		break;
+	case FAILED_ENTER:
+		item->name = "Suspend enter";
+		break;
+	case FAILED_DEV:
+		item->name = dev_name((struct device *)obj);
+		break;
+	case FAILED_WAKELOCK:
+		item->name = ((struct wakeup_source *)obj)->name;
+		break;
+	default:
+		return;
+	}
+
+	exist_item = suspend_stat_ex_rb_insert_node(item);
+	if (exist_item)
+		exist_item->count++;
+	else {
+		if (!overflowed)
+			rb_node_pool_index++;
+	}
+}
+
+void suspend_stats_ex_print_failed(struct seq_file *s)
+{
+	struct suspend_stat_ex_node *temp_pool[SUSPEND_STATS_EX_POOL_MAX_NUM];
+	int i;
+
+	for (i = 0; i < rb_node_pool_index; i++)
+		temp_pool[i] = &rb_node_pool[i];
+
+	sort(temp_pool, rb_node_pool_index, sizeof(struct suspend_stat_ex_node *), cmpcount, NULL);
+	seq_printf(s, "suspend failures: %d reasons, of=%d\n", rb_node_pool_index, overflowed);
+	for (i = 0; i < rb_node_pool_index; i++)
+		seq_printf(s, "  %s / %s / %d\n", temp_pool[i]->name,
+			suspend_ex_type_name(temp_pool[i]->type), temp_pool[i]->count);
+}
+#endif
 
 static char *pm_verb(int event)
 {
@@ -1033,6 +1174,11 @@ static int __device_suspend_noirq(struct device *dev, pm_message_t state, bool a
 		goto Complete;
 
 	if (pm_wakeup_pending()) {
+		char suspend_abort[MAX_SUSPEND_ABORT_LEN];
+
+		pm_get_active_wakeup_sources(suspend_abort,
+			MAX_SUSPEND_ABORT_LEN);
+		log_suspend_abort_reason(suspend_abort);
 		async_error = -EBUSY;
 		goto Complete;
 	}
@@ -1080,6 +1226,7 @@ static void async_suspend_noirq(void *data, async_cookie_t cookie)
 	if (error) {
 		dpm_save_failed_dev(dev_name(dev));
 		pm_dev_err(dev, pm_transition, " async", error);
+		suspend_stats_ex_save_failed(FAILED_DEV, dev);
 	}
 
 	put_device(dev);
@@ -1129,6 +1276,7 @@ int dpm_suspend_noirq(pm_message_t state)
 		if (error) {
 			pm_dev_err(dev, state, " noirq", error);
 			dpm_save_failed_dev(dev_name(dev));
+			suspend_stats_ex_save_failed(FAILED_DEV, dev);
 			put_device(dev);
 			break;
 		}
@@ -1180,6 +1328,11 @@ static int __device_suspend_late(struct device *dev, pm_message_t state, bool as
 		goto Complete;
 
 	if (pm_wakeup_pending()) {
+		char suspend_abort[MAX_SUSPEND_ABORT_LEN];
+
+		pm_get_active_wakeup_sources(suspend_abort,
+			MAX_SUSPEND_ABORT_LEN);
+		log_suspend_abort_reason(suspend_abort);
 		async_error = -EBUSY;
 		goto Complete;
 	}
@@ -1227,6 +1380,7 @@ static void async_suspend_late(void *data, async_cookie_t cookie)
 	if (error) {
 		dpm_save_failed_dev(dev_name(dev));
 		pm_dev_err(dev, pm_transition, " async", error);
+		suspend_stats_ex_save_failed(FAILED_DEV, dev);
 	}
 	put_device(dev);
 }
@@ -1273,6 +1427,7 @@ int dpm_suspend_late(pm_message_t state)
 		if (error) {
 			pm_dev_err(dev, state, " late", error);
 			dpm_save_failed_dev(dev_name(dev));
+			suspend_stats_ex_save_failed(FAILED_DEV, dev);
 			put_device(dev);
 			break;
 		}
@@ -1353,6 +1508,7 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	pm_callback_t callback = NULL;
 	char *info = NULL;
 	int error = 0;
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
 	DECLARE_DPM_WATCHDOG_ON_STACK(wd);
 
 	TRACE_DEVICE(dev);
@@ -1373,6 +1529,9 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 		pm_wakeup_event(dev, 0);
 
 	if (pm_wakeup_pending()) {
+		pm_get_active_wakeup_sources(suspend_abort,
+			MAX_SUSPEND_ABORT_LEN);
+		log_suspend_abort_reason(suspend_abort);
 		async_error = -EBUSY;
 		goto Complete;
 	}
@@ -1477,6 +1636,7 @@ static void async_suspend(void *data, async_cookie_t cookie)
 	if (error) {
 		dpm_save_failed_dev(dev_name(dev));
 		pm_dev_err(dev, pm_transition, " async", error);
+		suspend_stats_ex_save_failed(FAILED_DEV, dev);
 	}
 
 	put_device(dev);
@@ -1524,6 +1684,7 @@ int dpm_suspend(pm_message_t state)
 		if (error) {
 			pm_dev_err(dev, state, "", error);
 			dpm_save_failed_dev(dev_name(dev));
+			suspend_stats_ex_save_failed(FAILED_DEV, dev);
 			put_device(dev);
 			break;
 		}
@@ -1663,6 +1824,7 @@ int dpm_prepare(pm_message_t state)
 			printk(KERN_INFO "PM: Device %s not prepared "
 				"for power transition: code %d\n",
 				dev_name(dev), error);
+			suspend_stats_ex_save_failed(FAILED_DEV, dev);
 			put_device(dev);
 			break;
 		}

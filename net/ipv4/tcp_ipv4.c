@@ -695,6 +695,7 @@ static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb)
 		     offsetof(struct inet_timewait_sock, tw_bound_dev_if));
 
 	arg.tos = ip_hdr(skb)->tos;
+	arg.uid = sock_net_uid(net, sk && sk_fullsock(sk) ? sk : NULL);
 	local_bh_disable();
 	ip_send_unicast_reply(*this_cpu_ptr(net->ipv4.tcp_sk),
 			      skb, &TCP_SKB_CB(skb)->header.h4.opt,
@@ -715,7 +716,7 @@ out:
    outside socket context is ugly, certainly. What can I do?
  */
 
-static void tcp_v4_send_ack(struct net *net,
+static void tcp_v4_send_ack(const struct sock *sk,
 			    struct sk_buff *skb, u32 seq, u32 ack,
 			    u32 win, u32 tsval, u32 tsecr, int oif,
 			    struct tcp_md5sig_key *key,
@@ -730,6 +731,7 @@ static void tcp_v4_send_ack(struct net *net,
 #endif
 			];
 	} rep;
+	struct net *net = sock_net(sk);
 	struct ip_reply_arg arg;
 
 	memset(&rep.th, 0, sizeof(struct tcphdr));
@@ -779,6 +781,7 @@ static void tcp_v4_send_ack(struct net *net,
 	if (oif)
 		arg.bound_dev_if = oif;
 	arg.tos = tos;
+	arg.uid = sock_net_uid(net, sk_fullsock(sk) ? sk : NULL);
 	local_bh_disable();
 	ip_send_unicast_reply(*this_cpu_ptr(net->ipv4.tcp_sk),
 			      skb, &TCP_SKB_CB(skb)->header.h4.opt,
@@ -794,7 +797,7 @@ static void tcp_v4_timewait_ack(struct sock *sk, struct sk_buff *skb)
 	struct inet_timewait_sock *tw = inet_twsk(sk);
 	struct tcp_timewait_sock *tcptw = tcp_twsk(sk);
 
-	tcp_v4_send_ack(sock_net(sk), skb,
+	tcp_v4_send_ack(sk, skb,
 			tcptw->tw_snd_nxt, tcptw->tw_rcv_nxt,
 			tcptw->tw_rcv_wnd >> tw->tw_rcv_wscale,
 			tcp_time_stamp + tcptw->tw_ts_offset,
@@ -822,7 +825,7 @@ static void tcp_v4_reqsk_send_ack(const struct sock *sk, struct sk_buff *skb,
 	 * exception of <SYN> segments, MUST be right-shifted by
 	 * Rcv.Wind.Shift bits:
 	 */
-	tcp_v4_send_ack(sock_net(sk), skb, seq,
+	tcp_v4_send_ack(sk, skb, seq,
 			tcp_rsk(req)->rcv_nxt,
 			req->rsk_rcv_wnd >> inet_rsk(req)->rcv_wscale,
 			tcp_time_stamp,
@@ -2228,6 +2231,7 @@ static void get_tcp4_sock(struct sock *sk, struct seq_file *f, int i)
 	__be32 src = inet->inet_rcv_saddr;
 	__u16 destp = ntohs(inet->inet_dport);
 	__u16 srcp = ntohs(inet->inet_sport);
+	__u8 seq_state = sk->sk_state;
 	int rx_queue;
 	int state;
 
@@ -2247,6 +2251,9 @@ static void get_tcp4_sock(struct sock *sk, struct seq_file *f, int i)
 		timer_expires = jiffies;
 	}
 
+	if (inet->transparent)
+		seq_state |= 0x80;
+
 	state = sk_state_load(sk);
 	if (state == TCP_LISTEN)
 		rx_queue = sk->sk_ack_backlog;
@@ -2258,7 +2265,7 @@ static void get_tcp4_sock(struct sock *sk, struct seq_file *f, int i)
 
 	seq_printf(f, "%4d: %08X:%04X %08X:%04X %02X %08X:%08X %02X:%08lX "
 			"%08X %5u %8d %lu %d %pK %lu %lu %u %u %d",
-		i, src, srcp, dest, destp, state,
+		i, src, srcp, dest, destp, seq_state,
 		tp->write_seq - tp->snd_una,
 		rx_queue,
 		timer_active,

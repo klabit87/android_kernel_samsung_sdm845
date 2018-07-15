@@ -1585,6 +1585,47 @@ static int pinctrl_show(struct seq_file *s, void *what)
 	return 0;
 }
 
+#if defined(CONFIG_SEC_PM)
+static int sec_gpio_debug_show(struct seq_file *s, void *what)
+{
+	struct pinctrl_dev *pctldev;
+	const struct pinconf_ops *confops;
+
+	mutex_lock(&pinctrldev_list_mutex);
+
+	list_for_each_entry(pctldev, &pinctrldev_list, node) {
+		confops = pctldev->desc->confops;
+		if (confops && confops->pin_config_sec_dbg_show) {
+			seq_printf(s, "%s\n", pctldev->desc->name);
+			confops->pin_config_sec_dbg_show(pctldev, s);
+		}
+	}
+
+	mutex_unlock(&pinctrldev_list_mutex);
+
+	return 0;
+}
+
+void sec_gpio_debug_print(void)
+{
+	struct pinctrl_dev *pctldev;
+	const struct pinconf_ops *confops;
+
+	mutex_lock(&pinctrldev_list_mutex);
+
+	list_for_each_entry(pctldev, &pinctrldev_list, node) {
+		confops = pctldev->desc->confops;
+		if (confops && confops->pin_config_sec_dbg_print) {
+			pr_info("%s\n", pctldev->desc->name);
+			confops->pin_config_sec_dbg_print(pctldev);
+		}
+	}
+
+	mutex_unlock(&pinctrldev_list_mutex);
+}
+EXPORT_SYMBOL_GPL(sec_gpio_debug_print);
+#endif
+
 static int pinctrl_pins_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, pinctrl_pins_show, inode->i_private);
@@ -1614,6 +1655,13 @@ static int pinctrl_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, pinctrl_show, NULL);
 }
+
+#if defined(CONFIG_SEC_PM)
+static int sec_gpio_debug_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, sec_gpio_debug_show, NULL);
+}
+#endif
 
 static const struct file_operations pinctrl_pins_ops = {
 	.open		= pinctrl_pins_open,
@@ -1656,6 +1704,15 @@ static const struct file_operations pinctrl_ops = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
+
+#if defined(CONFIG_SEC_PM)
+static const struct file_operations sec_gpio_debug_ops = {
+	.open		= sec_gpio_debug_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+#endif
 
 static struct dentry *debugfs_root;
 
@@ -1704,6 +1761,10 @@ static void pinctrl_init_debugfs(void)
 			    debugfs_root, NULL, &pinctrl_maps_ops);
 	debugfs_create_file("pinctrl-handles", S_IFREG | S_IRUGO,
 			    debugfs_root, NULL, &pinctrl_ops);
+#if defined(CONFIG_SEC_PM)
+	debugfs_create_file("showall", S_IFREG | 0444,
+			    debugfs_root, NULL, &sec_gpio_debug_ops);
+#endif
 }
 
 #else /* CONFIG_DEBUG_FS */

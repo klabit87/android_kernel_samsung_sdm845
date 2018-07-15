@@ -26,6 +26,7 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/cn_proc.h>
 #include <linux/compat.h>
+#include <linux/task_integrity.h>
 
 /*
  * Access another process' address space via ptrace.
@@ -1125,8 +1126,10 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 
 	if (request == PTRACE_TRACEME) {
 		ret = ptrace_traceme();
-		if (!ret)
+		if (!ret) {
 			arch_ptrace_attach(current);
+			five_ptrace(request, current);
+		}
 		goto out;
 	}
 
@@ -1142,8 +1145,10 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 		 * Some architectures need to do book-keeping after
 		 * a ptrace attach.
 		 */
-		if (!ret)
+		if (!ret) {
 			arch_ptrace_attach(child);
+			five_ptrace(request, child);
+		}
 		goto out_put_task_struct;
 	}
 

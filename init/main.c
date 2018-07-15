@@ -87,11 +87,65 @@
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
+#ifdef CONFIG_SEC_GPIO_DVS
+#include <linux/secgpio_dvs.h>
+#endif
+
+#include <linux/sec_bsp.h>
+
+#ifdef CONFIG_UH
+#include <linux/uh.h>
+#endif
+#ifdef CONFIG_UH_RKP
+#include <linux/rkp.h>
+#endif
+
+#ifdef CONFIG_RKP_CFP
+#include <linux/rkp_cfp.h>
+#endif
+
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
 extern void fork_init(void);
 extern void radix_tree_init(void);
+
+#ifdef CONFIG_KNOX_KAP
+int boot_mode_security;
+EXPORT_SYMBOL(boot_mode_security);
+#endif
+#ifdef CONFIG_UH_RKP
+int rkp_support_large_memory;
+EXPORT_SYMBOL(rkp_support_large_memory);
+#endif
+
+#ifdef CONFIG_DEFERRED_INITCALLS
+extern initcall_t __deferred_initcall_start[], __deferred_initcall_end[];
+
+/* call deferred init routines */
+static void __ref do_deferred_initcalls(struct work_struct *work)
+{
+	initcall_t *call;
+	static bool already_run;
+
+	if (already_run) {
+		pr_warn("%s() has already run\n", __func__);
+		return;
+	}
+
+	already_run = true;
+
+	pr_err("Running %s()\n", __func__);
+
+	for (call = __deferred_initcall_start;
+			call < __deferred_initcall_end; call++)
+		do_one_initcall(*call);
+
+	free_initmem();
+}
+
+static DECLARE_WORK(deferred_initcall_work, do_deferred_initcalls);
+#endif
 
 /*
  * Debug helper: via this flag we know that we are in 'early bootup code'
@@ -229,6 +283,27 @@ static int __init loglevel(char *str)
 }
 
 early_param("loglevel", loglevel);
+
+#ifdef CONFIG_RTC_AUTO_PWRON_PARAM
+unsigned int sapa_param_time;
+EXPORT_SYMBOL(sapa_param_time);
+
+static int __init read_sapa_param(char *str)
+{
+	int temp = 0;
+
+	if (get_option(&str, &temp)) {
+		sapa_param_time = (unsigned int)temp;
+		pr_info("sapa: %s param_time:%u\n",
+				__func__, sapa_param_time);
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+early_param("sapa", read_sapa_param);
+#endif
 
 /* Change NUL term back to "=", to make "param" the whole string. */
 static int __init repair_env_string(char *param, char *val,
@@ -407,6 +482,9 @@ static noinline void __ref rest_init(void)
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
+#ifdef CONFIG_RKP_KDP
+RKP_RO_AREA int is_recovery = 0;
+#endif
 /* Check for early params. */
 static int __init do_early_param(char *param, char *val,
 				 const char *unused, void *arg)
@@ -423,6 +501,15 @@ static int __init do_early_param(char *param, char *val,
 		}
 	}
 	/* We accept everything at this stage. */
+#ifdef CONFIG_RKP_KDP
+	if ((strncmp(param, "bootmode", 9) == 0)) {
+			//printk("\n RKP22 In Recovery Mode= %d\n",*val);
+			if ((strncmp(val, "2", 2) == 0)) {
+				is_recovery = 1;
+			}
+	}
+#endif
+
 	return 0;
 }
 
@@ -475,6 +562,128 @@ static void __init mm_init(void)
 	ioremap_huge_init();
 }
 
+#ifdef CONFIG_RKP_CFP_ROPP
+/*
+ * init swapper per-thread-key and master key
+ * the encryption key is changed, so need to be inlined
+ */
+static inline void ropp_primary_init(void)
+{
+	unsigned long ropp_swapper_key = 0x0;
+#ifdef CONFIG_RKP_CFP_ROPP_SYSREGKEY
+#ifdef SYSREG_DEBUG
+	ropp_swapper_key = ropp_fixed_key;
+#else
+	ropp_master_key = get_random_long();
+	ropp_swapper_key = get_random_long();
+#endif
+	asm volatile(
+			"msr "STR(RRMK)", %0\n\t"
+			"mov x17, %1"
+			::"r" (ropp_master_key), "r" (ropp_swapper_key));
+	// This is necessary as some bits are clear
+	asm volatile("mrs %0, "STR(RRMK)"\n\t" : "=r" (ropp_master_key));
+	ropp_swapper_key = ropp_swapper_key ^ ropp_master_key;
+#elif defined CONFIG_RKP_CFP_ROPP_RANDKEY
+	ropp_swapper_key = get_random_long();
+	asm volatile("mov x17, %0" :: "r" (ropp_swapper_key));
+#elif defined CONFIG_RKP_CFP_ROPP_FIXKEY
+	ropp_swapper_key = ropp_fixed_key;
+	asm volatile("mov x17, %0" :: "r" (ropp_swapper_key));
+#endif
+	current_thread_info()->rrk = ropp_swapper_key;
+}
+
+static inline void ropp_primary_init_finish(void)
+{
+#ifdef CONFIG_RKP_CFP_ROPP_SYSREGKEY
+#ifdef CONFIG_TIMA_RKP
+	asm volatile("mov %0, xzr" : "=r" (ropp_master_key));
+	pr_info("SYSREG, after zeroing out master key, mk=%lx\n", ropp_master_key);
+	BUG_ON(0 != ropp_master_key); //preventing compiler error
+#else
+#define ROPP_ADDR	0x9FA07020
+#define ROPP_MAGIC	0x4a4c4955
+	unsigned long save_values[] = { ROPP_MAGIC,		ropp_master_key,
+		offsetof(struct thread_info, rrk),		offsetof(struct task_struct, stack),
+		offsetof(struct task_struct, tasks),		offsetof(struct task_struct, pid),
+		offsetof(struct task_struct, thread_group),	offsetof(struct task_struct, comm),
+		offsetof(struct task_struct, thread),		offsetof(struct cpu_context, fp)};
+	int i;
+
+	for (i = 0; i < 10; i++)
+		*((unsigned long *) (__phys_to_virt(ROPP_ADDR)+0x8*i)) = save_values[i];
+#endif
+#endif
+}
+#endif
+
+#ifdef CONFIG_UH_RKP
+__attribute__((section(".rkp.bitmap"))) u8 rkp_pgt_bitmap_arr[0x30000] = {0};
+__attribute__((section(".rkp.dblmap"))) u8 rkp_map_bitmap_arr[0x30000] = {0};
+u8 rkp_started; /* 0 initialized by c standard */
+
+static void rkp_init(void)
+{
+	struct rkp_init init;
+
+	rkp_support_large_memory = 1;
+
+	init.magic = RKP_INIT_MAGIC;
+	init.vmalloc_start = VMALLOC_START;
+	init.vmalloc_end = (u64)high_memory;
+	init.init_mm_pgd = (u64)__pa(swapper_pg_dir);
+	init.id_map_pgd = (u64)__pa(idmap_pg_dir);
+	init.zero_pg_addr = __pa(empty_zero_page);
+	init.rkp_pgt_bitmap = (u64)__pa(rkp_pgt_bitmap);
+	init.rkp_dbl_bitmap = (u64)__pa(rkp_map_bitmap);
+	init.rkp_bitmap_size = RKP_PGT_BITMAP_LEN;
+	init.no_fimc_verify = 0;
+	init.fimc_phys_addr = 0;
+	init.zero_pg_addr = (u64)__pa(empty_zero_page);
+	init._text = (u64)_text;
+	init._etext = (u64)_etext;
+	//init.physmap_addr
+	init._srodata = (u64)__start_rodata;
+	init._erodata = (u64)__end_rodata;
+	init.large_memory = rkp_support_large_memory;
+
+	uh_call(UH_APP_RKP, RKP_START, (u64)&init, (u64)kimage_voffset, (u64)max_pfn, (u64)memstart_addr);
+	rkp_started = 1;
+}
+#endif
+#ifdef CONFIG_RKP_KDP
+
+void kdp_init(void)
+{
+	kdp_init_t cred;
+
+	cred.credSize 	= sizeof(struct cred);
+	cred.sp_size	= rkp_get_task_sec_size();
+	cred.pgd_mm 	= offsetof(struct mm_struct,pgd);
+	cred.uid_cred	= offsetof(struct cred,uid);
+	cred.euid_cred	= offsetof(struct cred,euid);
+	cred.gid_cred	= offsetof(struct cred,gid);
+	cred.egid_cred	= offsetof(struct cred,egid);
+
+	cred.bp_pgd_cred 	= offsetof(struct cred,bp_pgd);
+	cred.bp_task_cred 	= offsetof(struct cred,bp_task);
+	cred.type_cred 		= offsetof(struct cred,type);
+	cred.security_cred 	= offsetof(struct cred,security);
+	cred.usage_cred 	= offsetof(struct cred,use_cnt);
+
+	cred.cred_task  	= offsetof(struct task_struct,cred);
+	cred.mm_task 		= offsetof(struct task_struct,mm);
+	cred.pid_task		= offsetof(struct task_struct,pid);
+	cred.rp_task		= offsetof(struct task_struct,real_parent);
+	cred.comm_task 		= offsetof(struct task_struct,comm);
+
+	cred.bp_cred_secptr 	= rkp_get_offset_bp_cred();
+
+	uh_call(UH_APP_RKP, 0x40, (u64)&cred, 0, 0, 0);
+}
+#endif /*CONFIG_RKP_KDP*/
+
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
@@ -483,11 +692,6 @@ asmlinkage __visible void __init start_kernel(void)
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
-
-	/*
-	 * Set up the the initial canary ASAP:
-	 */
-	boot_init_stack_canary();
 
 	cgroup_init_early();
 
@@ -502,6 +706,10 @@ asmlinkage __visible void __init start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
+	/*
+	 * Set up the the initial canary ASAP:
+	 */
+	boot_init_stack_canary();
 	mm_init_cpumask(&init_mm);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
@@ -534,6 +742,19 @@ asmlinkage __visible void __init start_kernel(void)
 	sort_main_extable();
 	trap_init();
 	mm_init();
+#ifdef CONFIG_UH_RKP
+	uh_call(UH_APP_INIT, 0, 0, 0, 0, 0);
+#endif
+#ifdef CONFIG_UH_RKP
+	rkp_init();
+#ifdef CONFIG_RKP_KDP
+	rkp_cred_enable = 1;
+#endif /*CONFIG_RKP_KDP*/
+#endif
+
+#ifdef CONFIG_RKP_CFP_ROPP
+	ropp_primary_init();
+#endif
 
 	/*
 	 * Set up the scheduler prior starting any interrupts (such as the
@@ -627,12 +848,24 @@ asmlinkage __visible void __init start_kernel(void)
 	init_espfix_bsp();
 #endif
 	thread_stack_cache_init();
+#ifdef CONFIG_RKP_KDP
+	if (rkp_cred_enable) 
+		kdp_init();
+#endif /*CONFIG_RKP_KDP*/
+
+#ifdef CONFIG_RKP_CFP_ROPP
+	ropp_primary_init_finish();
+#endif
 	cred_init();
 	fork_init();
 	proc_caches_init();
 	buffer_init();
 	key_init();
 	security_init();
+#ifdef CONFIG_RKP_KDP
+	if (rkp_cred_enable) 
+		uh_call(UH_APP_RKP, 0x51, (u64)__rkp_ro_start,0, 0, 0);
+#endif /*CONFIG_RKP_KDP*/
 	dbg_late_init();
 	vfs_caches_init();
 	signals_init();
@@ -744,6 +977,39 @@ static bool __init_or_module initcall_blacklisted(initcall_t fn)
 #endif
 __setup("initcall_blacklist=", initcall_blacklist);
 
+#ifdef CONFIG_SEC_BSP
+static bool __init_or_module initcall_sec_debug = true;
+
+static int __init_or_module do_one_initcall_sec_debug(initcall_t fn)
+{
+	ktime_t calltime, delta, rettime;
+	unsigned long long duration;
+	int ret;
+	struct device_init_time_entry *entry;
+
+	calltime = ktime_get();
+	ret = fn();
+	rettime = ktime_get();
+	delta = ktime_sub(rettime, calltime);
+	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
+	if (duration > DEVICE_INIT_TIME_100MS) {
+		entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+		if (!entry)
+			return -ENOMEM;
+		entry->buf = kasprintf(GFP_KERNEL, "%pf", fn);
+		if (!entry->buf) {
+			return -ENOMEM;
+		}
+		entry->duration = duration;
+		list_add(&entry->next, &device_init_time_list);
+		printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n",
+			 fn, ret, duration);
+	}
+
+	return ret;
+}
+#endif
+
 static int __init_or_module do_one_initcall_debug(initcall_t fn)
 {
 	ktime_t calltime, delta, rettime;
@@ -773,6 +1039,10 @@ int __init_or_module do_one_initcall(initcall_t fn)
 
 	if (initcall_debug)
 		ret = do_one_initcall_debug(fn);
+#ifdef CONFIG_SEC_BSP
+	else if (initcall_sec_debug)
+		ret = do_one_initcall_sec_debug(fn);
+#endif
 	else
 		ret = fn();
 
@@ -841,6 +1111,10 @@ static void __init do_initcall_level(int level)
 
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(*fn);
+
+#ifdef CONFIG_SEC_BSP
+	sec_bootstat_add_initcall(initcall_level_names[level]);
+#endif
 }
 
 static void __init do_initcalls(void)
@@ -939,9 +1213,20 @@ static int __ref kernel_init(void *unused)
 	int ret;
 
 	kernel_init_freeable();
+#ifdef CONFIG_SEC_GPIO_DVS
+	/************************ Caution !!! ****************************/
+	/* This function must be located in appropriate INIT position
+	 * in accordance with the specification of each BB vendor.
+	 */
+	/************************ Caution !!! ****************************/
+	gpio_dvs_check_initgpio();
+#endif
+
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
+#ifndef CONFIG_DEFERRED_INITCALLS
 	free_initmem();
+#endif
 	mark_readonly();
 	system_state = SYSTEM_RUNNING;
 	numa_default_policy();
@@ -950,8 +1235,12 @@ static int __ref kernel_init(void *unused)
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
-		if (!ret)
+		if (!ret) {
+#ifdef CONFIG_DEFERRED_INITCALLS
+			schedule_work(&deferred_initcall_work);
+#endif
 			return 0;
+		}
 		pr_err("Failed to execute %s (error %d)\n",
 		       ramdisk_execute_command, ret);
 	}

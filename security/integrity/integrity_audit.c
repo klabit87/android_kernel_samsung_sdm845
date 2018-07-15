@@ -15,7 +15,7 @@
 #include <linux/audit.h>
 #include "integrity.h"
 
-static int integrity_audit_info;
+static int integrity_audit_info = 1;
 
 /* ima_audit_setup - enable informational auditing messages */
 static int __init integrity_audit_setup(char *str)

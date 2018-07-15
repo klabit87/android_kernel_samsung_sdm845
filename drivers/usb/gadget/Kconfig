@@ -134,6 +134,38 @@ config U_SERIAL_CONSOLE
 	help
 	   It supports the serial gadget can be used as a console.
 
+config USB_G_ANDROID
+	bool "Android Composite Gadget"
+	help
+	  The Android Composite Gadget supports multiple USB
+	  functions: adb, acm, mass storage, mtp, accessory
+	  and rndis.
+	  Each function can be configured and enabled/disabled
+	  dynamically from userspace through a sysfs interface.
+
+config USB_ANDROID_SAMSUNG_COMPOSITE
+	bool "Samsung Composite function"
+	depends on USB_G_ANDROID
+	help
+	  Provides SAMSUNG composite driver.
+	  Multi Configuration.
+	  If you enable this option, android composite will be changed.
+
+config USB_FFS_IPC_LOGGING
+	bool "USB IPC Logging"
+	default n
+	help
+	  USB IPC Logging support
+
+config USB_NCM_SUPPORT_MTU_CHANGE
+	boolean "Samsung NCM MTU Change function"
+	depends on USB_G_ANDROID
+	help
+	   Provides NCM MTU Change support
+	   for samsung gadget driver.
+	   If you enable this option,
+	   NCM MTU Change will be able to be used.
+
 source "drivers/usb/gadget/udc/Kconfig"
 
 #
@@ -207,6 +239,36 @@ config USB_F_PRINTER
 	tristate
 
 config USB_F_TCM
+	tristate
+
+config USB_F_MTP
+	tristate
+
+config USB_F_PTP
+        tristate
+
+config USB_F_AUDIO_SRC
+	tristate
+
+config USB_F_ACC
+	tristate
+
+config USB_F_DIAG
+	tristate
+
+config USB_F_CDEV
+	tristate
+
+config USB_F_CCID
+	tristate
+
+config USB_F_GSI
+	tristate
+
+config USB_F_QDSS
+	tristate
+
+config USB_F_CONN_GADGET
 	tristate
 
 # this first set of drivers all depend on bulk-capable hardware.
@@ -301,6 +363,19 @@ config USB_CONFIGFS_RNDIS
 	   XP, you'll need to download drivers from Microsoft's website; a URL
 	   is given in comments found in that info file.
 
+config USB_CONFIGFS_RMNET_BAM
+	bool "RMNET"
+	depends on USB_CONFIGFS
+	depends on IPA
+	select USB_F_RMNET_BAM
+
+config USB_CONFIGFS_CONN_GADGET
+	bool "Samsung Sidesync function"
+	depends on USB_CONFIGFS
+	select USB_F_CONN_GADGET
+	help
+	  USB Sidesync function support
+
 config USB_CONFIGFS_EEM
 	bool "Ethernet Emulation Model (EEM)"
 	depends on USB_CONFIGFS
@@ -361,6 +436,44 @@ config USB_CONFIGFS_F_FS
 	  of composite gadgets such that some of the functions are
 	  implemented in kernel space (for instance Ethernet, serial or
 	  mass storage) and other are implemented in user space.
+
+config USB_CONFIGFS_F_MTP
+	boolean "MTP gadget"
+	depends on USB_CONFIGFS
+	select USB_F_MTP
+	help
+	  USB gadget MTP support
+
+config USB_CONFIGFS_F_PTP
+	boolean "PTP gadget"
+	depends on USB_CONFIGFS && USB_CONFIGFS_F_MTP
+	select USB_F_PTP
+	help
+	  USB gadget PTP support
+
+config USB_CONFIGFS_F_ACC
+	boolean "Accessory gadget"
+	depends on USB_CONFIGFS
+	select USB_F_ACC
+	help
+	  USB gadget Accessory support
+
+config USB_CONFIGFS_F_AUDIO_SRC
+	boolean "Audio Source gadget"
+	depends on USB_CONFIGFS && USB_CONFIGFS_F_ACC
+	depends on SND
+	select SND_PCM
+	select USB_F_AUDIO_SRC
+	help
+	  USB gadget Audio Source support
+
+config USB_CONFIGFS_UEVENT
+	boolean "Uevent notification of Gadget state"
+	depends on USB_CONFIGFS
+	help
+	  Enable uevent notifications to userspace when the gadget
+	  state changes. The gadget can be in any of the following
+	  three states: "CONNECTED/DISCONNECTED/CONFIGURED"
 
 config USB_CONFIGFS_F_UAC1
 	bool "Audio Class 1.0"
@@ -457,10 +570,46 @@ config USB_CONFIGFS_F_TCM
 	  Both protocols can work on USB2.0 and USB3.0.
 	  UAS utilizes the USB 3.0 feature called streams support.
 
+config USB_CONFIGFS_F_DIAG
+	bool "USB Diag function"
+	select USB_F_DIAG
+	depends on USB_CONFIGFS
+	help
+	  Diag function driver enables support for Qualcomm diagnostics
+	  port over USB.
+
+config USB_CONFIGFS_F_CDEV
+	bool "USB Serial Character function"
+	select USB_F_CDEV
+	depends on USB_CONFIGFS
+	help
+	  Generic USB serial character function driver to support DUN/NMEA.
+
+config USB_CONFIGFS_F_CCID
+	bool "USB CCID function"
+	select USB_F_CCID
+	depends on USB_CONFIGFS
+	help
+	  USB CCID function driver creates transport layer between the
+	  userspace CCID component and the Windows Host.
+
+config USB_CONFIGFS_F_GSI
+	bool "USB GSI function"
+	select USB_F_GSI
+	depends on USB_CONFIGFS
+	help
+	  Generic function driver to support h/w acceleration to IPA over GSI.
+
+config USB_CONFIGFS_F_QDSS
+        bool "USB QDSS function"
+	select USB_F_QDSS
+	depends on USB_CONFIGFS
+	help
+          USB QDSS function driver to get hwtracing related data over USB.
+
 choice
 	tristate "USB Gadget Drivers"
 	default USB_ETH
-	optional
 	help
 	  A Linux "Gadget Driver" talks to the USB Peripheral Controller
 	  driver through the abstract "gadget" API.  Some other operating
@@ -480,5 +629,14 @@ choice
 source "drivers/usb/gadget/legacy/Kconfig"
 
 endchoice
+
+config USB_DUN_SUPPORT
+	boolean "DUN support function"
+        depends on USB_F_ACM
+	help
+	  Provides USB modem serial driver.
+	  This function makes connection to acm from data router.
+	  It uses misc register.
+	  Support fops : open, close, release, read, poll, llseek, ioctl
 
 endif # USB_GADGET

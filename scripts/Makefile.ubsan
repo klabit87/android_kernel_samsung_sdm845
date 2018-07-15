@@ -10,6 +10,11 @@ ifdef CONFIG_UBSAN
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=bool)
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=enum)
 
+CC = $(srctree)/scripts/gcc-wrapper.py $(srctree)/../prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.2.1/bin/aarch64-linux-gnu-gcc
+
+KBUILD_CFLAGS += $(call cc-option, -D__ANDROID__ -w -Wno-error)
+KBUILD_CFLAGS += $(call cc-disable-warning,frame-address,)
+
 ifdef CONFIG_UBSAN_ALIGNMENT
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=alignment)
 endif

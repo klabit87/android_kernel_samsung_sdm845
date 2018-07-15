@@ -10,3 +10,4 @@ libcomposite-y			:= usbstring.o config.o epautoconf.o
 libcomposite-y			+= composite.o functions.o configfs.o u_f.o
 
 obj-$(CONFIG_USB_GADGET)	+= udc/ function/ legacy/
+obj-$(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE)	+= multi_config.o

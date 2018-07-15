@@ -26,7 +26,23 @@ enum mapping_flags {
 	AS_EXITING	= 4, 	/* final truncate in progress */
 	/* writeback related tags are not used */
 	AS_NO_WRITEBACK_TAGS = 5,
+#ifdef CONFIG_SDP
+	AS_SENSITIVE = 6, /* Group of sensitive pages to be cleaned up */
+#endif
 };
+
+/*
+ * The page cache can be done in larger chunks than
+ * one page, because it allows for more efficient
+ * throughput (it can then be mapped into user
+ * space in smaller chunks for same flexibility).
+ *
+ * Or rather, it _will_ be done in larger chunks.
+ */
+#define PAGE_CACHE_SHIFT	PAGE_SHIFT
+#define PAGE_CACHE_SIZE		PAGE_SIZE
+#define PAGE_CACHE_MASK		PAGE_MASK
+#define PAGE_CACHE_ALIGN(addr)	(((addr)+PAGE_CACHE_SIZE-1)&PAGE_CACHE_MASK)
 
 static inline void mapping_set_error(struct address_space *mapping, int error)
 {
@@ -95,6 +111,25 @@ static inline void mapping_set_gfp_mask(struct address_space *m, gfp_t mask)
 {
 	m->gfp_mask = mask;
 }
+
+#ifdef CONFIG_SDP
+static inline void mapping_set_sensitive(struct address_space *mapping)
+{
+	set_bit(AS_SENSITIVE, &mapping->flags);
+}
+
+static inline void mapping_clear_sensitive(struct address_space *mapping)
+{
+	clear_bit(AS_SENSITIVE, &mapping->flags);
+}
+
+static inline int mapping_sensitive(struct address_space *mapping)
+{
+	if (mapping)
+		return test_bit(AS_SENSITIVE, &mapping->flags);
+	return !!mapping;
+}
+#endif
 
 void release_pages(struct page **pages, int nr, bool cold);
 

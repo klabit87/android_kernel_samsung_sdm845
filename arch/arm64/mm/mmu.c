@@ -30,6 +30,9 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/stop_machine.h>
+#include <linux/dma-contiguous.h>
+#include <linux/cma.h>
+#include <linux/mm.h>
 
 #include <asm/barrier.h>
 #include <asm/cputype.h>
@@ -43,6 +46,13 @@
 #include <asm/memblock.h>
 #include <asm/mmu_context.h>
 
+#ifdef CONFIG_UH
+#include <linux/uh.h>
+#ifdef CONFIG_UH_RKP
+#include <linux/rkp.h>
+#endif
+#endif
+
 u64 idmap_t0sz = TCR_T0SZ(VA_BITS);
 
 u64 kimage_voffset __ro_after_init;
@@ -52,12 +62,57 @@ EXPORT_SYMBOL(kimage_voffset);
  * Empty_zero_page is a special page that is used for zero-initialized data
  * and COW.
  */
+#ifdef CONFIG_UH_RKP_TEMP
+__attribute__((section(".empty_zero_page"))) unsigned long __ezr[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
+unsigned long *empty_zero_page = __ezr;
+#else
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] __page_aligned_bss;
+#endif
 EXPORT_SYMBOL(empty_zero_page);
-
+#ifdef CONFIG_UH_RKP
+u32 rkp_ro_buf_ready = 0;
+extern pte_t bm_pte[];
+extern pmd_t bm_pmd[];
+extern pud_t bm_pud[];
+#else
 static pte_t bm_pte[PTRS_PER_PTE] __page_aligned_bss;
 static pmd_t bm_pmd[PTRS_PER_PMD] __page_aligned_bss __maybe_unused;
 static pud_t bm_pud[PTRS_PER_PUD] __page_aligned_bss __maybe_unused;
+#endif
+
+struct dma_contig_early_reserve {
+	phys_addr_t base;
+	unsigned long size;
+};
+
+static struct dma_contig_early_reserve dma_mmu_remap[MAX_CMA_AREAS];
+static int dma_mmu_remap_num;
+
+void __init dma_contiguous_early_fixup(phys_addr_t base, unsigned long size)
+{
+	if (dma_mmu_remap_num >= ARRAY_SIZE(dma_mmu_remap)) {
+		pr_err("ARM64: Not enough slots for DMA fixup reserved regions!\n");
+		return;
+	}
+	dma_mmu_remap[dma_mmu_remap_num].base = base;
+	dma_mmu_remap[dma_mmu_remap_num].size = size;
+	dma_mmu_remap_num++;
+}
+
+static bool dma_overlap(phys_addr_t start, phys_addr_t end)
+{
+	int i;
+
+	for (i = 0; i < dma_mmu_remap_num; i++) {
+		phys_addr_t dma_base = dma_mmu_remap[i].base;
+		phys_addr_t dma_end = dma_mmu_remap[i].base +
+			dma_mmu_remap[i].size;
+
+		if ((dma_base < end) && (dma_end > start))
+			return true;
+	}
+	return false;
+}
 
 pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
 			      unsigned long size, pgprot_t vma_prot)
@@ -95,6 +150,75 @@ static phys_addr_t __init early_pgtable_alloc(void)
 	return phys;
 }
 
+#ifdef CONFIG_UH_RKP
+spinlock_t ro_rkp_pages_lock = __SPIN_LOCK_UNLOCKED();
+char ro_pages_stat[RO_PAGES] = {0};
+unsigned int ro_alloc_last = 0;
+static phys_addr_t __init rkp_ro_alloc_phys(void)
+{
+	unsigned long flags;
+	unsigned int i, j;
+	phys_addr_t alloc_addr = 0;
+	if (!rkp_ro_buf_ready)
+		return alloc_addr;
+	spin_lock_irqsave(&ro_rkp_pages_lock, flags);
+	for (i = 0, j = ro_alloc_last; i < (unsigned int)(RO_PAGES) ; i++) {
+		j =  (j+1) % (RO_PAGES);
+		if (!ro_pages_stat[j]) {
+			ro_pages_stat[j] = 1;
+			ro_alloc_last = j+1;
+			alloc_addr = (phys_addr_t)((u64)RKP_ROBUF_START +  (j << PAGE_SHIFT));
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&ro_rkp_pages_lock, flags);
+	return alloc_addr;
+}
+void *rkp_ro_alloc(void)
+{
+	unsigned long flags;
+	unsigned int i, j;
+	void *alloc_addr = NULL;
+	if (!rkp_ro_buf_ready)
+		return alloc_addr;
+	spin_lock_irqsave(&ro_rkp_pages_lock, flags);
+
+	for (i = 0, j = ro_alloc_last; i < (unsigned int)(RO_PAGES) ; i++) {
+		j =  (j+1) % (RO_PAGES);
+		if (!ro_pages_stat[j]) {
+			ro_pages_stat[j] = 1;
+			ro_alloc_last = j+1;
+			alloc_addr = (void *) ((u64)RKP_RBUF_VA +  (j << PAGE_SHIFT));
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&ro_rkp_pages_lock, flags);
+
+	return alloc_addr;
+}
+
+void rkp_ro_free(void *free_addr)
+{
+	unsigned int i;
+	unsigned long flags;
+
+	i =  ((u64)free_addr - (u64)RKP_RBUF_VA) >> PAGE_SHIFT;
+	spin_lock_irqsave(&ro_rkp_pages_lock, flags);
+	ro_pages_stat[i] = 0;
+	ro_alloc_last = i;
+	spin_unlock_irqrestore(&ro_rkp_pages_lock, flags);
+}
+
+unsigned int is_rkp_ro_page(u64 addr)
+{
+	if ((addr >= (u64)RKP_RBUF_VA)
+		&& (addr < (u64)(RKP_RBUF_VA + RKP_ROBUF_SIZE)))
+		return 1;
+	else
+		return 0;
+}
+#endif
+
 static void alloc_init_pte(pmd_t *pmd, unsigned long addr,
 				  unsigned long end, unsigned long pfn,
 				  pgprot_t prot,
@@ -104,7 +228,7 @@ static void alloc_init_pte(pmd_t *pmd, unsigned long addr,
 
 	BUG_ON(pmd_sect(*pmd));
 	if (pmd_none(*pmd)) {
-		phys_addr_t pte_phys;
+		phys_addr_t pte_phys = 0;
 		BUG_ON(!pgtable_alloc);
 		pte_phys = pgtable_alloc();
 		pte = pte_set_fixmap(pte_phys);
@@ -135,9 +259,15 @@ static void alloc_init_pmd(pud_t *pud, unsigned long addr, unsigned long end,
 	 */
 	BUG_ON(pud_sect(*pud));
 	if (pud_none(*pud)) {
-		phys_addr_t pmd_phys;
+		phys_addr_t pmd_phys = 0;
 		BUG_ON(!pgtable_alloc);
+#ifdef CONFIG_UH_RKP
+		pmd_phys = rkp_ro_alloc_phys();
+		if (!pmd_phys)
+			pmd_phys = pgtable_alloc();
+#else
 		pmd_phys = pgtable_alloc();
+#endif
 		pmd = pmd_set_fixmap(pmd_phys);
 		__pud_populate(pud, pmd_phys, PUD_TYPE_TABLE);
 		pmd_clear_fixmap();
@@ -149,7 +279,8 @@ static void alloc_init_pmd(pud_t *pud, unsigned long addr, unsigned long end,
 		next = pmd_addr_end(addr, end);
 		/* try section mapping first */
 		if (((addr | next | phys) & ~SECTION_MASK) == 0 &&
-		      allow_block_mappings) {
+		      allow_block_mappings &&
+		      !dma_overlap(phys, phys + next - addr)) {
 			pmd_t old_pmd =*pmd;
 			pmd_set_huge(pmd, phys, prot);
 			/*
@@ -183,6 +314,9 @@ static inline bool use_1G_block(unsigned long addr, unsigned long next,
 	if (((addr | next | phys) & ~PUD_MASK) != 0)
 		return false;
 
+	if ((IS_ENABLED(CONFIG_UH_RKP)) &&
+		((addr <= (u64)_stext) && ((u64)_stext <= next)))
+		return false;                           
 	return true;
 }
 
@@ -209,7 +343,8 @@ static void alloc_init_pud(pgd_t *pgd, unsigned long addr, unsigned long end,
 		/*
 		 * For 4K granule only, attempt to put down a 1GB block
 		 */
-		if (use_1G_block(addr, next, phys) && allow_block_mappings) {
+		if (use_1G_block(addr, next, phys) && allow_block_mappings &&
+		    !dma_overlap(phys, phys + next - addr)) {
 			pud_t old_pud = *pud;
 			pud_set_huge(pud, phys, prot);
 
@@ -225,7 +360,12 @@ static void alloc_init_pud(pgd_t *pgd, unsigned long addr, unsigned long end,
 				if (pud_table(old_pud)) {
 					phys_addr_t table = pud_page_paddr(old_pud);
 					if (!WARN_ON_ONCE(slab_is_available()))
+#ifdef CONFIG_UH_RKP
+						if ((u64) table < (u64) __pa(_text) || (u64) table > (u64) __pa(_etext))
+							memblock_free(table, PAGE_SIZE);
+#else
 						memblock_free(table, PAGE_SIZE);
+#endif
 				}
 			}
 		} else {
@@ -269,7 +409,13 @@ static void __create_pgd_mapping(pgd_t *pgdir, phys_addr_t phys,
 
 static phys_addr_t pgd_pgtable_alloc(void)
 {
+#ifdef CONFIG_UH_RKP
+	void *ptr = rkp_ro_alloc();
+	if (!ptr)
+		ptr = (void *)__get_free_page(PGALLOC_GFP);
+#else
 	void *ptr = (void *)__get_free_page(PGALLOC_GFP);
+#endif
 	if (!ptr || !pgtable_page_ctor(virt_to_page(ptr)))
 		BUG();
 
@@ -319,8 +465,8 @@ static void create_mapping_late(phys_addr_t phys, unsigned long virt,
 
 static void __init __map_memblock(pgd_t *pgd, phys_addr_t start, phys_addr_t end)
 {
-	unsigned long kernel_start = __pa(_text);
-	unsigned long kernel_end = __pa(__init_begin);
+	unsigned long kernel_start = __pa_symbol(_text);
+	unsigned long kernel_end = __pa_symbol(__init_begin);
 
 	/*
 	 * Take care not to create a writable alias for the
@@ -387,21 +533,21 @@ void mark_rodata_ro(void)
 	unsigned long section_size;
 
 	section_size = (unsigned long)_etext - (unsigned long)_text;
-	create_mapping_late(__pa(_text), (unsigned long)_text,
+	create_mapping_late(__pa_symbol(_text), (unsigned long)_text,
 			    section_size, PAGE_KERNEL_ROX);
 	/*
 	 * mark .rodata as read only. Use __init_begin rather than __end_rodata
 	 * to cover NOTES and EXCEPTION_TABLE.
 	 */
 	section_size = (unsigned long)__init_begin - (unsigned long)__start_rodata;
-	create_mapping_late(__pa(__start_rodata), (unsigned long)__start_rodata,
+	create_mapping_late(__pa_symbol(__start_rodata), (unsigned long)__start_rodata,
 			    section_size, PAGE_KERNEL_RO);
 }
 
 static void __init map_kernel_segment(pgd_t *pgd, void *va_start, void *va_end,
 				      pgprot_t prot, struct vm_struct *vma)
 {
-	phys_addr_t pa_start = __pa(va_start);
+	phys_addr_t pa_start = __pa_symbol(va_start);
 	unsigned long size = va_end - va_start;
 
 	BUG_ON(!PAGE_ALIGNED(pa_start));
@@ -426,8 +572,13 @@ static void __init map_kernel(pgd_t *pgd)
 {
 	static struct vm_struct vmlinux_text, vmlinux_rodata, vmlinux_init, vmlinux_data;
 
+#ifdef CONFIG_UH_RKP
 	map_kernel_segment(pgd, _text, _etext, PAGE_KERNEL_EXEC, &vmlinux_text);
+	map_kernel_segment(pgd, _etext, __init_begin, PAGE_KERNEL, &vmlinux_rodata);
+#else
+	map_kernel_segment(pgd, _text, __start_rodata, PAGE_KERNEL_EXEC, &vmlinux_text);
 	map_kernel_segment(pgd, __start_rodata, __init_begin, PAGE_KERNEL, &vmlinux_rodata);
+#endif
 	map_kernel_segment(pgd, __init_begin, __init_end, PAGE_KERNEL_EXEC,
 			   &vmlinux_init);
 	map_kernel_segment(pgd, _data, _end, PAGE_KERNEL, &vmlinux_data);
@@ -449,7 +600,7 @@ static void __init map_kernel(pgd_t *pgd)
 		 */
 		BUG_ON(!IS_ENABLED(CONFIG_ARM64_16K_PAGES));
 		set_pud(pud_set_fixmap_offset(pgd, FIXADDR_START),
-			__pud(__pa(bm_pmd) | PUD_TYPE_TABLE));
+			__pud(__pa_symbol(bm_pmd) | PUD_TYPE_TABLE));
 		pud_clear_fixmap();
 	} else {
 		BUG();
@@ -467,6 +618,22 @@ void __init paging_init(void)
 	phys_addr_t pgd_phys = early_pgtable_alloc();
 	pgd_t *pgd = pgd_set_fixmap(pgd_phys);
 
+#if 0 //def CONFIG_UH_RKP
+	phys_addr_t pa = RKP_ROBUF_START;
+	void *va;
+
+	for (; pa < (RKP_ROBUF_START + RKP_ROBUF_SIZE); pa += PAGE_SIZE) {
+		va = pte_set_fixmap(pa);
+		memset(va, 0, PAGE_SIZE);
+		pte_clear_fixmap();
+	}
+	rkp_ro_buf_ready = 1;
+#if 0
+	empty_zero_page = rkp_ro_alloc();
+	BUG_ON(empty_zero_page == NULL);
+#endif
+#endif
+
 	map_kernel(pgd);
 	map_mem(pgd);
 
@@ -480,17 +647,22 @@ void __init paging_init(void)
 	 */
 	cpu_replace_ttbr1(__va(pgd_phys));
 	memcpy(swapper_pg_dir, pgd, PAGE_SIZE);
-	cpu_replace_ttbr1(swapper_pg_dir);
+	cpu_replace_ttbr1(lm_alias(swapper_pg_dir));
 
 	pgd_clear_fixmap();
 	memblock_free(pgd_phys, PAGE_SIZE);
 
+#ifdef CONFIG_UH_RKP
+	memset(RKP_RBUF_VA, 0, RKP_ROBUF_SIZE);
+	rkp_ro_buf_ready = 1;
+#else
 	/*
 	 * We only reuse the PGD from the swapper_pg_dir, not the pud + pmd
 	 * allocated with it.
 	 */
-	memblock_free(__pa(swapper_pg_dir) + PAGE_SIZE,
+	memblock_free(__pa_symbol(swapper_pg_dir) + PAGE_SIZE,
 		      SWAPPER_DIR_SIZE - PAGE_SIZE);
+#endif
 }
 
 /*
@@ -600,6 +772,12 @@ static inline pte_t * fixmap_pte(unsigned long addr)
 	return &bm_pte[pte_index(addr)];
 }
 
+/*
+ * The p*d_populate functions call virt_to_phys implicitly so they can't be used
+ * directly on kernel symbols (bm_p*d). This function is called too early to use
+ * lm_alias so __p*d_populate functions must be used to populate with the
+ * physical address from __pa_symbol.
+ */
 void __init early_fixmap_init(void)
 {
 	pgd_t *pgd;
@@ -609,7 +787,7 @@ void __init early_fixmap_init(void)
 
 	pgd = pgd_offset_k(addr);
 	if (CONFIG_PGTABLE_LEVELS > 3 &&
-	    !(pgd_none(*pgd) || pgd_page_paddr(*pgd) == __pa(bm_pud))) {
+	    !(pgd_none(*pgd) || pgd_page_paddr(*pgd) == __pa_symbol(bm_pud))) {
 		/*
 		 * We only end up here if the kernel mapping and the fixmap
 		 * share the top level pgd entry, which should only happen on
@@ -618,12 +796,14 @@ void __init early_fixmap_init(void)
 		BUG_ON(!IS_ENABLED(CONFIG_ARM64_16K_PAGES));
 		pud = pud_offset_kimg(pgd, addr);
 	} else {
-		pgd_populate(&init_mm, pgd, bm_pud);
+		if (pgd_none(*pgd))
+			__pgd_populate(pgd, __pa_symbol(bm_pud), PUD_TYPE_TABLE);
 		pud = fixmap_pud(addr);
 	}
-	pud_populate(&init_mm, pud, bm_pmd);
+	if (pud_none(*pud))
+		__pud_populate(pud, __pa_symbol(bm_pmd), PMD_TYPE_TABLE);
 	pmd = fixmap_pmd(addr);
-	pmd_populate_kernel(&init_mm, pmd, bm_pte);
+	__pmd_populate(pmd, __pa_symbol(bm_pte), PMD_TYPE_TABLE);
 
 	/*
 	 * The boot-ioremap range spans multiple pmds, for which
