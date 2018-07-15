@@ -7059,8 +7059,17 @@ retry:
 		while ((i = cpumask_next(i, &search_cpus)) < nr_cpu_ids) {
 			cpumask_clear_cpu(i, &search_cpus);
 
+<<<<<<< HEAD
 			if (cpu_isolated(i))
 				continue;
+=======
+	/*
+	 * Due to large variance we need a large fuzz factor; hackbench in
+	 * particularly is sensitive here.
+	 */
+	if (sched_feat(SIS_AVG_CPU) && (avg_idle / 512) < avg_cost)
+		return -1;
+>>>>>>> v4.9.69
 
 			if (isolated_candidate == -1)
 				isolated_candidate = i;
