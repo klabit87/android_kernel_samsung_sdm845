@@ -31,8 +31,7 @@
  * If the temperature is higher than a trip point,
  *    a. if the trend is THERMAL_TREND_RAISING, use higher cooling
  *       state for this trip point
- *    b. if the trend is THERMAL_TREND_DROPPING, use lower cooling
- *       state for this trip point
+ *    b. if the trend is THERMAL_TREND_DROPPING, do nothing
  *    c. if the trend is THERMAL_TREND_RAISE_FULL, use upper limit
  *       for this trip point
  *    d. if the trend is THERMAL_TREND_DROP_FULL, use lower limit
