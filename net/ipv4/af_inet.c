@@ -449,17 +449,11 @@ int inet_release(struct socket *sock)
 		if (sock_flag(sk, SOCK_LINGER) &&
 			!(current->flags & PF_EXITING))
 			timeout = sk->sk_lingertime;
-<<<<<<< HEAD
-		/* START_OF_KNOX_NPA */
-		knox_collect_metadata(sock);
-		/* END_OF_KNOX_NPA */
-=======
 #ifdef CONFIG_KNOX_NCM
         /* START_OF_KNOX_NPA */
         knox_collect_metadata(sock);
         /* END_OF_KNOX_NPA */
 #endif
->>>>>>> 794b6884f5a8... net: ipv4: only use when knox_ncm is enabled
 		sock->sk = NULL;
 		sk->sk_prot->close(sk, timeout);
 	}
