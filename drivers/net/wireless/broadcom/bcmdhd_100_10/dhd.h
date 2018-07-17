@@ -335,7 +335,7 @@ enum dhd_op_flags {
 #if defined(CUSTOMER_HW4) && defined(PLATFORM_SLP)
 #define CONFIG_BCMDHD_CLM_PATH "/lib/firmware/bcmdhd_clm.blob"
 #else
-#define CONFIG_BCMDHD_CLM_PATH "/etc/wifi/bcmdhd_clm.blob"
+#define CONFIG_BCMDHD_CLM_PATH "/vendor/etc/wifi/bcmdhd_clm.blob"
 #endif /* CUSTOMER_HW4 && PLATFORM_SLP */
 #endif /* CONFIG_BCMDHD_CLM_PATH */
 #define WL_CCODE_NULL_COUNTRY  "#n"
