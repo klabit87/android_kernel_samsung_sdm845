@@ -2499,7 +2499,7 @@ static int _regulator_list_voltage(struct regulator *regulator,
 		ret = ops->list_voltage(rdev, selector);
 		if (lock)
 			mutex_unlock(&rdev->mutex);
-	} else if (rdev->supply) {
+	} else if (rdev->is_switch && rdev->supply) {
 		ret = _regulator_list_voltage(rdev->supply, selector, lock);
 	} else {
 		return -EINVAL;
@@ -2557,7 +2557,7 @@ int regulator_count_voltages(struct regulator *regulator)
 	if (rdev->desc->n_voltages)
 		return rdev->desc->n_voltages;
 
-	if (!rdev->supply)
+	if (!rdev->is_switch || !rdev->supply)
 		return -EINVAL;
 
 	return regulator_count_voltages(rdev->supply);
@@ -4474,6 +4474,11 @@ regulator_register(const struct regulator_desc *regulator_desc,
 		list_add(&rdev->list, &regulator_list);
 		mutex_unlock(&regulator_list_mutex);
 	}
+
+	if (!rdev->desc->ops->get_voltage &&
+	    !rdev->desc->ops->list_voltage &&
+	    !rdev->desc->fixed_uV)
+		rdev->is_switch = true;
 
 	ret = device_register(&rdev->dev);
 	if (ret != 0) {
