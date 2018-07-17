@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -256,22 +256,7 @@ static int32_t qpnp_adc_tm_enable(struct qpnp_adc_tm_chip *chip)
 
 static int32_t qpnp_adc_tm_disable(struct qpnp_adc_tm_chip *chip)
 {
-	u8 data = 0;
-	int rc = 0;
-
-	rc = qpnp_adc_tm_write_reg(chip, QPNP_BTM_CONV_REQ, data, 1);
-	if (rc < 0) {
-		pr_err("adc-tm enable failed\n");
-		return rc;
-	}
-
-	rc = qpnp_adc_tm_write_reg(chip, QPNP_EN_CTL1, data, 1);
-	if (rc < 0) {
-		pr_err("adc-tm disable failed\n");
-		return rc;
-	}
-
-	return rc;
+	return 0;
 }
 
 static int qpnp_adc_tm_is_valid(struct qpnp_adc_tm_chip *chip)
@@ -1320,8 +1305,11 @@ static int qpnp_adc_tm_disable_rearm_high_thresholds(
 		return rc;
 	}
 
-	queue_work(chip->sensor[sensor_num].req_wq,
-				&chip->sensor[sensor_num].work);
+	if (!queue_work(chip->sensor[sensor_num].req_wq,
+				&chip->sensor[sensor_num].work)) {
+		/* The item is already queued, reduce the count */
+		atomic_dec(&chip->wq_cnt);
+	}
 
 	return rc;
 }
@@ -1408,8 +1396,11 @@ static int qpnp_adc_tm_disable_rearm_low_thresholds(
 		return rc;
 	}
 
-	queue_work(chip->sensor[sensor_num].req_wq,
-				&chip->sensor[sensor_num].work);
+	if (!queue_work(chip->sensor[sensor_num].req_wq,
+				&chip->sensor[sensor_num].work)) {
+		/* The item is already queued, reduce the count */
+		atomic_dec(&chip->wq_cnt);
+	}
 
 	return rc;
 }
@@ -1625,13 +1616,14 @@ static irqreturn_t qpnp_adc_tm_rc_thr_isr(int irq, void *data)
 	}
 
 	if (sensor_low_notify_num) {
-		atomic_inc(&chip->wq_cnt);
-		queue_work(chip->low_thr_wq, &chip->trigger_low_thr_work);
+		if (queue_work(chip->low_thr_wq, &chip->trigger_low_thr_work))
+			atomic_inc(&chip->wq_cnt);
 	}
 
 	if (sensor_high_notify_num) {
-		atomic_inc(&chip->wq_cnt);
-		queue_work(chip->high_thr_wq, &chip->trigger_high_thr_work);
+		if (queue_work(chip->high_thr_wq,
+				&chip->trigger_high_thr_work))
+			atomic_inc(&chip->wq_cnt);
 	}
 
 	return IRQ_HANDLED;

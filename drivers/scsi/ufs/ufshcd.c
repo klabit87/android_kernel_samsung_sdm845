@@ -226,7 +226,7 @@ SIO_PATCH_VERSION(UPIU_customize, 1, 0, "");
 /* default value of auto suspend is 3 seconds */
 #define UFSHCD_AUTO_SUSPEND_DELAY_MS 3000 /* millisecs */
 
-#define UFSHCD_CLK_GATING_DELAY_MS_PWR_SAVE	20
+#define UFSHCD_CLK_GATING_DELAY_MS_PWR_SAVE	30
 #define UFSHCD_CLK_GATING_DELAY_MS_PERF		50
 
 /* IOCTL opcode for command - ufs set device read only */
@@ -10504,6 +10504,16 @@ UFS_DEV_ATTR(gear, "%01x\n", hba->pwr_info.gear_rx);
 UFS_DEV_ATTR(sense_err_count, "\"MEDIUM\":\"%d\",\"HWERR\":\"%d\"\n",
 		hba->host->medium_err_cnt, hba->host->hw_err_cnt);
 UFS_DEV_ATTR(man_date, "%04X\n", hba->dev_info.w_manufacturer_date);
+UFS_DEV_ATTR(sense_err_logging, "\"LBA0\":\"%lx\",\"LBA1\":\"%lx\",\"LBA2\":\"%lx\""
+		",\"LBA3\":\"%lx\",\"LBA4\":\"%lx\",\"LBA5\":\"%lx\""
+		",\"LBA6\":\"%lx\",\"LBA7\":\"%lx\",\"LBA8\":\"%lx\",\"LBA9\":\"%lx\""
+		",\"REGIONMAP\":\"%016llx\"\n",
+		hba->host->issue_LBA_list[0], hba->host->issue_LBA_list[1]
+		, hba->host->issue_LBA_list[2], hba->host->issue_LBA_list[3]
+		, hba->host->issue_LBA_list[4], hba->host->issue_LBA_list[5]
+		, hba->host->issue_LBA_list[6], hba->host->issue_LBA_list[7]
+		, hba->host->issue_LBA_list[8], hba->host->issue_LBA_list[9]
+		, hba->host->issue_region_map);
 
 static ssize_t ufs_unique_number_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -10546,6 +10556,7 @@ static struct attribute *ufs_attributes[] = {
 	&dev_attr_sense_err_count.attr,
 	&dev_attr_man_date.attr,
 	&dev_attr_lc.attr,
+	&dev_attr_sense_err_logging.attr,
 #if defined(SEC_UFS_ERROR_COUNT)
 	&dev_attr_SEC_UFS_op_cnt.attr,
 	&dev_attr_SEC_UFS_uic_cmd_cnt.attr,

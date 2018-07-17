@@ -497,8 +497,8 @@
 
 		trips {
 			active-config0 {
-				temperature = <65000>;
-				hysteresis = <1000>;
+				temperature = <125000>;
+				hysteresis = <10000>;
 				type = "passive";
 			};
 		};
@@ -512,8 +512,8 @@
 
 		trips {
 			active-config0 {
-				temperature = <65000>;
-				hysteresis = <1000>;
+				temperature = <125000>;
+				hysteresis = <10000>;
 				type = "passive";
 			};
 		};
@@ -527,8 +527,8 @@
 
 		trips {
 			active-config0 {
-				temperature = <65000>;
-				hysteresis = <1000>;
+				temperature = <125000>;
+				hysteresis = <10000>;
 				type = "passive";
 			};
 		};
@@ -542,8 +542,8 @@
 
 		trips {
 			active-config0 {
-				temperature = <65000>;
-				hysteresis = <1000>;
+				temperature = <125000>;
+				hysteresis = <10000>;
 				type = "passive";
 			};
 		};

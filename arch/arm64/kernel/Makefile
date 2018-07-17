@@ -64,6 +64,10 @@ arm64-obj-$(CONFIG_UH_DEBUG)        += uh_debug.o
 arm64-obj-$(CONFIG_UH_INFORM)		+= uh_inform.o
 arm64-obj-$(CONFIG_RKP_CFP_ROPP)	+= rkp_cfp.o
 
+ifeq ($(CONFIG_KVM),y)
+arm64-obj-$(CONFIG_HARDEN_BRANCH_PREDICTOR)	+= bpi.o
+endif
+
 obj-y					+= $(arm64-obj-y) vdso/ probes/
 obj-m					+= $(arm64-obj-m)
 head-y					:= head.o

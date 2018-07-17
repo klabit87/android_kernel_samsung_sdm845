@@ -123,17 +123,11 @@ static bool sec_open_param(void)
 
 	pr_info("start\n");
 
-	if (is_param_loaded)
-		return true;
-
-	mutex_lock(&sec_param_mutex);
-
 	if (!param_data)
 		param_data = kmalloc(sizeof(struct sec_param_data), GFP_KERNEL);
 
 	if (unlikely(!param_data)) {
 		pr_err("failed to alloc for param_data\n");
-		mutex_unlock(&sec_param_mutex);
 		return false;
 	}
 
@@ -144,8 +138,6 @@ static bool sec_open_param(void)
 
 	schedule_work(&sched_sec_param_data.sec_param_work);
 	wait_for_completion(&sched_sec_param_data.work);
-
-	mutex_unlock(&sec_param_mutex);
 
 	is_param_loaded = sched_sec_param_data.success;
 	if (!is_param_loaded) {
@@ -161,8 +153,6 @@ static bool sec_write_param(void)
 {
 	pr_info("start\n");
 
-	mutex_lock(&sec_param_mutex);
-
 	sched_sec_param_data.value = param_data;
 	sched_sec_param_data.offset = SEC_PARAM_FILE_OFFSET;
 	sched_sec_param_data.size = sizeof(struct sec_param_data);
@@ -170,8 +160,6 @@ static bool sec_write_param(void)
 
 	schedule_work(&sched_sec_param_data.sec_param_work);
 	wait_for_completion(&sched_sec_param_data.work);
-
-	mutex_unlock(&sec_param_mutex);
 
 	if (!sched_sec_param_data.success) {
 		pr_err("%s: param_sec_operation write failed\n", __func__);
@@ -185,12 +173,14 @@ static bool sec_write_param(void)
 
 bool sec_get_param(enum sec_param_index index, void *value)
 {
-	int ret;
+	bool ret;
+
+	mutex_lock(&sec_param_mutex);
 
 	ret = sec_open_param();
 	if (unlikely(!ret)) {
 		pr_err("can't open a param partition\n");
-		return false;
+		goto out;
 	}
 
 	switch (index) {
@@ -280,42 +270,42 @@ bool sec_get_param(enum sec_param_index index, void *value)
 		break;
 #ifdef CONFIG_SEC_NAD
 	case param_index_qnad:
-		mutex_lock(&sec_param_mutex);
 		sched_sec_param_data.value = value;
 		sched_sec_param_data.offset = SEC_PARAM_NAD_OFFSET;
 		sched_sec_param_data.size = sizeof(struct param_qnad);
 		sched_sec_param_data.direction = PARAM_RD;
 		schedule_work(&sched_sec_param_data.sec_param_work);
 		wait_for_completion(&sched_sec_param_data.work);
-		mutex_unlock(&sec_param_mutex);
 		break;
 	case param_index_qnad_ddr_result:
-		mutex_lock(&sec_param_mutex);
 		sched_sec_param_data.value = value;
 		sched_sec_param_data.offset = SEC_PARAM_NAD_DDR_RESULT_OFFSET;
 		sched_sec_param_data.size = sizeof(struct param_qnad_ddr_result);
 		sched_sec_param_data.direction = PARAM_RD;
 		schedule_work(&sched_sec_param_data.sec_param_work);
 		wait_for_completion(&sched_sec_param_data.work);
-		mutex_unlock(&sec_param_mutex);
 		break;
 #endif
 	default:
-		return false;
+		ret = false;
 	}
 
-	return true;
+out:
+	mutex_unlock(&sec_param_mutex);
+	return ret;
 }
 EXPORT_SYMBOL(sec_get_param);
 
 bool sec_set_param(enum sec_param_index index, void *value)
 {
-	int ret;
+	bool ret;
+
+	mutex_lock(&sec_param_mutex);
 
 	ret = sec_open_param();
 	if (unlikely(!ret)) {
 		pr_err("can't open a param partition\n");
-		return false;
+		goto out;
 	}
 
 	switch (index) {
@@ -412,32 +402,31 @@ bool sec_set_param(enum sec_param_index index, void *value)
 		break;
 #ifdef CONFIG_SEC_NAD
 	case param_index_qnad:
-		mutex_lock(&sec_param_mutex);
 		sched_sec_param_data.value = (struct param_qnad *)value;
 		sched_sec_param_data.offset = SEC_PARAM_NAD_OFFSET;
 		sched_sec_param_data.size = sizeof(struct param_qnad);
 		sched_sec_param_data.direction = PARAM_WR;
 		schedule_work(&sched_sec_param_data.sec_param_work);
 		wait_for_completion(&sched_sec_param_data.work);
-		mutex_unlock(&sec_param_mutex);
 		break;
 	case param_index_qnad_ddr_result:
-		mutex_lock(&sec_param_mutex);
 		sched_sec_param_data.value = (struct param_qnad_ddr_result *)value;
 		sched_sec_param_data.offset = SEC_PARAM_NAD_DDR_RESULT_OFFSET;
 		sched_sec_param_data.size = sizeof(struct param_qnad_ddr_result);
 		sched_sec_param_data.direction = PARAM_WR;
 		schedule_work(&sched_sec_param_data.sec_param_work);
 		wait_for_completion(&sched_sec_param_data.work);
-		mutex_unlock(&sec_param_mutex);
 		break;
 #endif
 	default:
-		return false;
+		ret = false;
+		goto out;
 	}
 
 	ret = sec_write_param();
 
+out:
+	mutex_unlock(&sec_param_mutex);
 	return ret;
 }
 EXPORT_SYMBOL(sec_set_param);

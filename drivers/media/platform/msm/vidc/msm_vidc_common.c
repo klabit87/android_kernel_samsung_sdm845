@@ -2042,6 +2042,7 @@ static void handle_session_flush(enum hal_command_response cmd, void *data)
 		return;
 	}
 
+	mutex_lock(&inst->flush_lock);
 	if (msm_comm_get_stream_output_mode(inst) ==
 			HAL_VIDEO_DECODER_SECONDARY) {
 
@@ -2084,6 +2085,7 @@ static void handle_session_flush(enum hal_command_response cmd, void *data)
 	v4l2_event_queue_fh(&inst->event_handler, &flush_event);
 
 exit:
+	mutex_unlock(&inst->flush_lock);
 	put_inst(inst);
 }
 
@@ -3174,8 +3176,10 @@ static int msm_vidc_load_resources(int flipped_state,
 		dprintk(VIDC_ERR, "HW is overloaded, needed: %d max: %d\n",
 			num_mbs_per_sec, max_load_adj);
 		msm_vidc_print_running_insts(core);
+#if 0 /* Samsung skips the overloaded error return  */
 		msm_comm_kill_session(inst);
 		return -EBUSY;
+#endif
 	}
 
 	hdev = core->device;
@@ -3339,11 +3343,9 @@ int msm_comm_suspend(int core_id)
 		return -EINVAL;
 	}
 
-	mutex_lock(&core->lock);
 	rc = call_hfi_op(hdev, suspend, hdev->hfi_device_data);
 	if (rc)
 		dprintk(VIDC_WARN, "Failed to suspend\n");
-	mutex_unlock(&core->lock);
 
 	return rc;
 }
@@ -5114,6 +5116,7 @@ int msm_comm_flush(struct msm_vidc_inst *inst, u32 flags)
 		return 0;
 	}
 
+	mutex_lock(&inst->flush_lock);
 	/* enable in flush */
 	inst->in_flush = true;
 
@@ -5167,6 +5170,7 @@ int msm_comm_flush(struct msm_vidc_inst *inst, u32 flags)
 		rc = call_hfi_op(hdev, session_flush, inst->session,
 			HAL_FLUSH_OUTPUT);
 	}
+	mutex_unlock(&inst->flush_lock);
 	if (rc) {
 		dprintk(VIDC_ERR,
 			"Sending flush to firmware failed, flush out all buffers\n");
@@ -5360,7 +5364,9 @@ static int msm_vidc_load_supported(struct msm_vidc_inst *inst)
 				num_mbs_per_sec,
 				max_load_adj);
 			msm_vidc_print_running_insts(inst->core);
+#if 0 /* Samsung skips the overloaded error return  */
 			return -EBUSY;
+#endif
 		}
 	}
 	return 0;
@@ -6562,6 +6568,7 @@ void handle_release_buffer_reference(struct msm_vidc_inst *inst,
 	bool found = false;
 	int i = 0;
 
+	mutex_lock(&inst->flush_lock);
 	mutex_lock(&inst->registeredbufs.lock);
 	found = false;
 	/* check if mbuf was not removed by any chance */
@@ -6642,6 +6649,7 @@ unlock:
 			print_vidc_buffer(VIDC_ERR,
 				"rbr qbuf failed", inst, mbuf);
 	}
+	mutex_unlock(&inst->flush_lock);
 }
 
 int msm_comm_unmap_vidc_buffer(struct msm_vidc_inst *inst,

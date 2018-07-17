@@ -397,6 +397,7 @@ static int s2abb01_pmic_probe(struct i2c_client *i2c,
 	struct s2abb01_data *s2abb01;
 	int i;
 	int ret = 0;
+	u8 temp0, temp1, temp2;
 
 	pr_info("%s:%s\n", MFD_DEV_NAME, __func__);
 
@@ -466,6 +467,19 @@ static int s2abb01_pmic_probe(struct i2c_client *i2c,
 			goto err_rdata;
 		}
 	}
+
+	/* Work-around for camera & low temp. issue */
+	/* 0x06[3] FB_BCAP : 1-->0 */
+	s2abb01_update_reg(i2c, 0x06, 0x00, 0x08);
+	/* 0x09[3:2] HYS : 10-->00 */
+	s2abb01_update_reg(i2c, 0x09, 0x00, 0x0C);
+	/* 0x05[4:2] BUCK_F2W_Precharge : 011-->010 */
+	s2abb01_update_reg(i2c, 0x05, 0x08, 0x1C);
+	s2abb01_read_reg(i2c, 0x06, &temp0);
+	s2abb01_read_reg(i2c, 0x09, &temp1);
+	s2abb01_read_reg(i2c, 0x05, &temp2);
+	/* log : 0x06:0x23, 0x09:0xB2  0x05:0x6A */
+	pr_info("%s: 0x06:0x%x, 0x09:0x%x, 0x05:0x%x\n", __func__, temp0, temp1, temp2);
 
 	return ret;
 

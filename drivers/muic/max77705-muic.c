@@ -39,6 +39,8 @@
 #include <linux/usb_notify.h>
 #endif
 
+#include "../battery_v2/include/sec_charging_common.h"
+
 //#include <linux/sec_debug.h> > no need
 //#include <linux/sec_ext.h> > what is the set_param?
 
@@ -874,6 +876,9 @@ static ssize_t max77705_muic_set_afc_disable(struct device *dev,
 	unsigned int param_val;
 	bool curr_val = pdata->afc_disable;
 	int ret = 0;
+#if defined(CONFIG_MUIC_HV) || defined(CONFIG_SUPPORT_QC30)
+	union power_supply_propval psy_val;
+#endif
 
 	/* Disable AFC */
 	if (!strncasecmp(buf, "1", 1)) {
@@ -910,6 +915,11 @@ static ssize_t max77705_muic_set_afc_disable(struct device *dev,
 #endif
 	pr_info("%s:%s afc_disable(%d)\n", MUIC_DEV_NAME, __func__, pdata->afc_disable);
 
+#if defined(CONFIG_MUIC_HV) || defined(CONFIG_SUPPORT_QC30)
+		psy_val.intval = param_val;
+		psy_do_property("battery", set,
+			POWER_SUPPLY_EXT_PROP_HV_DISABLE, psy_val);
+#endif
 	return count;
 }
 #endif /* CONFIG_HV_MUIC_MAX77705_AFC */
@@ -1365,10 +1375,10 @@ handle_attach:
 
 #if defined(CONFIG_HV_MUIC_MAX77705_AFC)
 	if (max77705_muic_check_is_enable_afc(muic_data, new_dev)) {
-		/* Maxim's request, wait 30ms for checking HVDCP */
-		pr_info("%s afc work after 30ms\n", __func__);
+		/* Maxim's request, wait 500ms for checking HVDCP */
+		pr_info("%s afc work after 500ms\n", __func__);
 		cancel_delayed_work_sync(&(muic_data->afc_work));
-		schedule_delayed_work(&(muic_data->afc_work), msecs_to_jiffies(30));
+		schedule_delayed_work(&(muic_data->afc_work), msecs_to_jiffies(500));
 	}
 #endif /* CONFIG_HV_MUIC_MAX77705_AFC */
 
@@ -1874,9 +1884,7 @@ static void max77705_muic_print_reg_log(struct work_struct *work)
 {
 	struct max77705_muic_data *muic_data =
 		container_of(work, struct max77705_muic_data, debug_work.work);
-	struct max77705_usbc_platform_data *usbc_pdata = muic_data->usbc_pdata;
 	struct i2c_client *i2c = muic_data->i2c;
-	usbc_cmd_data read_data;
 	u8 status[8] = {0, };
 
 	max77705_muic_read_reg(i2c, MAX77705_USBC_REG_USBC_STATUS1, &status[0]);
@@ -1888,13 +1896,6 @@ static void max77705_muic_print_reg_log(struct work_struct *work)
 	max77705_muic_read_reg(i2c, MAX77705_USBC_REG_PD_STATUS0, &status[6]);
 	max77705_muic_read_reg(i2c, MAX77705_USBC_REG_PD_STATUS1, &status[7]);
 
-	init_usbc_cmd_data(&read_data);
-	read_data.opcode = OPCODE_BCCTRL1_R;
-	read_data.write_length = 0x0;
-	read_data.read_length = 0x1;
-
-	max77705_usbc_opcode_read(usbc_pdata, &read_data);
-	
 	pr_info("%s:%s USBC1:0x%02x, USBC2:0x%02x, BC:0x%02x, UICINTM:0x%x, attached_dev:%d\n",
 		MUIC_DEV_NAME, __func__, status[0], status[1], status[2], status[3],
 		muic_data->attached_dev);
@@ -2416,7 +2417,7 @@ int max77705_muic_suspend(struct max77705_usbc_platform_data *usbc_data)
 	struct max77705_muic_data *muic_data = usbc_data->muic_data;
 
 	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
-	cancel_delayed_work(&(muic_data->debug_work));
+	cancel_delayed_work_sync(&(muic_data->debug_work));
 
 	return 0;
 }
@@ -2426,7 +2427,7 @@ int max77705_muic_resume(struct max77705_usbc_platform_data *usbc_data)
 	struct max77705_muic_data *muic_data = usbc_data->muic_data;
 
 	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
-	schedule_delayed_work(&(muic_data->debug_work), msecs_to_jiffies(1000));
+	schedule_delayed_work(&(muic_data->debug_work), msecs_to_jiffies(1500));
 
 	return 0;
 }
