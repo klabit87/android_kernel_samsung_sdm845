@@ -23,6 +23,7 @@
 #include <linux/sort.h>
 #include <linux/stop_machine.h>
 #include <linux/types.h>
+#include <linux/mm.h>
 #include <asm/cpu.h>
 #include <asm/cpufeature.h>
 #include <asm/cpu_ops.h>
@@ -47,6 +48,7 @@ unsigned int compat_elf_hwcap2 __read_mostly;
 #endif
 
 DECLARE_BITMAP(cpu_hwcaps, ARM64_NCAPS);
+EXPORT_SYMBOL(cpu_hwcaps);
 
 DEFINE_STATIC_KEY_ARRAY_FALSE(cpu_hwcap_keys, ARM64_NCAPS);
 EXPORT_SYMBOL(cpu_hwcap_keys);
@@ -736,7 +738,7 @@ static bool runs_at_el2(const struct arm64_cpu_capabilities *entry, int __unused
 static bool hyp_offset_low(const struct arm64_cpu_capabilities *entry,
 			   int __unused)
 {
-	phys_addr_t idmap_addr = virt_to_phys(__hyp_idmap_text_start);
+	phys_addr_t idmap_addr = __pa_symbol(__hyp_idmap_text_start);
 
 	/*
 	 * Activate the lower HYP offset only if:

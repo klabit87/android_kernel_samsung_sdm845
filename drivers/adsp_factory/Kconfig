@@ -1,0 +1,96 @@
+#
+# factory sensor drivers configuration
+#
+config ADSP_FACTORY
+	tristate "MSM ADSP factory driver"
+	default n
+	help
+	  This driver communicate with SSC DAEMON.
+	  register each sensor device.
+	  send selftest request using netlink.
+	  receive test result using netlink.
+
+config LSM6DSL_FACTORY
+	tristate "factory test for SSC - LSM6DSL"
+	default n
+	help
+	  lsm6dsl factory driver.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config AK09916C_FACTORY
+	tristate "factory test for SSC - ak09916c"
+	default n
+	help
+	  ak09916c factory driver.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config LPS22HB_FACTORY
+	tristate "factory test for SSC - lps22hb"
+	default n
+	help
+	  lps22hb factory driver.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config TMD490X_FACTORY
+	tristate "factory test for SSC - tmd490x"
+	default n
+	help
+	  tmd490x factory driver.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config SUPPORT_TMD4906_FACTORY
+	tristate "factory test for SSC - tmd4906"
+	depends on TMD490X_FACTORY
+	default n
+	help
+	  tmd4906 factory driver
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config SUPPORT_PROX_AUTO_CAL
+	tristate "Support Auto Calibration for proximity sensor - tmd490x"
+	default n
+	depends on TMD490X_FACTORY
+	help
+	  Support the Auto Calibration function in tmd490x.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config SUPPORT_HIDDEN_HOLE
+	tristate "Support Hidden Hole function for proximity sensor"
+	default n
+	depends on ADSP_FACTORY
+	help
+	  Support the Hidden Hole function.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config SLPI_MOTOR
+	tristate "Sensors support motor"
+	default n
+	help
+	  Support the motor state function
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
+config SUPPORT_MOBEAM
+	tristate "Sensors support mobeam"
+	default n
+	help
+	  Support the mobeam
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+

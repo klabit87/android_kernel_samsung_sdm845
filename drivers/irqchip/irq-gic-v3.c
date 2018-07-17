@@ -28,6 +28,7 @@
 #include <linux/of_irq.h>
 #include <linux/percpu.h>
 #include <linux/slab.h>
+#include <linux/msm_rtb.h>
 
 #include <linux/irqchip.h>
 #include <linux/irqchip/arm-gic-common.h>
@@ -40,6 +41,9 @@
 #include <asm/virt.h>
 
 #include "irq-gic-common.h"
+#ifdef CONFIG_SEC_PM
+#include <linux/wakeup_reason.h>
+#endif
 
 struct redist_region {
 	void __iomem		*redist_base;
@@ -96,7 +100,7 @@ static void gic_do_wait_for_rwp(void __iomem *base)
 {
 	u32 count = 1000000;	/* 1s! */
 
-	while (readl_relaxed(base + GICD_CTLR) & GICD_CTLR_RWP) {
+	while (readl_relaxed_no_log(base + GICD_CTLR) & GICD_CTLR_RWP) {
 		count--;
 		if (!count) {
 			pr_err_ratelimited("RWP timeout, gone fishing\n");
@@ -130,6 +134,58 @@ static u64 __maybe_unused gic_read_iar(void)
 		return gic_read_iar_common();
 }
 #endif
+
+/*
+ * gic_show_pending_irq - Shows the pending interrupts
+ * Note: Interrupts should be disabled on the cpu from which
+ * this is called to get accurate list of pending interrupts.
+ */
+void gic_show_pending_irqs(void)
+{
+	void __iomem *base;
+	u32 pending[32], enabled;
+	unsigned int j;
+
+	base = gic_data.dist_base;
+	for (j = 0; j * 32 < gic_data.irq_nr; j++) {
+		enabled = readl_relaxed(base +
+					GICD_ISENABLER + j * 4);
+		pending[j] = readl_relaxed(base +
+					GICD_ISPENDR + j * 4);
+		pending[j] &= enabled;
+#ifdef CONFIG_SEC_PM
+		if (pending[j]) {
+			int i, irq;
+
+			for (i = 0; i < 32; i++) {
+				if (pending[j] & 0x01 << i) {
+					irq = irq_find_mapping(gic_data.domain, (j * 32) + 1);
+					log_wakeup_reason(irq);
+				}
+			}
+		}
+#else
+		pr_err("Pending irqs[%d] %x\n", j, pending[j]);
+#endif
+	}
+}
+
+/*
+ * get_gic_highpri_irq - Returns next high priority interrupt on current CPU
+ */
+unsigned int get_gic_highpri_irq(void)
+{
+	unsigned long flags;
+	unsigned int val = 0;
+
+	local_irq_save(flags);
+	val = read_gicreg(ICC_HPPIR1_EL1);
+	local_irq_restore(flags);
+
+	if (val >= 1020)
+		return 0;
+	return val;
+}
 
 static void gic_enable_redist(bool enable)
 {
@@ -178,7 +234,7 @@ static int gic_peek_irq(struct irq_data *d, u32 offset)
 	else
 		base = gic_data.dist_base;
 
-	return !!(readl_relaxed(base + offset + (gic_irq(d) / 32) * 4) & mask);
+	return !!(readl_relaxed_no_log(base + offset + (gic_irq(d) / 32) * 4) & mask);
 }
 
 static void gic_poke_irq(struct irq_data *d, u32 offset)
@@ -201,6 +257,9 @@ static void gic_poke_irq(struct irq_data *d, u32 offset)
 
 static void gic_mask_irq(struct irq_data *d)
 {
+	if (d->hwirq == 38)
+		trace_printk("Broadcast timer masked\n");
+
 	gic_poke_irq(d, GICD_ICENABLER);
 }
 
@@ -221,6 +280,9 @@ static void gic_eoimode1_mask_irq(struct irq_data *d)
 
 static void gic_unmask_irq(struct irq_data *d)
 {
+	if (d->hwirq == 38)
+		trace_printk("Broadcast timer unmasked\n");
+
 	gic_poke_irq(d, GICD_ISENABLER);
 }
 
@@ -352,6 +414,7 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 		if (likely(irqnr > 15 && irqnr < 1020) || irqnr >= 8192) {
 			int err;
 
+			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			if (static_key_true(&supports_deactivate))
 				gic_write_eoir(irqnr);
 
@@ -368,6 +431,7 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 			continue;
 		}
 		if (irqnr < 16) {
+			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			gic_write_eoir(irqnr);
 			if (static_key_true(&supports_deactivate))
 				gic_write_dir(irqnr);
@@ -455,9 +519,6 @@ static int gic_populate_rdist(void)
 				u64 offset = ptr - gic_data.redist_regions[i].redist_base;
 				gic_data_rdist_rd_base() = ptr;
 				gic_data_rdist()->phys_base = gic_data.redist_regions[i].phys_base + offset;
-				pr_info("CPU%d: found redistributor %lx region %d:%pa\n",
-					smp_processor_id(), mpidr, i,
-					&gic_data_rdist()->phys_base);
 				return 0;
 			}
 
@@ -538,7 +599,8 @@ static void gic_cpu_init(void)
 	gic_cpu_config(rbase, gic_redist_wait_for_rwp);
 
 	/* Give LPIs a spin */
-	if (IS_ENABLED(CONFIG_ARM_GIC_V3_ITS) && gic_dist_supports_lpis())
+	if (IS_ENABLED(CONFIG_ARM_GIC_V3_ITS) && gic_dist_supports_lpis() &&
+					!IS_ENABLED(CONFIG_ARM_GIC_V3_ACL))
 		its_cpu_init();
 
 	/* initialise system registers */
@@ -653,6 +715,9 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 		return -EINVAL;
 
 	/* If interrupt was enabled, disable it first */
+	if (d->hwirq == 38)
+		trace_printk("Broadcast timer affinity changed to cpu %u\n", cpu);
+
 	enabled = gic_peek_irq(d, GICD_ISENABLER);
 	if (enabled)
 		gic_mask_irq(d);
@@ -688,6 +753,9 @@ static bool gic_dist_security_disabled(void)
 static int gic_cpu_pm_notifier(struct notifier_block *self,
 			       unsigned long cmd, void *v)
 {
+	if (from_suspend)
+		return NOTIFY_OK;
+
 	if (cmd == CPU_PM_EXIT) {
 		if (gic_dist_security_disabled())
 			gic_enable_redist(true);
@@ -962,7 +1030,8 @@ static int __init gic_init_bases(void __iomem *dist_base,
 
 	set_handle_irq(gic_handle_irq);
 
-	if (IS_ENABLED(CONFIG_ARM_GIC_V3_ITS) && gic_dist_supports_lpis())
+	if (IS_ENABLED(CONFIG_ARM_GIC_V3_ITS) && gic_dist_supports_lpis() &&
+	    !IS_ENABLED(CONFIG_ARM_GIC_V3_ACL))
 		its_init(handle, &gic_data.rdists, gic_data.domain);
 
 	gic_smp_init();

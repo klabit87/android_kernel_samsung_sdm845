@@ -18,7 +18,17 @@
 #include <crypto/skcipher.h>
 #include <uapi/linux/fs.h>
 
+#ifdef CONFIG_FS_CRYPTO_SEC_EXTENSION
+#include <linux/fscrypto_sec.h>
+/*
+ * FS_ESTIMATED_NONCE_SIZE and FS_KEY_DERIVATION_NONCE_SIZE
+ * should be defined in fscrypto_sec.h
+ */
+#else
+#define FS_ESTIMATED_NONCE_SIZE			FS_AES_128_ECB_KEY_SIZE
 #define FS_KEY_DERIVATION_NONCE_SIZE		16
+#endif /* CONFIG FS_CRYPTO_SEC_EXTENSION */
+
 #define FS_ENCRYPTION_CONTEXT_FORMAT_V1		1
 
 #define FS_POLICY_FLAGS_PAD_4		0x00
@@ -34,6 +44,7 @@
 #define FS_ENCRYPTION_MODE_AES_256_GCM		2
 #define FS_ENCRYPTION_MODE_AES_256_CBC		3
 #define FS_ENCRYPTION_MODE_AES_256_CTS		4
+#define FS_ENCRYPTION_MODE_PRIVATE          127
 
 /**
  * Encryption context for inode
@@ -80,6 +91,7 @@ struct fscrypt_info {
 	u8 ci_flags;
 	struct crypto_skcipher *ci_ctfm;
 	u8 ci_master_key[FS_KEY_DESCRIPTOR_SIZE];
+	u8 ci_raw_key[FS_MAX_KEY_SIZE];
 };
 
 #define FS_CTX_REQUIRES_FREE_ENCRYPT_FL		0x00000001
@@ -176,7 +188,8 @@ static inline bool fscrypt_dummy_context_enabled(struct inode *inode)
 
 static inline bool fscrypt_valid_contents_enc_mode(u32 mode)
 {
-	return (mode == FS_ENCRYPTION_MODE_AES_256_XTS);
+	return (mode == FS_ENCRYPTION_MODE_AES_256_XTS ||
+		mode == FS_ENCRYPTION_MODE_PRIVATE);
 }
 
 static inline bool fscrypt_valid_filenames_enc_mode(u32 mode)
@@ -257,6 +270,7 @@ extern int fscrypt_inherit_context(struct inode *, struct inode *,
 /* keyinfo.c */
 extern int fscrypt_get_encryption_info(struct inode *);
 extern void fscrypt_put_encryption_info(struct inode *, struct fscrypt_info *);
+extern int fs_using_hardware_encryption(struct inode *inode);
 
 /* fname.c */
 extern int fscrypt_setup_filename(struct inode *, const struct qstr *,
@@ -271,6 +285,11 @@ extern int fscrypt_fname_disk_to_usr(struct inode *, u32, u32,
 extern int fscrypt_fname_usr_to_disk(struct inode *, const struct qstr *,
 			struct fscrypt_str *);
 #endif
+
+#ifndef CONFIG_FS_CRYPTO_SEC_EXTENSION
+static inline int __init fscrypt_sec_crypto_init(void) { return 0; }
+static inline void __exit fscrypt_sec_crypto_exit(void) {}
+#endif /* !CONFIG FS_CRYPTO_SEC_EXTENSION */
 
 /* crypto.c */
 static inline struct fscrypt_ctx *fscrypt_notsupp_get_ctx(struct inode *i,
@@ -352,6 +371,11 @@ static inline void fscrypt_notsupp_put_encryption_info(struct inode *i,
 					struct fscrypt_info *f)
 {
 	return;
+}
+
+static inline int fs_notsupp_using_hardware_encryption(struct inode *inode)
+{
+	return -EOPNOTSUPP;
 }
 
  /* fname.c */

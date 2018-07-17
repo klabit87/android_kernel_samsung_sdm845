@@ -12,6 +12,14 @@ CFLAGS_REMOVE_return_address.o = -pg
 
 CFLAGS_setup.o = -DUTS_MACHINE='"$(UTS_MACHINE)"'
 
+ifeq ($(SEC_BUILD_CONF_DMV_ALTA),true)
+CFLAGS_uh_inform.o += -DDMV_ALTA
+endif
+
+ifeq ($(SEC_BUILD_CONF_QUICK_DMVERITY),true)
+CFLAGS_uh_inform.o += -DDMV_LITE
+endif
+
 # Object file lists.
 arm64-obj-y		:= debug-monitors.o entry.o irq.o fpsimd.o		\
 			   entry-fpsimd.o process.o ptrace.o setup.o signal.o	\
@@ -33,7 +41,8 @@ arm64-obj-$(CONFIG_FUNCTION_TRACER)	+= ftrace.o entry-ftrace.o
 arm64-obj-$(CONFIG_MODULES)		+= arm64ksyms.o module.o
 arm64-obj-$(CONFIG_ARM64_MODULE_PLTS)	+= module-plts.o
 arm64-obj-$(CONFIG_PERF_EVENTS)		+= perf_regs.o perf_callchain.o
-arm64-obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event.o
+arm64-obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event.o perf_trace_counters.o   \
+					   perf_trace_user.o
 arm64-obj-$(CONFIG_HAVE_HW_BREAKPOINT)	+= hw_breakpoint.o
 arm64-obj-$(CONFIG_CPU_PM)		+= sleep.o suspend.o
 arm64-obj-$(CONFIG_CPU_IDLE)		+= cpuidle.o
@@ -50,6 +59,10 @@ arm64-obj-$(CONFIG_RANDOMIZE_BASE)	+= kaslr.o
 arm64-obj-$(CONFIG_HIBERNATION)		+= hibernate.o hibernate-asm.o
 arm64-obj-$(CONFIG_KEXEC)		+= machine_kexec.o relocate_kernel.o	\
 					   cpu-reset.o
+arm64-obj-$(CONFIG_UH)      += uh_entry.o
+arm64-obj-$(CONFIG_UH_DEBUG)        += uh_debug.o
+arm64-obj-$(CONFIG_UH_INFORM)		+= uh_inform.o
+arm64-obj-$(CONFIG_RKP_CFP_ROPP)	+= rkp_cfp.o
 
 obj-y					+= $(arm64-obj-y) vdso/ probes/
 obj-m					+= $(arm64-obj-m)

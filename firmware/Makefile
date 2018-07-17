@@ -104,6 +104,19 @@ fw-shipped-$(CONFIG_USB_EMI62) += emi62/loader.fw emi62/bitstream.fw \
 fw-shipped-$(CONFIG_USB_KAWETH) += kaweth/new_code.bin kaweth/trigger_code.bin \
 				   kaweth/new_code_fix.bin \
 				   kaweth/trigger_code_fix.bin
+fw-shipped-$(CONFIG_WIRELESS_FIRMWARE_UPDATE) += mfc/mfc_fw_flash.bin
+
+# Touchscreen IC Firmware
+fw-shipped-$(CONFIG_TOUCHSCREEN_FTS) += tsp_stm/fts8cd56_dream2.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS) += tsp_sec/y761_star1.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS) += tsp_sec/y761_star2.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS_Y771) += tsp_sec/y761_star2.fw
+
+fw-shipped-$(CONFIG_EPEN_WACOM_W9018) += epen/w9018_crown.fw
+ifdef CONFIG_SEC_FACTORY
+fw-shipped-$(CONFIG_EPEN_WACOM_W9018) += epen/w9018_crown_fac.fw
+endif
+
 ifdef CONFIG_FIRMWARE_IN_KERNEL
 fw-shipped-$(CONFIG_USB_SERIAL_KEYSPAN_MPR) += keyspan/mpr.fw
 fw-shipped-$(CONFIG_USB_SERIAL_KEYSPAN_USA18X) += keyspan/usa18x.fw

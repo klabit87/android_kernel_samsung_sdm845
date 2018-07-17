@@ -411,8 +411,9 @@ key_ref_t search_my_process_keyrings(struct keyring_search_context *ctx)
 			break;
 		}
 	}
+
 	/* or search the user-session keyring */
-	else if (ctx->cred->user->session_keyring) {
+	if (ctx->cred->user->session_keyring) {
 		key_ref = keyring_search_aux(
 			make_key_ref(ctx->cred->user->session_keyring, 1),
 			ctx);

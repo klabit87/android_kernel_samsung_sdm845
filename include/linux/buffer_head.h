@@ -36,7 +36,9 @@ enum bh_state_bits {
 	BH_Quiet,	/* Buffer Error Prinks to be quiet */
 	BH_Meta,	/* Buffer contains metadata */
 	BH_Prio,	/* Buffer should be submitted with REQ_PRIO */
+	BH_Sync_Flush,	/* Buffer should be submttted with REQ_SYNC_FLUSH */
 	BH_Defer_Completion, /* Defer AIO completion to workqueue */
+	BH_Bypass,	/* Do not encrypt this buffer */
 
 	BH_PrivateStart,/* not a state bit, but the first bit available
 			 * for private allocation by other entities
@@ -129,7 +131,10 @@ BUFFER_FNS(Write_EIO, write_io_error)
 BUFFER_FNS(Unwritten, unwritten)
 BUFFER_FNS(Meta, meta)
 BUFFER_FNS(Prio, prio)
+BUFFER_FNS(Sync_Flush, sync_flush)
 BUFFER_FNS(Defer_Completion, defer_completion)
+BUFFER_FNS(Bypass, bypass)
+TAS_BUFFER_FNS(Bypass, bypass)
 
 #define bh_offset(bh)		((unsigned long)(bh)->b_data & ~PAGE_MASK)
 
@@ -149,6 +154,7 @@ void buffer_check_dirty_writeback(struct page *page,
  */
 
 void mark_buffer_dirty(struct buffer_head *bh);
+void mark_buffer_dirty_sync(struct buffer_head *bh);
 void init_buffer(struct buffer_head *, bh_end_io_t *, void *);
 void touch_buffer(struct buffer_head *bh);
 void set_bh_page(struct buffer_head *bh,
@@ -164,6 +170,7 @@ void end_buffer_async_write(struct buffer_head *bh, int uptodate);
 
 /* Things to do with buffers at mapping->private_list */
 void mark_buffer_dirty_inode(struct buffer_head *bh, struct inode *inode);
+void mark_buffer_dirty_inode_sync(struct buffer_head *bh, struct inode *inode);
 int inode_has_buffers(struct inode *);
 void invalidate_inode_buffers(struct inode *);
 int remove_inode_buffers(struct inode *inode);

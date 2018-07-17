@@ -87,6 +87,30 @@ $(simple-targets): $(obj)/conf
 
 PHONY += oldnoconfig savedefconfig defconfig
 
+ifneq ($(VARIANT_DEFCONFIG),)
+export KCONFIG_VARIANT := arch/$(SRCARCH)/configs/$(VARIANT_DEFCONFIG)
+endif
+
+ifneq ($(DEBUG_DEFCONFIG),)
+export KCONFIG_DEBUG := arch/$(SRCARCH)/configs/$(DEBUG_DEFCONFIG)
+endif
+
+ifneq ($(SELINUX_DEFCONFIG),)
+export KCONFIG_SELINUX := arch/$(SRCARCH)/configs/$(SELINUX_DEFCONFIG)
+endif
+
+ifneq ($(SELINUX_LOG_DEFCONFIG),)
+export KCONFIG_LOG_SELINUX := arch/$(SRCARCH)/configs/$(SELINUX_LOG_DEFCONFIG)
+endif
+
+ifneq ($(TIMA_DEFCONFIG),)
+export KCONFIG_TIMA := arch/$(SRCARCH)/configs/$(TIMA_DEFCONFIG)
+endif
+
+ifneq ($(KASLR_DEFCONFIG),)
+export KCONFIG_KASLR := arch/$(SRCARCH)/configs/$(KASLR_DEFCONFIG)
+endif
+
 # oldnoconfig is an alias of olddefconfig, because people already are dependent
 # on its behavior (sets new symbols to their default value but not 'n') with the
 # counter-intuitive name.

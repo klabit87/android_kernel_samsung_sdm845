@@ -690,6 +690,7 @@ extern cycle_t ftrace_now(int cpu);
 
 extern void trace_find_cmdline(int pid, char comm[]);
 extern void trace_event_follow_fork(struct trace_array *tr, bool enable);
+extern int trace_find_tgid(int pid);
 
 #ifdef CONFIG_DYNAMIC_FTRACE
 extern unsigned long ftrace_update_tot_cnt;
@@ -1009,7 +1010,8 @@ extern int trace_get_user(struct trace_parser *parser, const char __user *ubuf,
 		FUNCTION_FLAGS					\
 		FGRAPH_FLAGS					\
 		STACK_FLAGS					\
-		BRANCH_FLAGS
+		BRANCH_FLAGS					\
+		C(TGID,			"print-tgid"),
 
 /*
  * By defining C, we can make TRACE_FLAGS a list of bit names
@@ -1181,6 +1183,7 @@ __event_trigger_test_discard(struct trace_event_file *file,
  * @entry: The event itself
  * @irq_flags: The state of the interrupts at the start of the event
  * @pc: The state of the preempt count at the start of the event.
+ * @len: The length of the payload data required for stm logging.
  *
  * This is a helper function to handle triggers that require data
  * from the event itself. It also tests the event against filters and
@@ -1190,12 +1193,17 @@ static inline void
 event_trigger_unlock_commit(struct trace_event_file *file,
 			    struct ring_buffer *buffer,
 			    struct ring_buffer_event *event,
-			    void *entry, unsigned long irq_flags, int pc)
+			    void *entry, unsigned long irq_flags, int pc,
+			    unsigned long len)
 {
 	enum event_trigger_type tt = ETT_NONE;
 
-	if (!__event_trigger_test_discard(file, buffer, event, entry, &tt))
+	if (!__event_trigger_test_discard(file, buffer, event, entry, &tt)) {
+		if (len)
+			stm_log(OST_ENTITY_FTRACE_EVENTS, entry, len);
+
 		trace_buffer_unlock_commit(file->tr, buffer, event, irq_flags, pc);
+	}
 
 	if (tt)
 		event_triggers_post_call(file, tt, entry);

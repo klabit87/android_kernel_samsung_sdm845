@@ -1310,6 +1310,7 @@ static void dsi_err_worker(struct work_struct *work)
 	u32 status = msm_host->err_work_state;
 
 	pr_err_ratelimited("%s: status=%x\n", __func__, status);
+
 	if (status & DSI_ERR_STATE_MDP_FIFO_UNDERFLOW)
 		dsi_sw_reset_restore(msm_host);
 

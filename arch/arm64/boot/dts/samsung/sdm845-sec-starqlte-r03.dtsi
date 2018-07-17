@@ -1,0 +1,55 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "sdm845-sec-starqlte-r02.dtsi"
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		detect_conn {
+			detect_conn_setting: detect_conn_setting {
+				config {
+					pins = "gpio50", "gpio102";
+					drive-strength = <2>;
+					bias-disable; /* No PULL */
+					input-enable;
+				};
+			};
+		};
+	};
+
+	sec_detect_conn {
+		compatible = "samsung,sec_detect_conn";
+		sec,det_conn_gpios = <&tlmm 50 0 /* UB_CON_DETECT */
+					&tlmm 102 0>; /* SUB_DETECT */
+
+		sec,det_conn_name = "UB_CONNECT", "SUB_CONNECT";
+
+		sec,det_conn_irq_type = <3>, /* UB_CON_DETECT FALLING, RIGING EDGE*/
+					<3>; /* SUB_DETECT FALLING, RIGING EDGE*/
+
+		pinctrl-names = "det_ap_connect";
+		pinctrl-0 = <&detect_conn_setting>;
+	};
+
+	abc_hub {
+		pinctrl-names = "det_ap_connect";
+		pinctrl-0 = <&detect_conn_setting>;
+
+		cond {
+			sec,det_conn_gpios = <&tlmm 50 0 /* UB_CON_DETECT */
+						&tlmm 102 0>; /* SUB_DETECT */
+
+			sec,det_conn_name = "ub", "sub";
+		};
+	};
+};
+

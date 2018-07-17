@@ -143,6 +143,30 @@ void *dma_mark_declared_memory_occupied(struct device *dev,
 }
 EXPORT_SYMBOL(dma_mark_declared_memory_occupied);
 
+static void dma_coherent_show_areas_locked(struct dma_coherent_mem *mem,
+					ssize_t size, int order)
+{
+	unsigned long next_zero_bit, next_set_bit;
+	unsigned long start = 0;
+	unsigned int nr_zero, nr_total = 0;
+	static DEFINE_RATELIMIT_STATE(dma_alloc_coherent_rs, DEFAULT_RATELIMIT_INTERVAL, 1);
+
+	if (__ratelimit(&dma_alloc_coherent_rs) == 0)
+		return;
+	pr_info("number of available pages: ");
+	for (;;) {
+		next_zero_bit = find_next_zero_bit(mem->bitmap, mem->size, start);
+		if (next_zero_bit >= mem->size)
+			break;
+		next_set_bit = find_next_bit(mem->bitmap, mem->size, next_zero_bit);
+		nr_zero = next_set_bit - next_zero_bit;
+		pr_cont("%s%u@%lu", nr_total ? "+" : "", nr_zero, next_zero_bit);
+		nr_total += nr_zero;
+		start = next_zero_bit + nr_zero;
+	}
+	pr_cont("=> %u free of %d total pages\n", nr_total, mem->size);
+}
+
 /**
  * dma_alloc_from_coherent() - try to allocate memory from the per-device coherent area
  *
@@ -176,12 +200,19 @@ int dma_alloc_from_coherent(struct device *dev, ssize_t size,
 	*ret = NULL;
 	spin_lock_irqsave(&mem->spinlock, flags);
 
-	if (unlikely(size > (mem->size << PAGE_SHIFT)))
+	if (unlikely(size > (mem->size << PAGE_SHIFT))) {
+		WARN_ONCE(1, "%s too big size, req-size: %zu total-size: %d\n",
+			  __func__, size, (mem->size << PAGE_SHIFT));
 		goto err;
+	}
 
 	pageno = bitmap_find_free_region(mem->bitmap, mem->size, order);
-	if (unlikely(pageno < 0))
+	if (unlikely(pageno < 0)) {
+		pr_err("%s: alloc failed, req-size: %zd bytes, req-order %d\n",
+		       __func__, size, order);
+		dma_coherent_show_areas_locked(mem, size, order);
 		goto err;
+	}
 
 	/*
 	 * Memory was found in the per-device area.
@@ -287,6 +318,7 @@ EXPORT_SYMBOL(dma_mmap_from_coherent);
 #include <linux/of_fdt.h>
 #include <linux/of_reserved_mem.h>
 
+struct device *pil_mdata_buf_dev;
 static int rmem_dma_device_init(struct reserved_mem *rmem, struct device *dev)
 {
 	struct dma_coherent_mem *mem = rmem->priv;
@@ -301,6 +333,10 @@ static int rmem_dma_device_init(struct reserved_mem *rmem, struct device *dev)
 	}
 	rmem->priv = mem;
 	dma_assign_coherent_memory(dev, mem);
+	pr_err("[%s] dev name : %s\n", __func__, dev_name(dev));
+	if (!strncmp(dev_name(dev), "soc:pil_mdata_buf_dev", strlen("soc:pil_mdata_buf_dev")))
+		pil_mdata_buf_dev = dev;
+
 	return 0;
 }
 

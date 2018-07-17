@@ -362,6 +362,25 @@ config GPIO_PXA
 	help
 	  Say yes here to support the PXA GPIO device
 
+config GPIO_QPNP_PIN
+	tristate "Qualcomm Technologies, Inc. QPNP GPIO support"
+	depends on SPMI
+	help
+	  Say 'y' here to include support for the Qualcomm Technologies, Inc.
+	  QPNP GPIO driver.  This driver supports Device Tree and allows a
+	  device_node to be registered as a gpio-controller.  It does not handle
+	  GPIO interrupts directly; they are handled via the SPMI arbiter
+	  interrupt driver.
+
+config GPIO_QPNP_PIN_DEBUG
+	bool "Qualcomm Technologies, Inc. QPNP GPIO debug support"
+	depends on GPIO_QPNP_PIN && DEBUG_FS
+	help
+	  Say 'y' here to include debug support for the Qualcomm Technologies,
+	  Inc. QPNP GPIO driver.  This provides a userspace debug interface to
+	  get and set all of the supported features of PMIC GPIO and MPP pins
+	  including those which are managed by the gpio framework.
+
 config GPIO_RCAR
 	tristate "Renesas R-Car GPIO"
 	depends on ARCH_RENESAS || COMPILE_TEST
@@ -685,6 +704,12 @@ config GPIO_ADNP
 	  example: if a controller provides 48 pins, 6 registers will be
 	  enough to represent all pins, but the driver will assume a
 	  register layout for 64 pins (8 registers).
+
+config GPIO_PCAL6524
+	bool "PCAL6524 GPIO expander"
+	depends on I2C
+	help
+	  GPIO driver for PCAL6524 I2C-based GPIO expander.
 
 config GPIO_MAX7300
 	tristate "Maxim MAX7300 GPIO expander"
@@ -1197,6 +1222,12 @@ config GPIO_MCP23S08
 
 endmenu
 
+config SEC_GPIO_DVS
+	tristate "setting Samsung GPIO debugging and verification system"
+	help
+	  To verify gpio configurations of devices, set this feature.
+	  This feature should be enabled for user-debug mode.
+
 menu "USB GPIO expanders"
 	depends on USB
 
@@ -1212,5 +1243,21 @@ config GPIO_VIPERBOARD
           of the module parameters.
 
 endmenu
+
+config SEC_CONNECTOR_DETECTOR
+	tristate "Setting Samsung Connector Detector feature"
+	help
+	  To detect connection of connector, set this feature.
+	  This feature should be enabled for factory mode.
+
+config SENSORS_FP_SPI_GPIO_START
+    depends on SENSORS_FINGERPRINT
+	int "Fingerprint spi gpio number start"
+	default 0
+
+config SENSORS_FP_SPI_GPIO_END
+    depends on SENSORS_FINGERPRINT
+	int "Fingerprint spi gpio number end"
+	default 0
 
 endif

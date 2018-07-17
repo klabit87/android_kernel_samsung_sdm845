@@ -85,6 +85,7 @@
 #include <asm/tlbflush.h>
 
 #include <trace/events/sched.h>
+#include <linux/task_integrity.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
@@ -144,6 +145,9 @@ static inline struct task_struct *alloc_task_struct_node(int node)
 
 static inline void free_task_struct(struct task_struct *tsk)
 {
+#ifdef CONFIG_DEBUG_TASK_USAGE
+	tsk->dummy = 0x6B6B6B6B6B6B6B;
+#endif
 	kmem_cache_free(task_struct_cachep, tsk);
 }
 #endif
@@ -488,6 +492,9 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	stack_vm_area = task_stack_vm_area(tsk);
 
 	err = arch_dup_task_struct(tsk, orig);
+#ifdef CONFIG_DEBUG_TASK_USAGE
+	tsk->dummy = TASK_STRUCT_DUMMY_VAL;
+#endif
 
 	/*
 	 * arch_dup_task_struct() clobbers the stack-related fields.  Make
@@ -886,12 +893,17 @@ static inline void __mmput(struct mm_struct *mm)
 /*
  * Decrement the use count and release all resources for an mm.
  */
-void mmput(struct mm_struct *mm)
+int mmput(struct mm_struct *mm)
 {
+	int mm_freed = 0;
 	might_sleep();
 
-	if (atomic_dec_and_test(&mm->mm_users))
+	if (atomic_dec_and_test(&mm->mm_users)) {
 		__mmput(mm);
+		mm_freed = 1;
+	}
+
+	return mm_freed;
 }
 EXPORT_SYMBOL_GPL(mmput);
 
@@ -1019,7 +1031,8 @@ struct mm_struct *mm_access(struct task_struct *task, unsigned int mode)
 
 	mm = get_task_mm(task);
 	if (mm && mm != current->mm &&
-			!ptrace_may_access(task, mode)) {
+			!ptrace_may_access(task, mode) &&
+			!capable(CAP_SYS_RESOURCE)) {
 		mmput(mm);
 		mm = ERR_PTR(-EACCES);
 	}
@@ -1443,11 +1456,74 @@ static void posix_cpu_timers_init(struct task_struct *tsk)
 	INIT_LIST_HEAD(&tsk->cpu_timers[2]);
 }
 
+#ifdef CONFIG_RKP_KDP
+void rkp_assign_pgd(struct task_struct *p)
+{
+	u64 pgd;
+	pgd = (u64)(p->mm ? p->mm->pgd :swapper_pg_dir);
+
+	uh_call(UH_APP_RKP,0x43,(u64)p->cred, (u64)pgd,0,0);
+}
+#endif /*CONFIG_RKP_KDP*/
+
 static inline void
 init_task_pid(struct task_struct *task, enum pid_type type, struct pid *pid)
 {
 	 task->pids[type].pid = pid;
 }
+
+#ifdef CONFIG_FIVE
+static int dup_task_integrity(unsigned long clone_flags,
+					struct task_struct *tsk)
+{
+	int ret = 0;
+
+	if (clone_flags & CLONE_VM) {
+		task_integrity_get(current->integrity);
+		tsk->integrity = current->integrity;
+	} else {
+		tsk->integrity = task_integrity_alloc();
+
+		if (!tsk->integrity) 
+			ret = -ENOMEM;
+	}
+
+	return ret;
+}
+
+static inline void task_integrity_cleanup(struct task_struct *tsk)
+{
+	task_integrity_put(tsk->integrity);
+}
+
+static inline int task_integrity_apply(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	int ret = 0;
+
+	if (!(clone_flags & CLONE_VM))
+		ret = five_fork(current, tsk);
+
+	return ret;
+}
+#else
+static inline int dup_task_integrity(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+
+static inline void task_integrity_cleanup(struct task_struct *tsk)
+{
+}
+
+static inline int task_integrity_apply(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+
+#endif
 
 /*
  * This creates a new process as a copy of the old one,
@@ -1520,6 +1596,18 @@ static __latent_entropy struct task_struct *copy_process(
 	p = dup_task_struct(current, node);
 	if (!p)
 		goto fork_out;
+
+	/*
+	 * This _must_ happen before we call free_task(), i.e. before we jump
+	 * to any of the bad_fork_* labels. This is to avoid freeing
+	 * p->set_child_tid which is (ab)used as a kthread's data pointer for
+	 * kernel threads (PF_KTHREAD).
+	 */
+	p->set_child_tid = (clone_flags & CLONE_CHILD_SETTID) ? child_tidptr : NULL;
+	/*
+	 * Clear TID on mm_release()?
+	 */
+	p->clear_child_tid = (clone_flags & CLONE_CHILD_CLEARTID) ? child_tidptr : NULL;
 
 	ftrace_graph_init_task(p);
 
@@ -1682,11 +1770,6 @@ static __latent_entropy struct task_struct *copy_process(
 		}
 	}
 
-	p->set_child_tid = (clone_flags & CLONE_CHILD_SETTID) ? child_tidptr : NULL;
-	/*
-	 * Clear TID on mm_release()?
-	 */
-	p->clear_child_tid = (clone_flags & CLONE_CHILD_CLEARTID) ? child_tidptr : NULL;
 #ifdef CONFIG_BLOCK
 	p->plug = NULL;
 #endif
@@ -1749,6 +1832,10 @@ static __latent_entropy struct task_struct *copy_process(
 	if (retval)
 		goto bad_fork_free_pid;
 
+	retval = dup_task_integrity(clone_flags, p);
+	if (retval)
+		goto bad_fork_free_pid;
+
 	/*
 	 * Make it visible to the rest of the system, but dont wake it up yet.
 	 * Need tasklist lock for parent etc handling!
@@ -1789,6 +1876,10 @@ static __latent_entropy struct task_struct *copy_process(
 		retval = -ENOMEM;
 		goto bad_fork_cancel_cgroup;
 	}
+
+	retval = task_integrity_apply(clone_flags, p);
+	if (retval)
+		goto bad_fork_cancel_cgroup;
 
 	if (likely(p->pid)) {
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
@@ -1835,13 +1926,17 @@ static __latent_entropy struct task_struct *copy_process(
 
 	trace_task_newtask(p, clone_flags);
 	uprobe_copy_process(p, clone_flags);
-
+#ifdef CONFIG_RKP_KDP
+	if(rkp_cred_enable)
+		rkp_assign_pgd(p);
+#endif/*CONFIG_RKP_KDP*/
 	return p;
 
 bad_fork_cancel_cgroup:
 	spin_unlock(&current->sighand->siglock);
 	write_unlock_irq(&tasklist_lock);
 	cgroup_cancel_fork(p);
+	task_integrity_cleanup(p);
 bad_fork_free_pid:
 	threadgroup_change_end(current);
 	if (pid != &init_struct_pid)
@@ -1872,6 +1967,7 @@ bad_fork_cleanup_audit:
 bad_fork_cleanup_perf:
 	perf_event_free_task(p);
 bad_fork_cleanup_policy:
+	free_task_load_ptrs(p);
 #ifdef CONFIG_NUMA
 	mpol_put(p->mempolicy);
 bad_fork_cleanup_threadgroup_lock:
@@ -1885,6 +1981,7 @@ bad_fork_free:
 	put_task_stack(p);
 	free_task(p);
 fork_out:
+	pr_err("copy_process failed with %d\n", retval);
 	return ERR_PTR(retval);
 }
 
@@ -1905,7 +2002,7 @@ struct task_struct *fork_idle(int cpu)
 			    cpu_to_node(cpu));
 	if (!IS_ERR(task)) {
 		init_idle_pids(task->pids);
-		init_idle(task, cpu);
+		init_idle(task, cpu, false);
 	}
 
 	return task;

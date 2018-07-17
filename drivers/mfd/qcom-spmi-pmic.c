@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2015, 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -118,12 +118,23 @@ static const struct regmap_config spmi_regmap_config = {
 	.fast_io	= true,
 };
 
+static const struct regmap_config spmi_regmap_can_sleep_config = {
+	.reg_bits	= 16,
+	.val_bits	= 8,
+	.max_register	= 0xffff,
+	.fast_io	= false,
+};
+
 static int pmic_spmi_probe(struct spmi_device *sdev)
 {
 	struct device_node *root = sdev->dev.of_node;
 	struct regmap *regmap;
 
-	regmap = devm_regmap_init_spmi_ext(sdev, &spmi_regmap_config);
+	if (of_property_read_bool(root, "qcom,can-sleep"))
+		regmap = devm_regmap_init_spmi_ext(sdev,
+						&spmi_regmap_can_sleep_config);
+	else
+		regmap = devm_regmap_init_spmi_ext(sdev, &spmi_regmap_config);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
@@ -149,7 +160,12 @@ static struct spmi_driver pmic_spmi_driver = {
 		.of_match_table = pmic_spmi_id_table,
 	},
 };
-module_spmi_driver(pmic_spmi_driver);
+
+int __init pmic_spmi_init(void)
+{
+	return spmi_driver_register(&pmic_spmi_driver);
+}
+arch_initcall(pmic_spmi_init);
 
 MODULE_DESCRIPTION("Qualcomm SPMI PMIC driver");
 MODULE_ALIAS("spmi:spmi-pmic");

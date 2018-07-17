@@ -2,6 +2,7 @@
  * drivers/staging/android/ion/ion_chunk_heap.c
  *
  * Copyright (C) 2012 Google, Inc.
+ * Copyright (c) 2016, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -34,9 +35,9 @@ struct ion_chunk_heap {
 };
 
 static int ion_chunk_heap_allocate(struct ion_heap *heap,
-				   struct ion_buffer *buffer,
-				   unsigned long size, unsigned long align,
-				   unsigned long flags)
+				      struct ion_buffer *buffer,
+				      unsigned long size, unsigned long align,
+				      unsigned long flags)
 {
 	struct ion_chunk_heap *chunk_heap =
 		container_of(heap, struct ion_chunk_heap, heap);
@@ -71,11 +72,11 @@ static int ion_chunk_heap_allocate(struct ion_heap *heap,
 		if (!paddr)
 			goto err;
 		sg_set_page(sg, pfn_to_page(PFN_DOWN(paddr)),
-			    chunk_heap->chunk_size, 0);
+				chunk_heap->chunk_size, 0);
 		sg = sg_next(sg);
 	}
 
-	buffer->sg_table = table;
+	buffer->priv_virt = table;
 	chunk_heap->allocated += allocated_size;
 	return 0;
 err:
@@ -95,17 +96,18 @@ static void ion_chunk_heap_free(struct ion_buffer *buffer)
 	struct ion_heap *heap = buffer->heap;
 	struct ion_chunk_heap *chunk_heap =
 		container_of(heap, struct ion_chunk_heap, heap);
-	struct sg_table *table = buffer->sg_table;
+	struct sg_table *table = buffer->priv_virt;
 	struct scatterlist *sg;
 	int i;
 	unsigned long allocated_size;
+	struct device *dev = heap->priv;
 
 	allocated_size = ALIGN(buffer->size, chunk_heap->chunk_size);
 
 	ion_heap_buffer_zero(buffer);
 
 	if (ion_buffer_cached(buffer))
-		dma_sync_sg_for_device(NULL, table->sgl, table->nents,
+		dma_sync_sg_for_device(dev, table->sgl, table->nents,
 				       DMA_BIDIRECTIONAL);
 
 	for_each_sg(table->sgl, sg, table->nents, i) {
@@ -117,9 +119,22 @@ static void ion_chunk_heap_free(struct ion_buffer *buffer)
 	kfree(table);
 }
 
+static struct sg_table *ion_chunk_heap_map_dma(struct ion_heap *heap,
+					       struct ion_buffer *buffer)
+{
+	return buffer->priv_virt;
+}
+
+static void ion_chunk_heap_unmap_dma(struct ion_heap *heap,
+				     struct ion_buffer *buffer)
+{
+}
+
 static struct ion_heap_ops chunk_heap_ops = {
 	.allocate = ion_chunk_heap_allocate,
 	.free = ion_chunk_heap_free,
+	.map_dma = ion_chunk_heap_map_dma,
+	.unmap_dma = ion_chunk_heap_unmap_dma,
 	.map_user = ion_heap_map_user,
 	.map_kernel = ion_heap_map_kernel,
 	.unmap_kernel = ion_heap_unmap_kernel,
@@ -131,11 +146,12 @@ struct ion_heap *ion_chunk_heap_create(struct ion_platform_heap *heap_data)
 	int ret;
 	struct page *page;
 	size_t size;
+	struct device *dev = heap_data->priv;
 
 	page = pfn_to_page(PFN_DOWN(heap_data->base));
 	size = heap_data->size;
 
-	ion_pages_sync_for_device(NULL, page, size, DMA_BIDIRECTIONAL);
+	ion_pages_sync_for_device(dev, page, size, DMA_BIDIRECTIONAL);
 
 	ret = ion_heap_pages_zero(page, size, pgprot_writecombine(PAGE_KERNEL));
 	if (ret)
@@ -160,8 +176,8 @@ struct ion_heap *ion_chunk_heap_create(struct ion_platform_heap *heap_data)
 	chunk_heap->heap.ops = &chunk_heap_ops;
 	chunk_heap->heap.type = ION_HEAP_TYPE_CHUNK;
 	chunk_heap->heap.flags = ION_HEAP_FLAG_DEFER_FREE;
-	pr_debug("%s: base %lu size %zu align %ld\n", __func__,
-		 chunk_heap->base, heap_data->size, heap_data->align);
+	pr_debug("%s: base %pad size %zu align %pad\n", __func__,
+		 &chunk_heap->base, heap_data->size, &heap_data->align);
 
 	return &chunk_heap->heap;
 

@@ -1,0 +1,51 @@
+/* Copyright (c) 2013, Samsung Electronics Corporation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	sec-mst {
+		compatible = "sec-mst";
+		sec-mst,mst-pwr-gpio = <&expander_gpios 4 0>;
+		sec-mst,mst-data-gpio = <&tlmm 96 0>;
+		sec-mst,mst-en-gpio = <&tlmm 95 0>;
+		//sec-mst,mst-vdd = "s2mpb02-ldo17";
+
+		pinctrl-names = "mst_active";
+		pinctrl-0 = <&mst_data_init &mst_en_init>;
+	};
+
+	tlmm: pinctrl@03400000 {
+		mst_data_init: mst_data_init {
+			mux {
+				pins = "gpio96";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio96";
+				drive-strength = <16>;
+				bias-pull-down;
+				output_low;
+			};
+		};
+		mst_en_init: mst_en_init {
+			mux {
+				pins = "gpio95";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio95";
+				drive-strength = <16>;
+				bias-pull-down;
+				output_low;
+			};
+		};
+	};
+};

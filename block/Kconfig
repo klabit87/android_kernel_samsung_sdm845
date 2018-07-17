@@ -130,4 +130,9 @@ config BLK_MQ_PCI
 	depends on BLOCK && PCI
 	default y
 
+config BLOCK_SUPPORT_STLOG
+	bool "Enable storage log"
+	depends on BLOCK && PROC_STLOG
+	default y
+
 source block/Kconfig.iosched

@@ -15,6 +15,7 @@
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_dbg.h>
+#include <scsi/scsi_host.h>
 
 #define SCSI_LOG_SPOOLSIZE 4096
 
@@ -367,6 +368,11 @@ scsi_log_print_sense_hdr(const struct scsi_device *sdev, const char *name,
 {
 	char *logbuf;
 	size_t off, logbuf_len;
+
+	if (sshdr && (sshdr->sense_key == 0x03))
+		sdev->host->medium_err_cnt++;
+	else if (sshdr && (sshdr->sense_key == 0x04))
+		sdev->host->hw_err_cnt++;
 
 	logbuf = scsi_log_reserve_buffer(&logbuf_len);
 	if (!logbuf)

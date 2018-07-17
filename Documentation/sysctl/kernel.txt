@@ -23,8 +23,10 @@ show up in /proc/sys/kernel:
 - auto_msgmni
 - bootloader_type	     [ X86 only ]
 - bootloader_version	     [ X86 only ]
+- boot_reason		     [ ARM and ARM64 only ]
 - callhome		     [ S390 only ]
 - cap_last_cap
+- cold_boot		     [ ARM and ARM64 only ]
 - core_pattern
 - core_pipe_limit
 - core_uses_pid
@@ -164,6 +166,19 @@ Documentation/x86/boot.txt for additional information.
 
 ==============================================================
 
+boot_reason:
+
+ARM and ARM64 -- reason for device boot
+
+A single bit will be set in the unsigned integer value to identify the
+reason the device was booted / powered on. The value will be zero if this
+feature is not supported on the ARM device being booted.
+
+See the power-on-status field definitions in
+Documentation/arm/msm/boot.txt for Qualcomm's family of devices.
+
+==============================================================
+
 callhome:
 
 Controls the kernel's callhome behavior in case of a kernel panic.
@@ -183,6 +198,16 @@ cap_last_cap
 
 Highest valid capability of the running kernel.  Exports
 CAP_LAST_CAP from the kernel.
+
+===============================================================
+
+cold_boot
+
+ARM and ARM64 -- indicator for system cold boot
+
+A single bit will be set in the unsigned integer value to identify
+whether the device was booted from a cold or warm state. Zero
+indicating a warm boot and one indicating a cold boot.
 
 ==============================================================
 
@@ -659,12 +684,14 @@ allowed to execute.
 perf_event_paranoid:
 
 Controls use of the performance events system by unprivileged
-users (without CAP_SYS_ADMIN).  The default value is 2.
+users (without CAP_SYS_ADMIN).  The default value is 3 if
+CONFIG_SECURITY_PERF_EVENTS_RESTRICT is set, or 2 otherwise.
 
  -1: Allow use of (almost) all events by all users
 >=0: Disallow raw tracepoint access by users without CAP_IOC_LOCK
 >=1: Disallow CPU event access by users without CAP_SYS_ADMIN
 >=2: Disallow kernel profiling by users without CAP_SYS_ADMIN
+>=3: Disallow all event access by users without CAP_SYS_ADMIN
 
 ==============================================================
 

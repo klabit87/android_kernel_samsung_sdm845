@@ -46,6 +46,16 @@ static int is_encryption_context_consistent_with_policy(struct inode *inode,
 			 policy->filenames_encryption_mode));
 }
 
+static inline int set_nonce(char *nonce, char *master_key_desc)
+{
+#ifdef CONFIG_FS_CRYPTO_SEC_EXTENSION
+	return fscrypt_sec_set_key_aes(nonce, master_key_desc);
+#else
+	get_random_bytes(nonce, FS_KEY_DERIVATION_NONCE_SIZE);
+	return 0;
+#endif /* CONFIG FS_CRYPTO_SEC_EXTENSION */
+}
+
 static int create_encryption_context_from_policy(struct inode *inode,
 				const struct fscrypt_policy *policy)
 {
@@ -88,7 +98,12 @@ static int create_encryption_context_from_policy(struct inode *inode,
 	ctx.filenames_encryption_mode = policy->filenames_encryption_mode;
 	ctx.flags = policy->flags;
 	BUILD_BUG_ON(sizeof(ctx.nonce) != FS_KEY_DERIVATION_NONCE_SIZE);
-	get_random_bytes(ctx.nonce, FS_KEY_DERIVATION_NONCE_SIZE);
+	res = set_nonce(ctx.nonce, ctx.master_key_descriptor);
+	if (res) {
+		printk(KERN_ERR
+			"%s: Failed to set nonce (err:%d)\n", __func__, res);
+		return res;
+	}
 
 	return inode->i_sb->s_cop->set_context(inode, &ctx, sizeof(ctx), NULL);
 }
@@ -294,7 +309,12 @@ int fscrypt_inherit_context(struct inode *parent, struct inode *child,
 		memcpy(ctx.master_key_descriptor, ci->ci_master_key,
 				FS_KEY_DESCRIPTOR_SIZE);
 	}
-	get_random_bytes(ctx.nonce, FS_KEY_DERIVATION_NONCE_SIZE);
+	res = set_nonce(ctx.nonce, ctx.master_key_descriptor);
+	if (res) {
+		printk(KERN_ERR
+			"%s: Failed to set nonce (err:%d)\n", __func__, res);
+		return res;
+	}
 	res = parent->i_sb->s_cop->set_context(child, &ctx,
 						sizeof(ctx), fs_data);
 	if (res)

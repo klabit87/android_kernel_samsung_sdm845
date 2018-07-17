@@ -48,8 +48,12 @@
 #include <linux/nodemask.h>
 #include <linux/moduleparam.h>
 #include <linux/uaccess.h>
+#include <linux/bug.h>
+#include <linux/delay.h>
 
 #include "workqueue_internal.h"
+
+#include <linux/sec_debug.h>
 
 enum {
 	/*
@@ -1273,6 +1277,12 @@ fail:
 	if (work_is_canceling(work))
 		return -ENOENT;
 	cpu_relax();
+	/*
+	 * The queueing is in progress in another context. If we keep
+	 * taking the pool->lock in a busy loop, the other context may
+	 * never get the lock. Give 1 usec delay to avoid this contention.
+	 */
+	udelay(1);
 	return -EAGAIN;
 }
 
@@ -1521,8 +1531,6 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 		__queue_work(cpu, wq, &dwork->work);
 		return;
 	}
-
-	timer_stats_timer_set_start_info(&dwork->timer);
 
 	dwork->wq = wq;
 	dwork->cpu = cpu;
@@ -2087,6 +2095,9 @@ __acquires(&pool->lock)
 	lock_map_acquire_read(&pwq->wq->lockdep_map);
 	lock_map_acquire(&lockdep_map);
 	trace_workqueue_execute_start(work);
+
+	secdbg_sched_msg("@%pS", worker->current_func);
+
 	worker->current_func(work);
 	/*
 	 * While we must be careful to not use "work" after this, the trace
@@ -2102,6 +2113,7 @@ __acquires(&pool->lock)
 		       current->comm, preempt_count(), task_pid_nr(current),
 		       worker->current_func);
 		debug_show_held_locks(current);
+		BUG_ON(PANIC_CORRUPTION);
 		dump_stack();
 	}
 

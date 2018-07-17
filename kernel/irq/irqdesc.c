@@ -19,6 +19,8 @@
 
 #include "internals.h"
 
+#include <linux/sec_debug.h>
+
 /*
  * lockdep: we want to handle all irq_desc locks as a single lock-class:
  */
@@ -587,6 +589,7 @@ int generic_handle_irq(unsigned int irq)
 
 	if (!desc)
 		return -EINVAL;
+
 	generic_handle_irq_desc(desc);
 	return 0;
 }

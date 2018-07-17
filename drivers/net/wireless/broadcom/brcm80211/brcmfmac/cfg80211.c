@@ -412,23 +412,24 @@ static int brcmf_vif_change_validate(struct brcmf_cfg80211_info *cfg,
 				     struct brcmf_cfg80211_vif *vif,
 				     enum nl80211_iftype new_type)
 {
-	int iftype_num[NUM_NL80211_IFTYPES];
 	struct brcmf_cfg80211_vif *pos;
 	bool check_combos = false;
 	int ret = 0;
+	struct iface_combination_params params = {
+		.num_different_channels = 1,
+	};
 
-	memset(&iftype_num[0], 0, sizeof(iftype_num));
 	list_for_each_entry(pos, &cfg->vif_list, list)
 		if (pos == vif) {
-			iftype_num[new_type]++;
+			params.iftype_num[new_type]++;
 		} else {
 			/* concurrent interfaces so need check combinations */
 			check_combos = true;
-			iftype_num[pos->wdev.iftype]++;
+			params.iftype_num[pos->wdev.iftype]++;
 		}
 
 	if (check_combos)
-		ret = cfg80211_check_combinations(cfg->wiphy, 1, 0, iftype_num);
+		ret = cfg80211_check_combinations(cfg->wiphy, &params);
 
 	return ret;
 }
@@ -436,15 +437,16 @@ static int brcmf_vif_change_validate(struct brcmf_cfg80211_info *cfg,
 static int brcmf_vif_add_validate(struct brcmf_cfg80211_info *cfg,
 				  enum nl80211_iftype new_type)
 {
-	int iftype_num[NUM_NL80211_IFTYPES];
 	struct brcmf_cfg80211_vif *pos;
+	struct iface_combination_params params = {
+		.num_different_channels = 1,
+	};
 
-	memset(&iftype_num[0], 0, sizeof(iftype_num));
 	list_for_each_entry(pos, &cfg->vif_list, list)
-		iftype_num[pos->wdev.iftype]++;
+		params.iftype_num[pos->wdev.iftype]++;
 
-	iftype_num[new_type]++;
-	return cfg80211_check_combinations(cfg->wiphy, 1, 0, iftype_num);
+	params.iftype_num[new_type]++;
+	return cfg80211_check_combinations(cfg->wiphy, &params);
 }
 
 static void convert_key_from_CPU(struct brcmf_wsec_key *key,
@@ -5413,6 +5415,7 @@ brcmf_bss_roaming_done(struct brcmf_cfg80211_info *cfg,
 	struct ieee80211_supported_band *band;
 	struct brcmf_bss_info_le *bi;
 	struct brcmu_chan ch;
+	struct cfg80211_roam_info roam_info = {};
 	u32 freq;
 	s32 err = 0;
 	u8 *buf;
@@ -5451,9 +5454,15 @@ brcmf_bss_roaming_done(struct brcmf_cfg80211_info *cfg,
 
 done:
 	kfree(buf);
-	cfg80211_roamed(ndev, notify_channel, (u8 *)profile->bssid,
-			conn_info->req_ie, conn_info->req_ie_len,
-			conn_info->resp_ie, conn_info->resp_ie_len, GFP_KERNEL);
+
+	roam_info.channel = notify_channel;
+	roam_info.bssid = profile->bssid;
+	roam_info.req_ie = conn_info->req_ie;
+	roam_info.req_ie_len = conn_info->req_ie_len;
+	roam_info.resp_ie = conn_info->resp_ie;
+	roam_info.resp_ie_len = conn_info->resp_ie_len;
+
+	cfg80211_roamed(ndev, &roam_info, GFP_KERNEL);
 	brcmf_dbg(CONN, "Report roaming result\n");
 
 	set_bit(BRCMF_VIF_STATUS_CONNECTED, &ifp->vif->sme_state);

@@ -1,0 +1,116 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+
+#include "../qcom/sdm845-v2.dtsi"
+#include "../qcom/sdm845-mtp.dtsi"
+#include "sdm845-sec-common.dtsi"
+#include "sdm845-sec-starqlte-pm-common.dtsi"
+#include "sdm845-sec-starqlte-pm-r07.dtsi"
+#include "sdm845-sec-starqlte-r14.dtsi"
+#include "sdm845-sec-starqlte-chn-pinctrl-r14.dtsi"
+#include "battery-data-starq-md05-common.dtsi"
+#include "sdm845-sec-starqlte-display-r01.dtsi"
+#include "sdm845-sec-starqlte-displayport-r00.dtsi"
+#include "sdm845-sec-starqlte-fingerprint-sensor-r05.dtsi"
+#include "sdm845-sec-starqlte-mst-r00.dtsi"
+#include "sdm845-camera-sensor-starqlte-r06.dtsi"
+#include "sdm845-starq-max77705.dtsi"
+
+/ {
+	model = "Samsung STARQLTE CHN PROJECT Rev14";
+	compatible = "qcom,sdm845-mtp", "qcom,sdm845", "qcom,mtp";
+	qcom,board-id = <8 14>;
+};
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		qupv3_se10_i2c_pins: qupv3_se10_i2c_pins {
+			/delete-node/ qupv3_se10_i2c_sleep;
+			qupv3_se10_i2c_sleep: qupv3_se10_i2c_sleep {
+				mux {
+					pins = "gpio55", "gpio56";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio55", "gpio56";
+					drive-strength = <2>;
+					bias-disable;
+					input-enable;
+				};
+			};
+		};
+	};
+
+	sound-tavil {
+		mixer-paths = "mixer_paths_tavil_cornell.xml";
+	};
+
+	i2c_17: i2c@17 { /* SW I2C */
+		sx9320-i2c@28 {
+			sx9320,normal_thd_fac = <0x27>;
+		};
+	};
+};
+
+&qupv3_se2_spi {
+	status = "ok";
+	/delete-node/ ese_spi@0;
+	ese_spi@0 {
+		compatible = "ese_p3";
+		reg = <0>;
+		spi-max-frequency = <16000000>;
+		ese,1p8_pvdd = "pm8998_lvs2";
+		ese,ap_vendor = "qualcomm";
+	};
+};
+
+&qupv3_se10_i2c {
+	status = "ok";
+	/delete-node/ pn547@2B;
+	sec-nfc@27 {
+		compatible = "sec-nfc";
+		reg = <0x27>;
+		interrupt-parent = <&tlmm>;
+		interrupts= <39 0>;
+		sec-nfc,irq-gpio = <&tlmm 39 0>;
+		sec-nfc,ven-gpio = <&expander_gpios 6 0>;
+		sec-nfc,firm-gpio = <&expander_gpios 7 0>;
+		sec-nfc,clk_req-gpio = <&pm8998_gpios 21 0x00>;
+		sec-nfc,nfc_pvdd = "pm8998_l14";
+		sec-nfc,ldo_control;
+		sec-nfc,nfc_BBCLK;
+		clocks = <&clock_rpmh RPMH_LN_BB_CLK3>;
+		clock-names = "rf_clk";
+		qcom,clk-src = "BBCLK3";
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_clk_default>;
+	};
+};
+
+&slim_aud {
+	imp_list: imp_list {
+		#list-imp-cells = <3>;
+	};
+
+	tavil_codec {
+		imp-table = <&imp_list 0 0 6>,
+				 <&imp_list 1 13 1>,
+				 <&imp_list 14 25 3>,
+				 <&imp_list 26 42 4>,
+				 <&imp_list 43 100 7>,
+				 <&imp_list 101 200 9>,
+				 <&imp_list 201 1000 10>,
+				 <&imp_list 1001 0x7fffffff 8>;
+	};
+};

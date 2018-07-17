@@ -163,6 +163,21 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 	if (sscanf(page, "%d", &new_value) != 1)
 		goto out;
 
+// [ SEC_SELINUX_PORTING_COMMON
+#ifdef CONFIG_ALWAYS_ENFORCE
+	// If build is user build and enforce option is set, selinux is always enforcing
+	new_value = 1;
+	length = task_has_security(current, SECURITY__SETENFORCE);
+	audit_log(current->audit_context, GFP_KERNEL, AUDIT_MAC_STATUS,
+		"config_always_enforce - true; enforcing=%d old_enforcing=%d auid=%u ses=%u",
+		new_value, selinux_enforcing,
+		from_kuid(&init_user_ns, audit_get_loginuid(current)),
+		audit_get_sessionid(current));
+	selinux_enforcing = new_value;
+	avc_ss_reset(0);
+	selnl_notify_setenforce(new_value);
+	selinux_status_update_setenforce(new_value);
+#else
 	if (new_value != selinux_enforcing) {
 		length = task_has_security(current, SECURITY__SETENFORCE);
 		if (length)
@@ -178,6 +193,8 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 		selnl_notify_setenforce(selinux_enforcing);
 		selinux_status_update_setenforce(selinux_enforcing);
 	}
+#endif
+// ] SEC_SELINUX_PORTING_COMMON
 	length = count;
 out:
 	kfree(page);
@@ -1897,6 +1914,12 @@ struct vfsmount *selinuxfs_mount;
 static int __init init_sel_fs(void)
 {
 	int err;
+
+// [ SEC_SELINUX_PORTING_COMMON
+#ifdef CONFIG_ALWAYS_ENFORCE
+	selinux_enabled = 1;
+#endif
+// ] SEC_SELINUX_PORTING_COMMON
 
 	if (!selinux_enabled)
 		return 0;

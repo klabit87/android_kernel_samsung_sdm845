@@ -287,6 +287,11 @@ int udp_lib_get_port(struct sock *sk, unsigned short snum,
 	} else {
 		hslot = udp_hashslot(udptable, net, snum);
 		spin_lock_bh(&hslot->lock);
+
+		if (inet_is_local_reserved_port(net, snum) &&
+		    !sysctl_reserved_port_bind)
+			goto fail_unlock;
+
 		if (hslot->count > 10) {
 			int exist;
 			unsigned int slot2 = udp_sk(sk)->udp_portaddr_hash ^ snum;
@@ -1016,7 +1021,8 @@ int udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 		flowi4_init_output(fl4, ipc.oif, sk->sk_mark, tos,
 				   RT_SCOPE_UNIVERSE, sk->sk_protocol,
 				   flow_flags,
-				   faddr, saddr, dport, inet->inet_sport);
+				   faddr, saddr, dport, inet->inet_sport,
+				   sk->sk_uid);
 
 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
 		rt = ip_route_output_flow(net, fl4, sk);
@@ -1618,14 +1624,18 @@ drop:
 /* For TCP sockets, sk_rx_dst is protected by socket lock
  * For UDP, we use xchg() to guard against concurrent changes.
  */
-static void udp_sk_rx_dst_set(struct sock *sk, struct dst_entry *dst)
+bool udp_sk_rx_dst_set(struct sock *sk, struct dst_entry *dst)
 {
 	struct dst_entry *old;
 
-	dst_hold(dst);
-	old = xchg(&sk->sk_rx_dst, dst);
-	dst_release(old);
+	if (dst_hold_safe(dst)) {
+		old = xchg(&sk->sk_rx_dst, dst);
+		dst_release(old);
+		return old != dst;
+	}
+	return false;
 }
+EXPORT_SYMBOL(udp_sk_rx_dst_set);
 
 /*
  *	Multicasts and broadcasts go to each listener.
@@ -1948,13 +1958,11 @@ void udp_v4_early_demux(struct sk_buff *skb)
 	if (dst)
 		dst = dst_check(dst, 0);
 	if (dst) {
-		/* DST_NOCACHE can not be used without taking a reference */
-		if (dst->flags & DST_NOCACHE) {
-			if (likely(atomic_inc_not_zero(&dst->__refcnt)))
-				skb_dst_set(skb, dst);
-		} else {
-			skb_dst_set_noref(skb, dst);
-		}
+		/* set noref for now.
+		 * any place which wants to hold dst has to call
+		 * dst_hold_safe()
+		 */
+		skb_dst_set_noref(skb, dst);
 	}
 }
 
@@ -2373,14 +2381,21 @@ static void udp4_format_sock(struct sock *sp, struct seq_file *f,
 		int bucket)
 {
 	struct inet_sock *inet = inet_sk(sp);
+	struct udp_sock *up = udp_sk(sp);
 	__be32 dest = inet->inet_daddr;
 	__be32 src  = inet->inet_rcv_saddr;
 	__u16 destp	  = ntohs(inet->inet_dport);
 	__u16 srcp	  = ntohs(inet->inet_sport);
+	__u8 state = sp->sk_state;
+
+	if (up->encap_rcv)
+		state |= 0xF0;
+	else if (inet->transparent)
+		state |= 0x80;
 
 	seq_printf(f, "%5d: %08X:%04X %08X:%04X"
 		" %02X %08X:%08X %02X:%08lX %08X %5u %8d %lu %d %pK %d",
-		bucket, src, srcp, dest, destp, sp->sk_state,
+		bucket, src, srcp, dest, destp, state,
 		sk_wmem_alloc_get(sp),
 		sk_rmem_alloc_get(sp),
 		0, 0L, 0,

@@ -23,8 +23,6 @@ comment "Crypto core or helper"
 
 config CRYPTO_FIPS
 	bool "FIPS 200 compliance"
-	depends on (CRYPTO_ANSI_CPRNG || CRYPTO_DRBG) && !CRYPTO_MANAGER_DISABLE_TESTS
-	depends on MODULE_SIG
 	help
 	  This options enables the fips boot option which is
 	  required if you want to system to operate in a FIPS 200
@@ -102,6 +100,15 @@ config CRYPTO_KPP
 	select CRYPTO_ALGAPI
 	select CRYPTO_KPP2
 
+config CRYPTO_ACOMP2
+	tristate
+	select CRYPTO_ALGAPI2
+
+config CRYPTO_ACOMP
+	tristate
+	select CRYPTO_ALGAPI
+	select CRYPTO_ACOMP2
+
 config CRYPTO_RSA
 	tristate "RSA algorithm"
 	select CRYPTO_AKCIPHER
@@ -138,6 +145,7 @@ config CRYPTO_MANAGER2
 	select CRYPTO_BLKCIPHER2
 	select CRYPTO_AKCIPHER2
 	select CRYPTO_KPP2
+	select CRYPTO_ACOMP2
 
 config CRYPTO_USER
 	tristate "Userspace cryptographic algorithm configuration"
@@ -149,7 +157,7 @@ config CRYPTO_USER
 
 config CRYPTO_MANAGER_DISABLE_TESTS
 	bool "Disable run-time self tests"
-	default y
+	default n
 	depends on CRYPTO_MANAGER2
 	help
 	  Disable run-time self tests that normally take place at
@@ -227,7 +235,7 @@ config CRYPTO_AUTHENC
 
 config CRYPTO_TEST
 	tristate "Testing module"
-	depends on m
+	default n
 	select CRYPTO_MANAGER
 	help
 	  Quick & dirty crypto test module.
@@ -1608,6 +1616,15 @@ config CRYPTO_LZ4HC
 	help
 	  This is the LZ4 high compression mode algorithm.
 
+config CRYPTO_ZSTD
+	tristate "Zstd compression algorithm"
+	select CRYPTO_ALGAPI
+	select CRYPTO_ACOMP2
+	select ZSTD_COMPRESS
+	select ZSTD_DECOMPRESS
+	help
+	  This is the zstd algorithm.
+
 comment "Random Number Generation"
 
 config CRYPTO_ANSI_CPRNG
@@ -1706,6 +1723,36 @@ config CRYPTO_USER_API_AEAD
 
 config CRYPTO_HASH_INFO
 	bool
+
+config CRYPTO_POST_DEFERRED_INIT
+	bool "FIPS POST via deferred_module_init"
+	default n
+	help
+	  This is FIPS 140-2 selftest timing indication,
+	  i.e. tcrypt_mod_init. FIPS requires automatic
+	  selftest without user's intervention.
+	  Only one CONFIG should be selected from following.
+	  POST_DEFERRED_INIT / POST_LATE_INIT_SYNC / POST_LATE_INIT / none
+
+config CRYPTO_POST_LATE_INIT_SYNC
+	bool "FIPS POST via late_initcall_sync"
+	default n
+	help
+	  This is FIPS 140-2 selftest timing indication,
+	  i.e. tcrypt_mod_init. FIPS requires automatic
+	  selftest without user's intervention.
+	  Only one CONFIG should be selected from following.
+	  POST_DEFERRED_INIT / POST_LATE_INIT_SYNC / POST_LATE_INIT / none
+
+config CRYPTO_POST_LATE_INIT
+	bool "FIPS POST via late_initcall"
+	default n
+	help
+	  This is FIPS 140-2 selftest timing indication,
+	  i.e. tcrypt_mod_init. FIPS requires automatic
+	  selftest without user's intervention.
+	  Only one CONFIG should be selected from following.
+	  POST_DEFERRED_INIT / POST_LATE_INIT_SYNC / POST_LATE_INIT / none
 
 source "drivers/crypto/Kconfig"
 source crypto/asymmetric_keys/Kconfig

@@ -432,6 +432,12 @@ struct skb_shared_info {
 	 * remains valid until skb destructor */
 	void *		destructor_arg;
 
+// ------------- START of KNOX_VPN ------------------//
+	uid_t uid;
+	pid_t pid;
+	u_int32_t knox_mark;
+// ------------- END of KNOX_VPN -------------------//
+
 	/* must be last field, see pskb_expand_head() */
 	skb_frag_t	frags[MAX_SKB_FRAGS];
 };
@@ -738,7 +744,11 @@ struct sk_buff {
 #endif
 	__u8			ipvs_property:1;
 	__u8			inner_protocol_type:1;
+	__u8			fast_forwarded:1;
 	__u8			remcsum_offload:1;
+
+	 /*4 or 6 bit hole */
+
 #ifdef CONFIG_NET_SWITCHDEV
 	__u8			offload_fwd_mark:1;
 #endif

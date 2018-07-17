@@ -303,7 +303,7 @@ static void soc_init_component_debugfs(struct snd_soc_component *component)
 	}
 
 	if (!component->debugfs_root) {
-		dev_warn(component->dev,
+		dev_dbg(component->dev,
 			"ASoC: Failed to create component debugfs directory\n");
 		return;
 	}
@@ -328,7 +328,7 @@ static void soc_init_codec_debugfs(struct snd_soc_component *component)
 						 codec->component.debugfs_root,
 						 codec, &codec_reg_fops);
 	if (!codec->debugfs_reg)
-		dev_warn(codec->dev,
+		dev_dbg(codec->dev,
 			"ASoC: Failed to create codec register debugfs file\n");
 }
 
@@ -911,10 +911,26 @@ EXPORT_SYMBOL_GPL(snd_soc_resume);
 static const struct snd_soc_dai_ops null_dai_ops = {
 };
 
-static struct snd_soc_component *soc_find_component(
+/**
+ * soc_find_component: find a component from component_list in ASoC core
+ *
+ * @of_node: of_node of the component to query.
+ * @name: name of the component to query.
+ *
+ * function to find out if a component is already registered with ASoC core.
+ *
+ * Returns component handle for success, else NULL error.
+ */
+struct snd_soc_component *soc_find_component(
 	const struct device_node *of_node, const char *name)
 {
 	struct snd_soc_component *component;
+
+	if (!of_node && !name) {
+		pr_err("%s: Either of_node or name must be valid\n",
+			__func__);
+		return NULL;
+	}
 
 	lockdep_assert_held(&client_mutex);
 
@@ -929,6 +945,7 @@ static struct snd_soc_component *soc_find_component(
 
 	return NULL;
 }
+EXPORT_SYMBOL(soc_find_component);
 
 /**
  * snd_soc_find_dai - Find a registered DAI
@@ -2595,8 +2612,7 @@ int snd_soc_dai_digital_mute(struct snd_soc_dai *dai, int mute,
 
 	if (dai->driver->ops->mute_stream)
 		return dai->driver->ops->mute_stream(dai, mute, direction);
-	else if (direction == SNDRV_PCM_STREAM_PLAYBACK &&
-		 dai->driver->ops->digital_mute)
+	else if (dai->driver->ops->digital_mute)
 		return dai->driver->ops->digital_mute(dai, mute);
 	else
 		return -ENOTSUPP;
@@ -2643,6 +2659,7 @@ int snd_soc_register_card(struct snd_soc_card *card)
 	card->instantiated = 0;
 	mutex_init(&card->mutex);
 	mutex_init(&card->dapm_mutex);
+	mutex_init(&card->dapm_power_mutex);
 
 	ret = snd_soc_instantiate_card(card);
 	if (ret != 0)
@@ -3303,6 +3320,18 @@ static int snd_soc_codec_set_bias_level(struct snd_soc_dapm_context *dapm,
 }
 
 /**
+ * snd_soc_card_change_online_state - Mark if soc card is online/offline
+ *
+ * @soc_card : soc_card to mark
+ */
+void snd_soc_card_change_online_state(struct snd_soc_card *soc_card, int online)
+{
+	if (soc_card && soc_card->snd_card)
+		snd_card_change_online_state(soc_card->snd_card, online);
+}
+EXPORT_SYMBOL(snd_soc_card_change_online_state);
+
+/**
  * snd_soc_register_codec - Register a codec with the ASoC core
  *
  * @dev: The parent device for this codec
@@ -3837,6 +3866,63 @@ static int snd_soc_get_dai_name(struct of_phandle_args *args,
 	mutex_unlock(&client_mutex);
 	return ret;
 }
+
+/**
+ * snd_soc_info_multi_ext - external single mixer info callback
+ * @kcontrol: mixer control
+ * @uinfo: control element information
+ *
+ * Callback to provide information about a single external mixer control.
+ * that accepts multiple input.
+ *
+ * Returns 0 for success.
+ */
+int snd_soc_info_multi_ext(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo)
+{
+	struct soc_multi_mixer_control *mc =
+		(struct soc_multi_mixer_control *)kcontrol->private_value;
+	int platform_max;
+
+	if (!mc->platform_max)
+		mc->platform_max = mc->max;
+	platform_max = mc->platform_max;
+
+	if (platform_max == 1 && !strnstr(kcontrol->id.name, " Volume", 30))
+		uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
+	else
+		uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+
+	uinfo->count = mc->count;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = platform_max;
+	return 0;
+}
+EXPORT_SYMBOL(snd_soc_info_multi_ext);
+
+/**
+ * snd_soc_dai_get_channel_map - configure DAI audio channel map
+ * @dai: DAI
+ * @tx_num: how many TX channels
+ * @tx_slot: pointer to an array which imply the TX slot number channel
+ *           0~num-1 uses
+ * @rx_num: how many RX channels
+ * @rx_slot: pointer to an array which imply the RX slot number channel
+ *           0~num-1 uses
+ *
+ * configure the relationship between channel number and TDM slot number.
+ */
+int snd_soc_dai_get_channel_map(struct snd_soc_dai *dai,
+	unsigned int *tx_num, unsigned int *tx_slot,
+	unsigned int *rx_num, unsigned int *rx_slot)
+{
+	if (dai->driver && dai->driver->ops->get_channel_map)
+		return dai->driver->ops->get_channel_map(dai, tx_num, tx_slot,
+			rx_num, rx_slot);
+	else
+		return -EINVAL;
+}
+EXPORT_SYMBOL(snd_soc_dai_get_channel_map);
 
 int snd_soc_of_get_dai_name(struct device_node *of_node,
 			    const char **dai_name)

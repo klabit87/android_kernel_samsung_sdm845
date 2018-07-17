@@ -33,8 +33,6 @@ struct mdp4_kms {
 	int rev;
 
 	/* mapper-id used to request GEM buffer mapped for scanout: */
-	int id;
-
 	void __iomem *mmio;
 
 	struct regulator *vdd;
@@ -43,7 +41,7 @@ struct mdp4_kms {
 	struct clk *pclk;
 	struct clk *lut_clk;
 	struct clk *axi_clk;
-	struct msm_mmu *mmu;
+	struct msm_gem_address_space *aspace;
 
 	struct mdp_irq error_handler;
 
@@ -200,8 +198,19 @@ struct drm_plane *mdp4_plane_init(struct drm_device *dev,
 		enum mdp4_pipe pipe_id, bool private_plane);
 
 uint32_t mdp4_crtc_vblank(struct drm_crtc *crtc);
+#ifdef CONFIG_DRM_MSM_MDP4
 void mdp4_crtc_set_config(struct drm_crtc *crtc, uint32_t config);
 void mdp4_crtc_set_intf(struct drm_crtc *crtc, enum mdp4_intf intf, int mixer);
+#else
+static inline void mdp4_crtc_set_config(struct drm_crtc *crtc, uint32_t config)
+{
+}
+
+static inline void mdp4_crtc_set_intf(struct drm_crtc *crtc,
+						enum mdp4_intf intf, int mixer)
+{
+}
+#endif
 void mdp4_crtc_wait_for_commit_done(struct drm_crtc *crtc);
 struct drm_crtc *mdp4_crtc_init(struct drm_device *dev,
 		struct drm_plane *plane, int id, int ovlp_id,

@@ -1,8 +1,16 @@
 #ifndef __ASM_SUSPEND_H
 #define __ASM_SUSPEND_H
 
-#define NR_CTX_REGS 10
+#define NR_CTX_REGS 12
+
+/*
+ * ROPP requires to save/restore RRX and RRK.
+ */
+#if (defined CONFIG_RKP_CFP_ROPP) && !(defined CONFIG_RKP_CFP_ROPP_SYSREGKEY)
+#define NR_CALLEE_SAVED_REGS 14
+#else
 #define NR_CALLEE_SAVED_REGS 12
+#endif
 
 /*
  * struct cpu_suspend_ctx must be 16-byte aligned since it is allocated on

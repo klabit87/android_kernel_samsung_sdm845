@@ -105,4 +105,24 @@ config USB_DWC3_ST
 	  inside (i.e. STiH407).
 	  Say 'Y' or 'M' if you have one such device.
 
+config USB_DWC3_MSM
+	tristate "QTI MSM Platforms"
+	depends on ARCH_QCOM || COMPILE_TEST
+	help
+	  Applicable to QTI MSM Platforms with DesignWare Core USB3 IP,
+	  say 'Y' or 'M' if you have one such device.
+
+config USB_ANDROID_SAMSUNG_DISABLE_U1_U2
+	bool "Disable U1/U2 state"
+	depends on USB_DWC3=y || DUAL_ROLE_USB_INTF=y
+	default n
+	help
+	  Select this when you want to disable U1/U2 state in USB 3.0
+
+config USB_CHARGING_EVENT
+	bool "Set usb charging current "
+	depends on USB_DWC3=y
+	help
+	  For satisfy BC1.2 specification
+	  In unconfigured state or suspend state, Set vbus current to 100mA
 endif

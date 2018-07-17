@@ -1214,4 +1214,23 @@ config TOUCHSCREEN_ROHM_BU21023
 	  To compile this driver as a module, choose M here: the
 	  module will be called bu21023_ts.
 
+config SECURE_TOUCH
+	bool "Secure Touch"
+	depends on I2C
+	help
+	  Say Y here to enable Secure Touch in supported drivers.
+
+	  If unsure, say N.
+
+config TOUCHSCREEN_DUMP_MODE
+	bool "touchscreen dump mode"
+	depends on I2C
+	help
+	  Say Y here if you need to get raw data.
+
+	  If unsure, say N.
+
+source "drivers/input/touchscreen/sec_ts/Kconfig"
+source "drivers/input/touchscreen/sec_ts/y771/Kconfig"
+source "drivers/input/touchscreen/stm/Kconfig"
 endif

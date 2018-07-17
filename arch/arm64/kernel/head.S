@@ -42,6 +42,10 @@
 #include <asm/thread_info.h>
 #include <asm/virt.h>
 
+#ifdef CONFIG_RKP_CFP_ROPP
+#include <asm/rkp_cfp.h>
+#endif
+
 #define __PHYS_OFFSET	(KERNEL_START - TEXT_OFFSET)
 
 #if (TEXT_OFFSET & 0xfff) != 0
@@ -219,8 +223,14 @@ efi_header_end:
 	 *  x19/x20    __primary_switch()         callee preserved temp registers
 	 */
 ENTRY(stext)
+#ifdef CONFIG_RKP_CFP_ROPP
+	ropp_primary_early_init
+#endif
 	bl	preserve_boot_args
 	bl	el2_setup			// Drop to EL1, w0=cpu_boot_mode
+#ifdef CONFIG_RELOCATABLE_KERNEL
+	bl __relocate_kernel_physical_address
+#endif
 	adrp	x23, __PHYS_OFFSET
 	and	x23, x23, MIN_KIMG_ALIGN - 1	// KASLR offset, defaults to 0
 	bl	set_cpu_boot_mode_flag
@@ -234,6 +244,73 @@ ENTRY(stext)
 	bl	__cpu_setup			// initialise processor
 	b	__primary_switch
 ENDPROC(stext)
+
+#ifdef CONFIG_RELOCATABLE_KERNEL
+
+#define SIZE_8 0x08
+#define PAGE_BIT (SIZE_8-1)
+#define ALIGN_PG (~(PAGE_BIT))
+__relocate_kernel_physical_address:
+	adrp	x23, __PHYS_OFFSET
+
+	mov_q 	x24, KIMAGE_VADDR
+	sub x24, x24, x23
+
+	and	x23, x23, MIN_KIMG_ALIGN - 1	// KASLR offset, defaults to 0
+
+	adr_l	x9, __reloc_start
+	adr_l 	x10, __reloc_end
+0:	cmp	x9, x10
+	b.hs	1f
+	ldp	x11, x12, [x9], #24
+	ldr	x13, [x9, #-8]
+	cmp	w12, #R_AARCH64_RELATIVE
+	b.ne	0b
+	add	x13, x13, x23			// relocate
+	sub x11, x11, x24
+
+	tst x11, #PAGE_BIT
+	b.ne __unaligned_data
+
+2:	str	x13, [x11]
+	b	0b
+1:	ret
+ENDPROC(__relocate_kernel_physical_address)
+
+__unaligned_data:
+
+	and x12, x11, #PAGE_BIT
+	lsl x12, x12, #0x03
+
+	and x11, x11, #ALIGN_PG
+	ldp x7, x8, [x11]
+
+	mov x2, #0x01
+	lsl x1, x2, x12
+	sub x1, x1, #0x01
+	mvn x2, x1
+
+	mov x3, #0x40
+	sub x12, x3, x12
+	ror x13, x13, x12
+
+	and x7, x7, x1
+	and x3, x13, x2
+	orr x7, x7, x3
+
+	and x8, x8, x2
+	and x3, x13, x1
+	orr x8, x8, x3
+
+	stp x7, x8, [x11]
+
+	mov x1, xzr
+	mov x2, xzr
+	mov x3, xzr
+
+	b	0b
+ENDPROC(__unaligned_data)
+#endif
 
 /*
  * Preserve the arguments passed by the bootloader in x0 .. x3
@@ -326,14 +403,14 @@ __create_page_tables:
 	 * dirty cache lines being evicted.
 	 */
 	adrp	x0, idmap_pg_dir
-	adrp	x1, swapper_pg_dir + SWAPPER_DIR_SIZE
+	adrp	x1, swapper_pg_dir + SWAPPER_DIR_SIZE + RESERVED_TTBR0_SIZE
 	bl	__inval_cache_range
 
 	/*
 	 * Clear the idmap and swapper page tables.
 	 */
 	adrp	x0, idmap_pg_dir
-	adrp	x6, swapper_pg_dir + SWAPPER_DIR_SIZE
+	adrp	x6, swapper_pg_dir + SWAPPER_DIR_SIZE + RESERVED_TTBR0_SIZE
 1:	stp	xzr, xzr, [x0], #16
 	stp	xzr, xzr, [x0], #16
 	stp	xzr, xzr, [x0], #16
@@ -412,7 +489,7 @@ __create_page_tables:
 	 * tables again to remove any speculatively loaded cache lines.
 	 */
 	adrp	x0, idmap_pg_dir
-	adrp	x1, swapper_pg_dir + SWAPPER_DIR_SIZE
+	adrp	x1, swapper_pg_dir + SWAPPER_DIR_SIZE + RESERVED_TTBR0_SIZE
 	dmb	sy
 	bl	__inval_cache_range
 
@@ -428,7 +505,8 @@ ENDPROC(__create_page_tables)
 __primary_switched:
 	adrp	x4, init_thread_union
 	add	sp, x4, #THREAD_SIZE
-	msr	sp_el0, x4			// Save thread_info
+	adr_l	x5, init_task
+	msr	sp_el0, x5			// Save thread_info
 
 	adr_l	x8, vectors			// load VBAR_EL1 with virtual
 	msr	vbar_el1, x8			// vector table address
@@ -700,10 +778,13 @@ __secondary_switched:
 	isb
 
 	adr_l	x0, secondary_data
-	ldr	x0, [x0, #CPU_BOOT_STACK]	// get secondary_data.stack
-	mov	sp, x0
-	and	x0, x0, #~(THREAD_SIZE - 1)
-	msr	sp_el0, x0			// save thread_info
+	ldr	x1, [x0, #CPU_BOOT_STACK]	// get secondary_data.stack
+	mov	sp, x1
+	ldr	x2, [x0, #CPU_BOOT_TASK]
+	msr	sp_el0, x2
+#ifdef CONFIG_RKP_CFP_ROPP
+	ropp_secondary_init x2
+#endif
 	mov	x29, #0
 	b	secondary_start_kernel
 ENDPROC(__secondary_switched)

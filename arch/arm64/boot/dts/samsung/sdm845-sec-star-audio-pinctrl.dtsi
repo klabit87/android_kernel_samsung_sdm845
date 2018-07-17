@@ -1,0 +1,87 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		compatible = "qcom,sdm845-pinctrl";
+		reg = <0x03400000 0xc00000>;
+		interrupts = <0 208 0>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+
+		cdc_reset_ctrl {
+			cdc_reset_active:cdc_reset_active {
+				config {
+					/delete-property/bias-pull-down;
+					bias-disable;
+				};
+			};
+		};
+
+		max98512_i2c {
+			max98512_i2c_default: max98512_i2c_default {
+				mux {
+					pins = "gpio62", "gpio63";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio62", "gpio63";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+		};
+
+		fmradio_i2c {
+			fmradio_i2c_default: fmradio_i2c_default {
+				mux {
+					pins = "gpio103", "gpio104";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio103", "gpio104";
+					drive-strength = <2>; /* 2 MA */
+					bias-disable; /* No PULL */
+				};
+			};
+		};
+
+		fmradio_int {
+			fmradio_int_active: fmradio_int_active {
+				mux {
+					pins = "gpio133";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio133";
+					drive-strength = <2>; /* 2 MA */
+					bias-pull-down; /* PULL DOWN */
+				};
+			};
+		};
+	};
+};
+
+&pm8998_gpios {
+	fm_sleep_clk_out {
+		fm_sleep_clk_out_default: fm_sleep_clk_out_default {
+			pins = "gpio13";
+			function = "func1";
+			bias-disable;
+			power-source = <0>;
+			output-low;
+		};
+	};
+};
