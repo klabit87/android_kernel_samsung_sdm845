@@ -8,7 +8,9 @@ BUILD_KERNEL_OUT_DIR=$BUILD_ROOT_DIR/kernel_out/KERNEL_OBJ
 PRODUCT_OUT=$BUILD_ROOT_DIR/kernel_out
 
 DEVICE=starlte_chn
-KERNEL_TOOLCHAIN=/home/vaughnn/android/toolchain/aarch64-linux-android/bin/aarch64-linux-android-
+export KBUILD_COMPILER_STRING=$(/home/vaughnn/android/toolchain/clang-4679922/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
+BUILD_KERNEL_GCC=/home/vaughnn/android/toolchain/aarch64-linux-android/bin/aarch64-linux-android-
+BUILD_KERNEL_CLANG=/home/vaughnn/android/toolchain/clang-4679922/bin/clang
 
 case ${DEVICE} in
 	"starlte_chn")
@@ -27,9 +29,7 @@ case ${DEVICE} in
             die "Invalid defconfig!" ;;
 esac
 
-BUILD_CROSS_COMPILE=$KERNEL_TOOLCHAIN
 BUILD_JOB_NUMBER=`grep processor /proc/cpuinfo|wc -l`
-
 KERNEL_IMG=$PRODUCT_OUT/Image.gz-dtb
 DTIMG=$PRODUCT_OUT/dt.img
 
@@ -45,7 +45,9 @@ FUNC_GENERATE_DEFCONFIG()
         echo ""
 
 	make -C $BUILD_KERNEL_DIR O=$BUILD_KERNEL_OUT_DIR -j$BUILD_JOB_NUMBER ARCH=arm64 \
-			CROSS_COMPILE=$BUILD_CROSS_COMPILE \
+			CC=$BUILD_KERNEL_CLANG \
+			CLANG_TRIPLE=aarch64-linux-gnu- \
+			CROSS_COMPILE=$BUILD_KERNEL_GCC \
 			$KERNEL_DEFCONFIG || exit -1
 
 	cp $BUILD_KERNEL_OUT_DIR/.config $BUILD_KERNEL_DIR/arch/arm64/configs/$KERNEL_DEFCONFIG
@@ -67,7 +69,9 @@ FUNC_GENERATE_DTB()
 	rm -rf $BUILD_KERNEL_OUT_DIR/arch/arm64/boot/dts
 
 	make dtbs -C $BUILD_KERNEL_DIR O=$BUILD_KERNEL_OUT_DIR -j$BUILD_JOB_NUMBER ARCH=arm64 \
-			CROSS_COMPILE=$BUILD_CROSS_COMPILE || exit -1
+			CC=$BUILD_KERNEL_CLANG \
+			CLANG_TRIPLE=aarch64-linux-gnu- \
+			CROSS_COMPILE=$BUILD_KERNEL_GCC || exit -1
 	echo ""
 	echo "================================="
 	echo "END   : FUNC_GENERATE_DTB"
@@ -85,15 +89,10 @@ FUNC_BUILD_KERNEL()
 	rm $KERNEL_IMG $BUILD_KERNEL_OUT_DIR/arch/arm64/boot/Image
 	rm -rf $BUILD_KERNEL_OUT_DIR/arch/arm64/boot/dts
 
-if [ "$USE_CCACHE" ]
-then
 	make -C $BUILD_KERNEL_DIR O=$BUILD_KERNEL_OUT_DIR -j$BUILD_JOB_NUMBER ARCH=arm64 \
-			CROSS_COMPILE=$BUILD_CROSS_COMPILE \
-			CC="ccache "$BUILD_CROSS_COMPILE"gcc" CPP="ccache "$BUILD_CROSS_COMPILE"gcc -E" || exit -1
-else
-	make -C $BUILD_KERNEL_DIR O=$BUILD_KERNEL_OUT_DIR -j$BUILD_JOB_NUMBER ARCH=arm64 \
-			CROSS_COMPILE=$BUILD_CROSS_COMPILE || exit -1
-fi
+			CC=$BUILD_KERNEL_CLANG \
+			CLANG_TRIPLE=aarch64-linux-gnu- \
+			CROSS_COMPILE=$BUILD_KERNEL_GCC || exit -1
 
 	cp $BUILD_KERNEL_OUT_DIR/arch/arm64/boot/Image.gz-dtb $KERNEL_IMG
 	echo "Made Kernel image: $KERNEL_IMG"

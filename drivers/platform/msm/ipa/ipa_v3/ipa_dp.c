@@ -263,7 +263,7 @@ int ipa3_send(struct ipa3_sys_context *sys,
 		struct ipa3_desc *desc,
 		bool in_atomic)
 {
-	struct ipa3_tx_pkt_wrapper *tx_pkt, *tx_pkt_first;
+	struct ipa3_tx_pkt_wrapper *tx_pkt, *tx_pkt_first = NULL;
 	struct ipahal_imm_cmd_pyld *tag_pyld_ret = NULL;
 	struct ipa3_tx_pkt_wrapper *next_pkt;
 	struct gsi_xfer_elem *gsi_xfer_elem_array = NULL;
@@ -437,6 +437,8 @@ failure_dma_map:
 
 failure:
 	ipahal_destroy_imm_cmd(tag_pyld_ret);
+	if (!tx_pkt_first)
+		goto kfree_gsi_array;
 	tx_pkt = tx_pkt_first;
 	for (j = 0; j < i; j++) {
 		next_pkt = list_next_entry(tx_pkt, link);
@@ -458,6 +460,7 @@ failure:
 		tx_pkt = next_pkt;
 	}
 
+kfree_gsi_array:
 	kfree(gsi_xfer_elem_array);
 
 	spin_unlock_bh(&sys->spinlock);
