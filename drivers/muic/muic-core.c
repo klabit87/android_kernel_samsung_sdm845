@@ -272,7 +272,7 @@ static int muic_handle_cable_data_notification(struct notifier_block *nb,
 		break;
 #if defined(CONFIG_USB_HW_PARAM)
 	case ATTACHED_DEV_TIMEOUT_OPEN_MUIC:
-		if (action == MUIC_NOTIFY_CMD_ATTACH && o_notify)
+		if (action == MUIC_NOTIFY_CMD_DETACH && o_notify)
 			inc_hw_param(o_notify, USB_MUIC_DCD_TIMEOUT_COUNT);
 		break;
 #endif

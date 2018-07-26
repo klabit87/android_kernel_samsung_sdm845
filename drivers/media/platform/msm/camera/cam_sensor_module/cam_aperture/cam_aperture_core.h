@@ -22,6 +22,7 @@ int32_t cam_aperture_power_up(struct cam_aperture_ctrl_t *a_ctrl);
 int cam_aperture_low(struct camera_io_master *client);
 int cam_aperture_high(struct camera_io_master *client);
 int cam_aperture_init(struct camera_io_master *client);
+int cam_aperture_init_fast(struct cam_aperture_ctrl_t *a_ctrl);
 
 /**
  * @power_info: power setting info to control the power

@@ -16,13 +16,15 @@
 #ifndef _SEC_HW_PARAM_H_
 #define _SEC_HW_PARAM_H_
 
-#define MAX_LEN_STR 1023
-#define MAX_ETRA_LEN ((MAX_LEN_STR) - (31 + 5))
-#define NUM_PARAM0	(17)
+#define DEFAULT_LEN_STR         1023
+#define SPECIAL_LEN_STR         2047
+#define EXTRA_LEN_STR           ((SPECIAL_LEN_STR) - (31 + 5))
+
+#define NUM_PARAM0		(17)
 
 #define sysfs_scnprintf(buf, offset, fmt, ...)					\
 do {										\
-	offset += scnprintf(&(buf)[offset], MAX_LEN_STR - (size_t)offset, fmt,	\
+	offset += scnprintf(&(buf)[offset], DEFAULT_LEN_STR - (size_t)offset, fmt,	\
 			##__VA_ARGS__);						\
 } while (0)
 

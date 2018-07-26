@@ -431,7 +431,9 @@ int32_t cam_aperture_i2c_pkt_parse(struct cam_aperture_ctrl_t *a_ctrl,
 	struct cam_control        *ioctl_ctrl = NULL;
 	struct cam_packet         *csl_packet = NULL;
 	struct cam_config_dev_cmd config;
+#if 0
 	struct i2c_data_settings  *i2c_data = NULL;
+#endif
 	struct i2c_settings_array *i2c_reg_settings = NULL;
 	struct cam_cmd_buf_desc   *cmd_desc = NULL;
 	struct cam_req_mgr_add_request  add_req;
@@ -529,6 +531,7 @@ int32_t cam_aperture_i2c_pkt_parse(struct cam_aperture_ctrl_t *a_ctrl,
 				}
 				break;
 			default:
+#if 0
 				CAM_DBG(CAM_APERTURE,
 					"Received initSettings buffer");
 				i2c_data = &(a_ctrl->i2c_data);
@@ -546,6 +549,7 @@ int32_t cam_aperture_i2c_pkt_parse(struct cam_aperture_ctrl_t *a_ctrl,
 					rc);
 					return rc;
 				}
+#endif
 				break;
 			}
 		}
@@ -980,6 +984,133 @@ int cam_aperture_init(struct camera_io_master *client)
 	return rc;
 }
 
+int cam_aperture_init_fast(struct cam_aperture_ctrl_t *a_ctrl)
+{
+	int rc = 0;
+	int pos = 0;
+	u8 data[2] = {0, };
+	uint32_t size;
+	struct cam_sensor_i2c_reg_array reg_setting;
+        struct camera_io_master *client = &a_ctrl->io_master_info;
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+	uint16_t ois_mode = 0;
+#endif
+	CAM_INFO(CAM_APERTURE, "E");
+
+	mutex_lock(&(a_ctrl->aperture_mutex));
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+	// OIS Cetering Mode
+	if (g_o_ctrl != NULL) {
+		mutex_lock(&(g_o_ctrl->ois_mode_mutex));
+		rc = cam_ois_get_ois_mode(g_o_ctrl, &ois_mode);
+		if (rc >= 0) {
+			CAM_INFO(CAM_APERTURE, "OIS centering, previous OIS mode %d", ois_mode);
+		}
+	}
+#endif
+
+	size = 1;
+
+	reg_setting.data_mask = 1;//needed check !!
+	reg_setting.delay = 0;
+
+	reg_setting.reg_addr = 0xAE;
+	reg_setting.reg_data = 0x3B; //setting mode
+
+	client->client->addr = 0x98;
+
+	rc = cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	pos = 511;
+	data[0] = pos >> 2 & 0xFF;
+	data[1] = pos << 6 & 0xC0; // 511 code
+
+
+	reg_setting.reg_addr = 0x00;
+	reg_setting.reg_data = data[0];
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	reg_setting.reg_addr = 0x01;
+	reg_setting.reg_data = data[1];
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	reg_setting.reg_addr = 0x02;
+	reg_setting.reg_data = 0x00;
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	usleep_range(10000, 10050);
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+	if (g_o_ctrl != NULL) {
+		// OIS CMD(Fixed Aperture)
+		//rc |= cam_ois_fixed_aperture(g_o_ctrl);
+		//usleep_range(15000, 15050);
+	}
+#endif
+
+	reg_setting.reg_addr = 0xA6;
+	reg_setting.reg_data = 0x7B;
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	pos = 1023;
+	data[0] = pos >> 2 & 0xFF;
+	data[1] = pos << 6 & 0xC0;
+
+	reg_setting.reg_addr = 0x00;
+	reg_setting.reg_data = data[0];
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	reg_setting.reg_addr = 0x01;
+	reg_setting.reg_data = data[1];
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	usleep_range(10000, 11000);
+
+	reg_setting.reg_addr = 0xA6;
+	reg_setting.reg_data = 0x00;
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	pos = 511;
+	data[0] = pos >> 2 & 0xFF;
+	data[1] = pos << 6 & 0xC0;
+
+	reg_setting.reg_addr = 0x00;
+	reg_setting.reg_data = data[0];
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	reg_setting.reg_addr = 0x01;
+	reg_setting.reg_data = data[1];
+
+	rc |= cam_qup_i2c_write(client, &reg_setting, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	
+	mutex_unlock(&(a_ctrl->aperture_mutex)); // minimize the stream on start time for fastAE operation
+	
+	usleep_range(15000, 15050);
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+	if (g_o_ctrl != NULL) {
+		cam_ois_set_ois_mode(g_o_ctrl, 0x05); // OIS centering
+		msleep(20);
+		cam_ois_set_ois_mode(g_o_ctrl, ois_mode); // OIS
+		CAM_INFO(CAM_APERTURE, "restore OIS mode %d", ois_mode);
+		mutex_unlock(&(g_o_ctrl->ois_mode_mutex));
+	}
+#endif
+	if (rc < 0)
+		CAM_ERR(CAM_APERTURE, "i2c fail occurred.");
+
+	CAM_INFO(CAM_APERTURE, "X");
+
+	return rc;
+}
 
 int cam_aperture_low(struct camera_io_master *client)
 {

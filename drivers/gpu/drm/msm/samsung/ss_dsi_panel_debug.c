@@ -542,51 +542,54 @@ static void ss_panel_debug_create(struct samsung_display_driver_data *vdd)
 	/* TBD */
 }
 
+static bool ss_read_debug_partition(struct lcd_debug_t *value)
+{
+	return read_debug_partition(debug_index_lcd_debug_info, (void *)value);
+}
+
+static bool ss_write_debug_partition(struct lcd_debug_t *value)
+{
+	return write_debug_partition(debug_index_lcd_debug_info, (void *)value);
+}
+
+void ss_inc_ftout_debug(const char *name)
+{
+	struct lcd_debug_t lcd_debug;
+
+	memset(&lcd_debug, 0, sizeof(struct lcd_debug_t));
+	ss_read_debug_partition(&lcd_debug);
+	lcd_debug.ftout.count += 1;
+	strncpy(lcd_debug.ftout.name, name, MAX_FTOUT_NAME);
+	ss_write_debug_partition(&lcd_debug);
+}
+
 #ifdef CONFIG_DISPLAY_USE_INFO
 static int dpci_notifier_callback(struct notifier_block *self,
 				 unsigned long event, void *data)
 {
-	int last, i;
 	ssize_t len = 0;
 	char tbuf[SS_XLOG_DPCI_LENGTH] = {0,};
-	struct ss_tlog *log;
-	struct ss_dbg_xlog *xlog = &ss_dbg_xlog;
+	struct lcd_debug_t lcd_debug;
 
-	last = xlog->last;
-	if (last)
-		last--;
+	/* 1. Read */
+	ss_read_debug_partition(&lcd_debug);
+	LCD_INFO("Read Result FTOUT_CNT=%d, FTOUT_NAME=%s\n", lcd_debug.ftout.count, lcd_debug.ftout.name);
 
-	len += snprintf((tbuf + len), (SS_XLOG_DPCI_LENGTH - len),
-		"dsierr:%llx ", samsung_get_vdd()->dsi_errors);
-	/* after report dsierr, clear dsierr. */
-	samsung_get_vdd()->dsi_errors = 0;
-
-	while (last >= 0) {
-		log = &ss_dbg_xlog.logs[last % SS_XLOG_ENTRY];
+	/* 2. Make String */
+	if (lcd_debug.ftout.count) {
 		len += snprintf((tbuf + len), (SS_XLOG_DPCI_LENGTH - len),
-			"[%llu.%3llu]%s=>", log->time/1000000,
-			log->time%1000000, log->name);
-		if (len >= SS_XLOG_DPCI_LENGTH) {
-			len = SS_XLOG_DPCI_LENGTH;
-			goto end;
-		}
-		for (i = 0; i < log->data_cnt; i++) {
-			len += snprintf((tbuf + len),
-				(SS_XLOG_DPCI_LENGTH - len), "%x ", log->data[i]);
-
-			if (len >= SS_XLOG_DPCI_LENGTH) {
-				len = SS_XLOG_DPCI_LENGTH;
-				goto end;
-			}
-		}
-		last--;
+			"FTOUT CNT=%d ", lcd_debug.ftout.count);
+		len += snprintf((tbuf + len), (SS_XLOG_DPCI_LENGTH - len),
+			"NAME=%s ", lcd_debug.ftout.name);
 	}
-end:
+
+	/* 3. Info Clear */
+	memset((void *)&lcd_debug, 0, sizeof(struct lcd_debug_t));
+	ss_write_debug_partition(&lcd_debug);
 	set_dpui_field(DPUI_KEY_QCT_SSLOG, tbuf, len);
 
 	return 0;
 }
-
 
 static int ss_register_dpci(struct samsung_display_driver_data *vdd)
 {
@@ -692,16 +695,16 @@ int ss_panel_debug_init(struct samsung_display_driver_data *vdd)
 	if (ret)
 		LCD_ERR("Fail to create files for debugfs\n");
 
+#ifdef CONFIG_DISPLAY_USE_INFO
+	ss_register_dpci(vdd);
+#endif
+
 end:
 	if (ret && !IS_ERR_OR_NULL(vdd->debug_data->root)) {
 		debugfs_remove_recursive(vdd->debug_data->root);
 		kfree(vdd->debug_data);
 	}
-
-#ifdef CONFIG_DISPLAY_USE_INFO
-	ss_register_dpci(vdd);
-#endif
-
+	
 	return ret;
 }
 

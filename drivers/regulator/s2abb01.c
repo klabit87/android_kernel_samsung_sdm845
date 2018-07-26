@@ -519,6 +519,19 @@ static int s2abb01_pmic_remove(struct i2c_client *i2c)
 	return 0;
 }
 
+void s2abb01_pmic_shutdown(struct i2c_client *i2c)
+{
+	u8 temp0 = 0;
+	u8 temp1 = 0;
+
+	s2abb01_read_reg(i2c, 0x2, &temp0);
+	s2abb01_update_reg(i2c, 0x2, 0x00, 0x80);
+	s2abb01_read_reg(i2c, 0x2, &temp1);
+	pr_info("[PM] %s - [0x2] 0x%x -> 0x%x\n", __func__, temp0, temp1);
+
+	return ;
+}
+
 #if defined(CONFIG_OF)
 static const struct i2c_device_id s2abb01_pmic_id[] = {
 	{"s2abb01-regulator", 0},
@@ -538,6 +551,7 @@ static struct i2c_driver s2abb01_i2c_driver = {
 	.probe = s2abb01_pmic_probe,
 	.remove = s2abb01_pmic_remove,
 	.id_table = s2abb01_pmic_id,
+	.shutdown = s2abb01_pmic_shutdown,
 };
 
 static int __init s2abb01_i2c_init(void)

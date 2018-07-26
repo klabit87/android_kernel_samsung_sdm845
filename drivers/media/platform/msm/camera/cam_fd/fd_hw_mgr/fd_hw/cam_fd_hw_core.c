@@ -1092,6 +1092,7 @@ int cam_fd_hw_release(void *hw_priv, void *hw_release_args, uint32_t arg_size)
 		CAM_ERR(CAM_FD, "Release cdm handle failed, handle=0x%x, rc=%d",
 			ctx_hw_private->cdm_handle, rc);
 
+	kfree(ctx_hw_private->cdm_cmd);
 	kfree(ctx_hw_private);
 	release_args->ctx_hw_private = NULL;
 

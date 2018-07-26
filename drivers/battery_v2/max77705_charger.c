@@ -848,6 +848,12 @@ static void max77705_charger_initialize(struct max77705_charger_data *charger)
 	max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_01, reg_data,
 		(CHG_CNFG_01_FCHGTIME_MASK | CHG_CNFG_01_CHG_RSTRT_MASK | CHG_CNFG_01_PQEN_MASK));
 
+	/*
+	 * OTG off(UNO on), boost off
+	 */
+	max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_00,
+			0, CHG_CNFG_00_OTG_CTRL);
+
 #if defined(CONFIG_SEC_FACTORY)
 	if (max77705_get_charge_current(charger) == 100 &&
 		max77705_get_input_current(charger) == 3150) {

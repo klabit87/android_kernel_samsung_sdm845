@@ -449,7 +449,7 @@ static ssize_t ss_disp_octa_id_show(struct device *dev,
 
 	LCD_INFO("poc(%d)\n", poc);
 
-	LCD_INFO("%d%d%d%02x%02x%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\n",
+	LCD_DEBUG("%d%d%d%02x%02x%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\n",
 		site, rework, poc, octa_id[2], octa_id[3],
 		octa_id[4] != 0 ? octa_id[4] : '0',
 		octa_id[5] != 0 ? octa_id[5] : '0',
@@ -2675,6 +2675,8 @@ static int dpui_notifier_callback(struct notifier_block *self,
 	int year, mon, day, hour, min, sec;
 	int lcd_id;
 	int size;
+	u8 *octa_id;
+	int site, rework, poc;
 
 	if (dpui == NULL) {
 		LCD_ERR("err: dpui is null\n");
@@ -2720,6 +2722,46 @@ static int dpui_notifier_callback(struct notifier_block *self,
 					vdd->ddi_id_dsi[3], vdd->ddi_id_dsi[4]);
 
 	set_dpui_field(DPUI_KEY_CHIPID, tbuf, size);
+
+	/* cell id */
+	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
+			cell_id[0], cell_id[1], cell_id[2], cell_id[3], cell_id[4],
+			cell_id[5], cell_id[6],
+			(vdd->mdnie_x & 0xFF00) >> 8,
+			vdd->mdnie_x & 0xFF,
+			(vdd->mdnie_y & 0xFF00) >> 8,
+			vdd->mdnie_y & 0xFF);
+
+	set_dpui_field(DPUI_KEY_CELLID, tbuf, size);
+
+	/* OCTA ID */
+	octa_id = vdd->octa_id_dsi;
+
+	site = octa_id[0] & 0xf0;
+	site >>= 4;
+	rework = octa_id[0] & 0x0f;
+	poc = octa_id[1] & 0x0f;
+
+	size =  snprintf(tbuf, MAX_DPUI_VAL_LEN, "%d%d%d%02x%02x%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c",
+		site, rework, poc, octa_id[2], octa_id[3],
+		octa_id[4] != 0 ? octa_id[4] : '0',
+		octa_id[5] != 0 ? octa_id[5] : '0',
+		octa_id[6] != 0 ? octa_id[6] : '0',
+		octa_id[7] != 0 ? octa_id[7] : '0',
+		octa_id[8] != 0 ? octa_id[8] : '0',
+		octa_id[9] != 0 ? octa_id[9] : '0',
+		octa_id[10] != 0 ? octa_id[10] : '0',
+		octa_id[11] != 0 ? octa_id[11] : '0',
+		octa_id[12] != 0 ? octa_id[12] : '0',
+		octa_id[13] != 0 ? octa_id[13] : '0',
+		octa_id[14] != 0 ? octa_id[14] : '0',
+		octa_id[15] != 0 ? octa_id[15] : '0',
+		octa_id[16] != 0 ? octa_id[16] : '0',
+		octa_id[17] != 0 ? octa_id[17] : '0',
+		octa_id[18] != 0 ? octa_id[18] : '0',
+		octa_id[19] != 0 ? octa_id[19] : '0');
+
+	set_dpui_field(DPUI_KEY_OCTAID, tbuf, size);
 
 	return 0;
 }

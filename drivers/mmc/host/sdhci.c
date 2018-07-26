@@ -1265,7 +1265,7 @@ void sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd)
 	timeout = jiffies;
 	if (cmd->opcode == MMC_SEND_TUNING_BLOCK ||
 			cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200)
-		timeout += 5 * HZ;
+		timeout += HZ / 2;
 	else if (!cmd->data && cmd->busy_timeout > 9000)
 		timeout += DIV_ROUND_UP(cmd->busy_timeout, 1000) * HZ + HZ;
 	else
@@ -3573,7 +3573,6 @@ static void sdhci_disable_irq_wakeups(struct sdhci_host *host)
 
 int sdhci_suspend_host(struct sdhci_host *host)
 {
-	pr_err("ENTER %s: %s\n", __func__, mmc_hostname(host->mmc));
 	sdhci_disable_card_detection(host);
 
 	mmc_retune_timer_stop(host->mmc);
@@ -3589,7 +3588,6 @@ int sdhci_suspend_host(struct sdhci_host *host)
 		sdhci_enable_irq_wakeups(host);
 		enable_irq_wake(host->irq);
 	}
-	pr_err("EXIT %s: %s\n", __func__, mmc_hostname(host->mmc));
 	return 0;
 }
 
@@ -3600,7 +3598,6 @@ int sdhci_resume_host(struct sdhci_host *host)
 	struct mmc_host *mmc = host->mmc;
 	int ret = 0;
 
-	pr_err("ENTER %s: %s\n", __func__, mmc_hostname(host->mmc));
 	if (host->flags & (SDHCI_USE_SDMA | SDHCI_USE_ADMA)) {
 		if (host->ops->enable_dma)
 			host->ops->enable_dma(host);
@@ -3631,7 +3628,6 @@ int sdhci_resume_host(struct sdhci_host *host)
 
 	sdhci_enable_card_detection(host);
 
-	pr_err("EXIT %s: %s\n", __func__, mmc_hostname(host->mmc));
 	return ret;
 }
 

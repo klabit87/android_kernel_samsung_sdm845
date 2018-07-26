@@ -41,6 +41,7 @@ enum debug_partition_index {
 	debug_index_reset_tzlog,
 	debug_index_ap_health,
 	debug_index_reset_extrc_info,
+	debug_index_lcd_debug_info,
 	debug_index_max,
 };
 
@@ -146,6 +147,18 @@ typedef struct {
 	uint64_t spare_magic3;
 } ap_health_t;
 
+/* Synchronize with Fence Name Length */
+#define MAX_FTOUT_NAME 128
+
+struct lcd_debug_ftout {
+	uint32_t count;
+	char name[MAX_FTOUT_NAME];
+};
+
+struct lcd_debug_t {
+	struct lcd_debug_ftout ftout;
+};
+
 #define DEBUG_PARTITION_NAME	"/dev/block/bootdevice/by-name/debug"	/* debug block */
 
 #define DEBUG_PARTITION_MAGIC	0x41114729
@@ -163,6 +176,8 @@ typedef struct {
 #define SEC_DEBUG_RESET_HEADER_SIZE             (SECTOR_UNIT_SIZE)
 #define SEC_DEBUG_AP_HEALTH_OFFSET              (8*1024)
 #define SEC_DEBUG_AP_HEALTH_SIZE                (sizeof(ap_health_t))
+#define SEC_DEBUG_LCD_DEBUG_OFFSET              (12*1024)
+#define SEC_DEBUG_LCD_DEBUG_SIZE		(4*1024) // MAX 4KB, if you want to reduce size, do it.
 #define SEC_DEBUG_EXTRA_INFO_OFFSET             (SEC_DEBUG_RESET_HEADER_OFFSET +\
 			SEC_DEBUG_RESET_HEADER_SIZE)
 #define SEC_DEBUG_EXTRA_INFO_SIZE               (ALIGN(SEC_DEBUG_EX_INFO_SIZE, SECTOR_UNIT_SIZE))
@@ -176,7 +191,7 @@ typedef struct {
 #define SEC_DEBUG_RESET_TZLOG_SIZE              (0x40000)               /* 256KB */
 #define SEC_DEBUG_RESET_EXTRC_OFFSET		(SEC_DEBUG_RESET_TZLOG_OFFSET +\
 			ALIGN(SEC_DEBUG_RESET_TZLOG_SIZE, SECTOR_UNIT_SIZE)) /* 5*1024*1024 + 256*1024*/
-#define SEC_DEBUG_RESET_EXTRC_SIZE		(1*1024)		/* 1KB */
+#define SEC_DEBUG_RESET_EXTRC_SIZE		(2*1024)		/* 2KB */
 
 #ifdef CONFIG_SEC_DEBUG
 ap_health_t* ap_health_data_read(void);

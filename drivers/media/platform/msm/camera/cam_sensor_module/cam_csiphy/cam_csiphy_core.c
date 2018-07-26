@@ -28,29 +28,46 @@ static int csiphy_dump;
 int load_ref_cnt;
 module_param(csiphy_dump, int, 0644);
 
+static DEFINE_SPINLOCK(secure_mode_lock);
+
+static int cam_refcnt_status(bool rw, bool protect)
+{
+	int ret;
+
+	spin_lock(&secure_mode_lock);
+	switch (rw) {
+	case 0: // read
+		ret = load_ref_cnt;
+		break;
+	case 1: //write
+		{
+			if (protect) load_ref_cnt++;
+			else load_ref_cnt--;
+			ret = load_ref_cnt;
+		}
+		break;
+	}
+	spin_unlock(&secure_mode_lock);
+
+	return ret;
+}
+
 static int cam_csiphy_notify_secure_mode(int phy, bool protect)
 {
 	struct scm_desc desc = {0};
 	static struct qseecom_handle   *ta_qseecom_handle;
 	int32_t rc;
+	int ret = 0;
 
 	desc.arginfo = SCM_ARGS(2, SCM_VAL, SCM_VAL);
 	desc.args[0] = protect;
 	desc.args[1] = phy;
 
-	CAM_INFO(CAM_CSIPHY, "phy : %d, protect : %d", phy, protect);
+	CAM_INFO(CAM_CSIPHY, "++ @@ phy : %d, protect : %d, load_ref_cnt %d", phy, protect, cam_refcnt_status(0,0));
 
 	if (protect) {
-		if (++load_ref_cnt > 1) {
-			CAM_INFO(CAM_CSIPHY, "Second SCM CALL for protection\n");
-			if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
-				&desc)) {
-				CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
-				return -EINVAL;
-			}
-			return 0;
-		} else {
-			//Load the TA while entering the secure mode for the first time
+		if (cam_refcnt_status(0,0) == 0)
+		{
 			CAM_INFO(CAM_CSIPHY, "Loading TA.....\n");
 			rc = qseecom_start_app(
 				&ta_qseecom_handle,
@@ -58,43 +75,46 @@ static int cam_csiphy_notify_secure_mode(int phy, bool protect)
 				SECCAM_QSEECOM_SBUFF_SIZE);
 			if (rc) {
 				CAM_ERR(CAM_CSIPHY, "TA Load failed\n");
-				return -EINVAL;
-			}
-			CAM_INFO(CAM_CSIPHY, "First SCM CALL for protection\n");
-			if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
-				&desc)) {
-				CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
-				return -EINVAL;
+				ret = -EINVAL;
 			}
 		}
-	}
 
-	if (protect == false) {
-		if (--load_ref_cnt > 0) {
-			CAM_INFO(CAM_CSIPHY, "First SCM CALL for un-protection\n");
-			if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
-				&desc)) {
-				CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
-				 goto reload_ta;
-			}
-		} else {
-			CAM_INFO(CAM_CSIPHY, "Second SCM CALL for un-protection\n");
-			if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
-				&desc)) {
-				CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
-				 goto reload_ta;
-			}
+		CAM_INFO(CAM_CSIPHY, "SCM CALL for protection\n");
+		if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
+			&desc)) {
+			CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
+			ret = -EINVAL;
+		}
+		else {
+			cam_refcnt_status(1, protect);
+		}
+	}
+	else {
+		BUG_ON (cam_refcnt_status(0,0) == 0);
+		CAM_INFO(CAM_CSIPHY, "SCM CALL for un-protection\n");
+		if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
+			&desc)) {
+			CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
+			ret = -EINVAL;
+		}
+		cam_refcnt_status(1, protect);
+
+		if (cam_refcnt_status(0,0) == 0)
+		{
 			//Unload the TA when the last camera is switched back to non-secure mode
 			CAM_INFO(CAM_CSIPHY, "UnLoading TA.....\n");
 			rc = qseecom_shutdown_app(&ta_qseecom_handle);
 			if (rc) {
 				CAM_ERR(CAM_CSIPHY, "TA UnLoad failed\n");
-				return -EINVAL;
+				ret = -EINVAL;
 			}
 		}
 	}
-    return 0;
+	CAM_INFO(CAM_CSIPHY, "-- @@ phy : %d, protect : %d, load_ref_cnt %d, ret %d", phy, protect, cam_refcnt_status(0,0), ret);
 
+    return ret;
+
+/*
 reload_ta:
    qseecom_shutdown_app(&ta_qseecom_handle);
    rc = qseecom_start_app(
@@ -109,7 +129,8 @@ reload_ta:
    if (!load_ref_cnt)
        qseecom_shutdown_app(&ta_qseecom_handle);
 
-    return 0;
+   return 0;
+*/
 }
 
 void cam_csiphy_query_cap(struct csiphy_device *csiphy_dev,
@@ -208,6 +229,8 @@ int32_t cam_cmd_buf_parser(struct csiphy_device *csiphy_dev,
 		csiphy_dev->csiphy_info.settle_time =
 			cam_cmd_csiphy_info->settle_time;
 	csiphy_dev->csiphy_info.data_rate = cam_cmd_csiphy_info->data_rate;
+	CAM_INFO(CAM_CSIPHY, "@@ CONFIG_DEV for phy %d, secure_mode %d", csiphy_dev->soc_info.index,
+		cam_cmd_csiphy_info->secure_mode);
 	csiphy_dev->csiphy_info.secure_mode = cam_cmd_csiphy_info->secure_mode;
 
 	return rc;
@@ -428,10 +451,12 @@ void cam_csiphy_shutdown(struct csiphy_device *csiphy_dev)
 	if (csiphy_dev->csiphy_state == CAM_CSIPHY_START) {
 		soc_info = &csiphy_dev->soc_info;
 
-		if (csiphy_dev->csiphy_info.secure_mode)
+		if (csiphy_dev->csiphy_info.secure_mode) {
+			CAM_INFO(CAM_CSIPHY, "@@ SHUTDOWN_DEV for secure, phy %d", csiphy_dev->soc_info.index);
 			cam_csiphy_notify_secure_mode(
 				csiphy_dev->soc_info.index,
 				CAM_SECURE_MODE_NON_SECURE);
+		}
 
 		csiphy_dev->csiphy_info.secure_mode =
 			CAM_SECURE_MODE_NON_SECURE;
@@ -595,10 +620,12 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 			goto release_mutex;
 		}
 
-		if (csiphy_dev->csiphy_info.secure_mode)
+		if (csiphy_dev->csiphy_info.secure_mode) {
+			CAM_INFO(CAM_CSIPHY, " @@ STOP_DEV for secure, phy %d", csiphy_dev->soc_info.index);
 			cam_csiphy_notify_secure_mode(
 				csiphy_dev->soc_info.index,
 				CAM_SECURE_MODE_NON_SECURE);
+		}
 
 		csiphy_dev->csiphy_info.secure_mode =
 			CAM_SECURE_MODE_NON_SECURE;
@@ -691,6 +718,7 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 		}
 
 		if (csiphy_dev->csiphy_info.secure_mode) {
+			CAM_INFO(CAM_CSIPHY, "@@ START_DEV for secure, phy %d", csiphy_dev->soc_info.index);
 			rc = cam_csiphy_notify_secure_mode(
 				csiphy_dev->soc_info.index,
 				CAM_SECURE_MODE_SECURE);

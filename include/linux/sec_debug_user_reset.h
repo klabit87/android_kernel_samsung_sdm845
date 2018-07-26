@@ -162,6 +162,7 @@ struct debug_reset_header {
 	uint32_t ap_klog_idx;
 	uint32_t summary_size;
 	uint32_t stored_tzlog;
+	uint32_t fac_write_times;
 };
 
 

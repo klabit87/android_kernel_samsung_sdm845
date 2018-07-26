@@ -11,6 +11,8 @@
  */
 
 #include <linux/module.h>
+#include <linux/regulator/consumer.h>
+#include <linux/clk.h>
 #include <cam_sensor_cmn_header.h>
 #include "cam_sensor_core.h"
 #include "cam_sensor_util.h"
@@ -1220,7 +1222,8 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	mutex_lock(&(s_ctrl->cam_sensor_mutex));
 	switch (cmd->op_code) {
 	case CAM_SENSOR_PROBE_CMD: {
-		int i;
+		int i, j;
+		struct cam_hw_soc_info *soc_info;
 
 		if (s_ctrl->is_probe_succeed == 1) {
 			CAM_ERR(CAM_SENSOR,
@@ -1308,9 +1311,23 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		/* Match sensor ID */
 		for (i = 0; i < 3; i++) {
 			rc = cam_sensor_match_id(s_ctrl);
-			if (rc == -ENODEV)
+			if (rc == -ENODEV) {
 				CAM_ERR(CAM_SENSOR, "Retrying again for sensor: 0x%x retry cnt: %d",
 					s_ctrl->sensordata->slave_info.sensor_id, i);
+				soc_info = &s_ctrl->soc_info;
+				for (j = 0 ; j < soc_info->num_rgltr; j++) {
+					if (soc_info->rgltr[j]) {
+						CAM_INFO(CAM_SENSOR, "Regulator Name: %s Is_Enabled: %d get_voltage: %d",
+							soc_info->rgltr_name[j], regulator_is_enabled(soc_info->rgltr[j]),
+							regulator_get_voltage(soc_info->rgltr[j]));
+					}
+				}
+				for (j = 0 ; j < soc_info->num_clk; j++) {
+					CAM_INFO(CAM_SENSOR, "Clock Name: %s get_clk: %ld",
+						soc_info->clk_name[j],
+						clk_get_rate(soc_info->clk[j]));
+				}
+			}
 			else
 				break;
 		}
@@ -1413,7 +1430,8 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	case CAM_ACQUIRE_DEV: {
 		struct cam_sensor_acquire_dev sensor_acq_dev;
 		struct cam_create_dev_hdl bridge_params;
-		int i;
+		int i, j;
+		struct cam_hw_soc_info *soc_info;
 
 		if (s_ctrl->bridge_intf.device_hdl != -1) {
 			CAM_ERR(CAM_SENSOR, "Device is already acquired");
@@ -1474,9 +1492,22 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			if (rc == -ENODEV) {
 				CAM_ERR(CAM_SENSOR, "Retrying again for sensor: 0x%x retry cnt: %d",
 					s_ctrl->sensordata->slave_info.sensor_id, i);
+				soc_info = &s_ctrl->soc_info;
+				for (j = 0 ; j < soc_info->num_rgltr; j++) {
+					if (soc_info->rgltr[j]) {
+						CAM_INFO(CAM_SENSOR, "Regulator Name: %s Is_Enabled: %d get_voltage: %d",
+							soc_info->rgltr_name[j], regulator_is_enabled(soc_info->rgltr[j]),
+							regulator_get_voltage(soc_info->rgltr[j]));
+					}
+				}
+				for (j = 0 ; j < soc_info->num_clk; j++) {
+					CAM_INFO(CAM_SENSOR, "Clock Name: %s get_clk: %ld",
+						soc_info->clk_name[j],
+						clk_get_rate(soc_info->clk[j]));
+				}
+				rc = 0;
 				continue;
-			}
-			if (rc < 0) {
+			} else if (rc < 0) {
 				CAM_ERR(CAM_SENSOR, "need to check sensor module : 0x%x",
 					s_ctrl->sensordata->slave_info.sensor_id);
 				cam_sensor_power_down(s_ctrl);
@@ -1540,7 +1571,8 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	}
 		break;
 	case CAM_START_DEV: {
-		int i;
+		int i, j;
+		struct cam_hw_soc_info *soc_info;
 
 		if ((s_ctrl->sensor_state < CAM_SENSOR_ACQUIRE) ||
          (s_ctrl->sensor_state > CAM_SENSOR_CONFIG)) {
@@ -1558,10 +1590,23 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 #if 1 //For factory module test
 			for (i = 0; i < 3; i++) {
 				rc = cam_sensor_match_id(s_ctrl);
-				if (rc == -ENODEV)
+				if (rc == -ENODEV) {
 					CAM_ERR(CAM_SENSOR, "Retrying again for sensor: 0x%x retry cnt: %d",
 						s_ctrl->sensordata->slave_info.sensor_id, i);
-				else
+									soc_info = &s_ctrl->soc_info;
+					for (j = 0 ; j < soc_info->num_rgltr; j++) {
+						if (soc_info->rgltr[j]) {
+							CAM_ERR(CAM_SENSOR, "Regulator Name: %s Is_Enabled: %d get_voltage: %d",
+								soc_info->rgltr_name[j], regulator_is_enabled(soc_info->rgltr[j]),
+								regulator_get_voltage(soc_info->rgltr[j]));
+						}
+					}
+					for (j = 0 ; j < soc_info->num_clk; j++) {
+						CAM_INFO(CAM_SENSOR, "Clock Name: %s get_clk: %ld",
+							soc_info->clk_name[j],
+							clk_get_rate(soc_info->clk[j]));
+					}
+				} else
 					break;
 			}
 			if (rc < 0) {

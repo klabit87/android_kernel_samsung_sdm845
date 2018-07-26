@@ -417,10 +417,13 @@ EXPORT_SYMBOL(s2mpb02_ir_led_init);
 int s2mpb02_ir_led_current(int32_t current_value)
 {
 	int ret = 0;
-	unsigned int value	= current_value - 1;
+	unsigned int value = 0;
 	unsigned char data = 0;
 
-	pr_info("[%s] led current value : %u\n", __func__, value);
+	if (current_value > 0)
+		value  = current_value - 1;
+
+	pr_info("[%s] led current value : %u [current_value::%d]\n", __func__, value, current_value);
 
 	data = ((value & 0x0F) << 4) | 0x0F;
 
@@ -889,6 +892,7 @@ static struct platform_driver s2mpb02_led_driver = {
 	.driver		= {
 		.name	= "s2mpb02-led",
 		.owner	= THIS_MODULE,
+		.suppress_bind_attrs = true,
 	},
 };
 

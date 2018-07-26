@@ -4459,6 +4459,12 @@ void mmc_rescan(struct work_struct *work)
 		container_of(work, struct mmc_host, detect.work);
 	bool extend_wakelock = false;
 
+	pr_info("%s: %s: disable%d, entered%d, bus %s, card %s.\n",
+			mmc_hostname(host), __func__,
+			host->rescan_disable, host->rescan_entered,
+			host->bus_dead ? "DD" : "OK",
+			host->card ? "present" : "not present");
+
 	spin_lock_irqsave(&host->lock, flags);
 	if (host->rescan_disable) {
 		spin_unlock_irqrestore(&host->lock, flags);

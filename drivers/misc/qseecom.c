@@ -2621,6 +2621,8 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data,
 	bool found_app = false;
 	bool found_dead_app = false;
 
+	app_crash = 0;///////////
+
 	if (!data) {
 		pr_err("Invalid/uninitialized device handle\n");
 		return -EINVAL;

@@ -131,5 +131,5 @@ static void __exit sec_kn_exit(void)
 	input_unregister_handler(&sec_kn_handler);
 }
 
-fs_initcall(sec_kn_init);
+arch_initcall(sec_kn_init);
 module_exit(sec_kn_exit);

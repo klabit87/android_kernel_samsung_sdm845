@@ -154,6 +154,10 @@ static struct msm_vidc_common_data sdm845_common_data[] = {
 		.key = "qcom,debug-timeout",
 		.value = 0,
 	},
+	{ 
+		.key = "qcom,enable-idle-indicator", 
+		.value = 1, 
+	}, 
 };
 
 static struct msm_vidc_common_data sdm670_common_data_v0[] = {
@@ -205,6 +209,10 @@ static struct msm_vidc_common_data sdm670_common_data_v0[] = {
 		.key = "qcom,hw-resp-timeout",
 		.value = 250,
 	},
+	{ 
+		.key = "qcom,enable-idle-indicator", 
+		.value = 1, 
+	}, 
 };
 
 static struct msm_vidc_common_data sdm670_common_data_v1[] = {
@@ -256,6 +264,10 @@ static struct msm_vidc_common_data sdm670_common_data_v1[] = {
 		.key = "qcom,hw-resp-timeout",
 		.value = 250,
 	},
+	{ 
+		.key = "qcom,enable-idle-indicator", 
+		.value = 1, 
+	}, 	
 };
 
 static struct msm_vidc_efuse_data sdm670_efuse_data[] = {

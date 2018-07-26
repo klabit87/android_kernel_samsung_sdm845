@@ -167,6 +167,41 @@ occupied_retry:
 		ap_health_data.header.need_write);
 }
 
+static bool init_lcd_debug_data(void)
+{
+	int ret = true, retry = 0;
+	struct lcd_debug_t lcd_debug;
+
+	pr_info("%s start\n", __func__);
+
+	memset((void *)&lcd_debug, 0, sizeof(struct lcd_debug_t));
+
+	pr_info("%s lcd_debug size[%ld]\n", __func__, sizeof(struct lcd_debug_t));
+
+	do {
+		if (retry++) {
+			pr_err("%s : will retry...\n", __func__);
+			msleep(1000);
+		}
+
+		mutex_lock(&debug_partition_mutex);
+
+		sched_debug_data.value = &lcd_debug;
+		sched_debug_data.offset = SEC_DEBUG_LCD_DEBUG_OFFSET;
+		sched_debug_data.size = sizeof(struct lcd_debug_t);
+		sched_debug_data.direction = PARTITION_WR;
+
+		schedule_work(&sched_debug_data.debug_partition_work);
+		wait_for_completion(&sched_debug_data.work);
+
+		mutex_unlock(&debug_partition_mutex);
+	} while (sched_debug_data.error);
+
+	pr_info("%s end\n",__func__);
+
+	return ret;
+}
+
 static void init_ap_health_data(void)
 {
 	pr_info("start\n");
@@ -327,6 +362,11 @@ bool read_debug_partition(enum debug_partition_index index, void *value)
 				SEC_DEBUG_RESET_EXTRC_OFFSET,
 				SEC_DEBUG_RESET_EXTRC_SIZE);
 		break;
+	case debug_index_lcd_debug_info:
+		READ_DEBUG_PARTITION(value,
+				SEC_DEBUG_LCD_DEBUG_OFFSET,
+				sizeof(struct lcd_debug_t));
+		break;
 	default:
 		return false;
 	}
@@ -357,6 +397,16 @@ bool write_debug_partition(enum debug_partition_index index, void *value)
 	case debug_index_reset_summary:
 		// do nothing.
 		break;
+	case debug_index_lcd_debug_info:
+			mutex_lock(&debug_partition_mutex);
+			sched_debug_data.value = (struct lcd_debug_t *)value;
+			sched_debug_data.offset = SEC_DEBUG_LCD_DEBUG_OFFSET;
+			sched_debug_data.size = sizeof(struct lcd_debug_t);
+			sched_debug_data.direction = PARTITION_WR;
+			schedule_work(&sched_debug_data.debug_partition_work);
+			wait_for_completion(&sched_debug_data.work);
+			mutex_unlock(&debug_partition_mutex);
+			break;
 	default:
 		return false;
 	}
@@ -388,6 +438,7 @@ ap_health_t *ap_health_data_read(void)
 		ap_health_data.spare_magic3 != AP_HEALTH_MAGIC ||
 		is_boot_recovery()) {
 		init_ap_health_data();
+		init_lcd_debug_data();
 	}
 
 	ap_health_initialized = 1;

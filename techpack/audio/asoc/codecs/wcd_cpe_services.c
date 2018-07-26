@@ -606,8 +606,10 @@ static enum cpe_svc_result cpe_deregister_generic(struct cpe_info *t_info,
 		return CPE_SVC_INVALID_HANDLE;
 	}
 
+	CPE_SVC_GRAB_LOCK(&cpe_d.cpe_svc_lock, "cpe_svc");
 	list_del(&(n->list));
 	kfree(reg_handle);
+	CPE_SVC_REL_LOCK(&cpe_d.cpe_svc_lock, "cpe_svc");
 
 	return CPE_SVC_SUCCESS;
 }

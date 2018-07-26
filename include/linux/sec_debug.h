@@ -249,4 +249,6 @@ struct tsp_dump_callbacks {
 };
 #endif
 
+extern int set_reduced_sdi_mode(void);
+
 #endif	/* SEC_DEBUG_H */

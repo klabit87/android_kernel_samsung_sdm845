@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_cfg80211.c 739652 2018-01-09 07:19:48Z $
+ * $Id: wl_cfg80211.c 757023 2018-04-11 08:24:18Z $
  */
 /* */
 #include <typedefs.h>
@@ -3895,6 +3895,14 @@ static s32 wl_set_retry(struct net_device *dev, u32 retry, bool l)
 {
 	s32 err = 0;
 	u32 cmd = (l ? WLC_SET_LRL : WLC_SET_SRL);
+
+#ifdef CUSTOM_LONG_RETRY_LIMIT
+	if ((cmd == WLC_SET_LRL) &&
+		(retry != CUSTOM_LONG_RETRY_LIMIT)) {
+		WL_DBG(("CUSTOM_LONG_RETRY_LIMIT is used.Ignore configuration"));
+		return err;
+	}
+#endif /* CUSTOM_LONG_RETRY_LIMIT */
 
 	retry = htod32(retry);
 	err = wldev_ioctl_set(dev, cmd, &retry, sizeof(retry));
@@ -13884,7 +13892,7 @@ wl_notify_roaming_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 
 #ifdef CUSTOM_EVENT_PM_WAKE
 uint32 last_dpm_upd_time = 0;	/* ms */
-#define DPM_UPD_LMT_TIME	25000	/* ms */
+#define DPM_UPD_LMT_TIME	(CUSTOM_EVENT_PM_WAKE + 5) * 1000 * 4	/* ms */
 #define DPM_UPD_LMT_RSSI	-85	/* dbm */
 
 static s32
@@ -14419,6 +14427,11 @@ wl_bss_roaming_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		memcpy(cfg->fbt_key, data, FBT_KEYLEN);
 	}
 #endif /* WLFBT */
+#ifdef CUSTOM_LONG_RETRY_LIMIT
+	if (wl_set_retry(ndev, CUSTOM_LONG_RETRY_LIMIT, 1) < 0) {
+		WL_ERR(("CUSTOM_LONG_RETRY_LIMIT set fail!\n"));
+	}
+#endif /* CUSTOM_LONG_RETRY_LIMIT */
 	WL_ERR(("Report roam event to upper layer. " MACDBG " (ch:%d)\n",
 		MAC2STRDBG((const u8*)(&e->addr)), *channel));
 
@@ -14595,6 +14608,11 @@ wl_bss_connect_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				dhd_set_cpucore(dhdp, TRUE);
 			}
 #endif /* CUSTOM_SET_CPUCORE */
+#ifdef CUSTOM_LONG_RETRY_LIMIT
+			if (wl_set_retry(ndev, CUSTOM_LONG_RETRY_LIMIT, 1) < 0) {
+				WL_ERR(("CUSTOM_LONG_RETRY_LIMIT set fail!\n"));
+			}
+#endif /* CUSTOM_LONG_RETRY_LIMIT */
 #ifdef WL_IRQSET
 			dhd_irq_set_affinity(dhdp);
 			delta_time = IRQ_SET_DURATION - local_clock() / USEC_PER_SEC;
@@ -18980,12 +18998,15 @@ int wl_cfg80211_hang(struct net_device *dev, u16 reason)
 s32 wl_cfg80211_down(struct net_device *dev)
 {
 	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
-	s32 err;
+	s32 err = BCME_ERROR;
 
 	WL_DBG(("In\n"));
-	mutex_lock(&cfg->usr_sync);
-	err = __wl_cfg80211_down(cfg);
-	mutex_unlock(&cfg->usr_sync);
+
+	if (cfg) {
+		mutex_lock(&cfg->usr_sync);
+		err = __wl_cfg80211_down(cfg);
+		mutex_unlock(&cfg->usr_sync);
+	}
 
 	return err;
 }
@@ -20713,6 +20734,7 @@ exit:
 }
 
 #define BUFSZ 5
+#define BUFSZN	BUFSZ + 1
 
 #define _S(x) #x
 #define S(x) _S(x)
@@ -20721,7 +20743,7 @@ int wl_cfg80211_wbtext_weight_config(struct net_device *ndev, char *data,
 		char *command, int total_len)
 {
 	int bytes_written = 0, err = -EINVAL, argc = 0;
-	char rssi[BUFSZ], band[BUFSZ], weight[BUFSZ];
+	char rssi[BUFSZN], band[BUFSZN], weight[BUFSZN];
 	char *endptr = NULL;
 	wnm_bss_select_weight_cfg_t *bwcfg;
 	u8 ioctl_buf[WLC_IOCTL_SMLEN];
@@ -20807,7 +20829,7 @@ int wl_cfg80211_wbtext_table_config(struct net_device *ndev, char *data,
 {
 	struct bcm_cfg80211 *cfg = wl_get_cfg(ndev);
 	int bytes_written = 0, err = -EINVAL;
-	char rssi[BUFSZ], band[BUFSZ];
+	char rssi[BUFSZN], band[BUFSZN];
 	int btcfg_len = 0, i = 0, parsed_len = 0;
 	wnm_bss_select_factor_cfg_t *btcfg;
 	size_t slen = strlen(data);
@@ -20925,7 +20947,7 @@ wl_cfg80211_wbtext_delta_config(struct net_device *ndev, char *data, char *comma
 	uint i = 0;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(ndev);
 	int err = -EINVAL, bytes_written = 0, argc = 0, val, len = 0;
-	char delta[BUFSZ], band[BUFSZ], *endptr = NULL;
+	char delta[BUFSZN], band[BUFSZN], *endptr = NULL;
 	wl_roam_prof_band_v2_t *rp;
 	u8 ioctl_buf[WLC_IOCTL_MEDLEN];
 
