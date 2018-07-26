@@ -979,6 +979,7 @@ static int cam_jpeg_mgr_release_hw(void *hw_mgr_priv, void *release_hw_args)
 		return -EINVAL;
 	}
 
+	kfree(ctx_data->cdm_cmd);
 	CAM_DBG(CAM_JPEG, "handle %llu", ctx_data);
 
 	return rc;
@@ -1032,7 +1033,7 @@ static int cam_jpeg_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 			sizeof(struct cam_cdm_bl_cmd))), GFP_KERNEL);
 	if (!ctx_data->cdm_cmd) {
 		rc = -ENOMEM;
-		goto acq_cdm_hdl_failed;
+		goto jpeg_release_ctx;
 	}
 
 	mutex_lock(&ctx_data->ctx_mutex);
@@ -1079,20 +1080,8 @@ static int cam_jpeg_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 		hw_mgr->cdm_info[dev_type][0].ref_cnt++;
 	}
 
-	ctx_data->cdm_cmd_chbase =
-		kzalloc(((sizeof(struct cam_cdm_bl_request)) +
-			(2 * sizeof(struct cam_cdm_bl_cmd))), GFP_KERNEL);
-	if (!ctx_data->cdm_cmd_chbase) {
-		rc = -ENOMEM;
-		goto start_cdm_hdl_failed;
-	}
 	size = hw_mgr->cdm_info[dev_type][0].
 		cdm_ops->cdm_required_size_changebase();
-	ctx_data->cmd_chbase_buf_addr = kzalloc(size*4, GFP_KERNEL);
-	if (!ctx_data->cdm_cmd_chbase) {
-		rc = -ENOMEM;
-		goto start_cdm_hdl_failed;
-	}
 
 	if (hw_mgr->cdm_info[dev_type][0].ref_cnt == 1)
 		if (cam_cdm_stream_on(
@@ -1134,6 +1123,7 @@ start_cdm_hdl_failed:
 	hw_mgr->cdm_info[dev_type][0].ref_cnt--;
 acq_cdm_hdl_failed:
 	kfree(ctx_data->cdm_cmd);
+jpeg_release_ctx:
 	cam_jpeg_mgr_release_ctx(hw_mgr, ctx_data);
 	mutex_unlock(&hw_mgr->hw_mgr_mutex);
 

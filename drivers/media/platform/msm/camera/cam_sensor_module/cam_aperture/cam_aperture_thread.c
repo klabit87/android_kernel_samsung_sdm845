@@ -91,14 +91,12 @@ static int cam_aperture_thread_func(void *data)
 			mutex_unlock(&(a_ctrl->aperture_thread_mutex));
 			if ((msg->msg_type >= 0) &&
 				(msg->msg_type < CAM_APERTURE_THREAD_MSG_MAX)) {
-				mutex_lock(&(a_ctrl->aperture_mutex));
 				switch (msg->msg_type) {
 				case CAM_APERTURE_THREAD_MSG_INIT:
 					CAM_INFO(CAM_APERTURE, "CAM_APERTURE_THREAD_MSG_INIT");
-					cam_aperture_init(&a_ctrl->io_master_info);
+					cam_aperture_init_fast(a_ctrl);
 					break;
 				}
-				mutex_unlock(&(a_ctrl->aperture_mutex));
 			}
 			kfree(msg);
 			msg = NULL;

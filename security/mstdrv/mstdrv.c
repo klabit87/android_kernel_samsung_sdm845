@@ -164,6 +164,8 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 }
 
 static void of_mst_hw_onoff(bool on);
+static int boost_enable(void);
+static int boost_disable(void);
 
 /* global variables */
 static int mst_pwr_en;	// MST_PWR_EN pin
@@ -175,6 +177,7 @@ static DEVICE_ATTR(transmit, 0770, show_mst_drv, store_mst_drv);	// define devic
 static bool mst_power_on;	// to track current level of mst signal
 static struct qseecom_handle *qhandle;
 static int nfc_state;
+static int wpc_det;
 
 /* cpu freq control variables */
 extern int num_clusters;
@@ -191,6 +194,21 @@ static struct of_device_id mst_match_ldo_table[] = {
 	{},
 };
 
+static int mst_ldo_device_suspend(struct platform_device *dev, pm_message_t state)
+{
+	int ret = 0;
+	/* Boost Disable */
+	printk("%s : boost disable to back to Normal", __func__);
+	ret = boost_disable();
+	if (ret)
+	    printk("%s : boost disable is failed, ret = %d\n"
+		, __func__, ret);
+	/* PCIe LPM Enable */
+	sec_pcie_l1ss_enable(L1SS_MST);
+	
+	return 0;
+}
+
 static struct platform_driver sec_mst_ldo_driver = {
 	.driver = {
 		   .owner = THIS_MODULE,
@@ -198,6 +216,7 @@ static struct platform_driver sec_mst_ldo_driver = {
 		   .of_match_table = mst_match_ldo_table,
 		   },
 	.probe = mst_ldo_device_probe,
+	.suspend = mst_ldo_device_suspend,
 };
 
 EXPORT_SYMBOL_GPL(mst_drv_dev);
@@ -278,17 +297,26 @@ extern void mst_ctrl_of_mst_hw_onoff(bool on)
 		       __func__);
 		nfc_state = 0;
 	} else {
+		gpio_set_value(mst_pwr_en, 0);
+		printk("%s : mst_pwr_en gets the LOW\n", __func__);
+
+		usleep_range(800, 1000);
+		printk("%s : msleep(1)\n", __func__);
+
 		value.intval = MST_MODE_OFF;
 		psy_do_property("mfc-charger", set,
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		printk("%s : MST_MODE_OFF notify : %d\n", __func__,
 		       value.intval);
 
-		usleep_range(800, 1000);
-		printk("%s : msleep(1)\n", __func__);
-
-		gpio_set_value(mst_pwr_en, 0);
-		printk("%s : mst_pwr_en gets the LOW\n", __func__);
+		/* Boost Disable */
+		printk("%s : boost disable to back to Normal", __func__);
+		ret = boost_disable();
+		if (ret)
+		    printk("%s : boost disable is failed, ret = %d\n"
+			, __func__, ret);
+		/* PCIe LPM Enable */
+		sec_pcie_l1ss_enable(L1SS_MST);
 
 		ret = regulator_disable(regulator3_0);
 		if (ret < 0) {
@@ -343,14 +371,6 @@ static void of_mst_hw_onoff(bool on)
 		}
 		printk("%s : regulator 3.0 is enabled\n", __func__);
 
-		gpio_set_value(mst_pwr_en, 1);
-		usleep_range(3600, 4000);
-		gpio_set_value(mst_pwr_en, 0);
-		mdelay(50);
-
-		gpio_set_value(mst_pwr_en, 1);
-		printk("%s : mst_pwr_en gets the HIGH\n", __func__);
-
 		printk("%s : MST_MODE_ON notify start\n", __func__);
 		value.intval = MST_MODE_ON;
 
@@ -358,6 +378,14 @@ static void of_mst_hw_onoff(bool on)
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		printk("%s : MST_MODE_ON notified : %d\n", __func__,
 		       value.intval);
+
+		gpio_set_value(mst_pwr_en, 1);
+		usleep_range(3600, 4000);
+		gpio_set_value(mst_pwr_en, 0);
+		mdelay(50);
+
+		gpio_set_value(mst_pwr_en, 1);
+		printk("%s : mst_pwr_en gets the HIGH\n", __func__);
 
 		/* Boost Enable */
 		cancel_delayed_work_sync(&dwork);
@@ -392,17 +420,17 @@ static void of_mst_hw_onoff(bool on)
 		}
 
 	} else {
+		gpio_set_value(mst_pwr_en, 0);
+		printk("%s : mst_pwr_en gets the LOW\n", __func__);
+
+		usleep_range(800, 1000);
+		printk("%s : msleep(1)\n", __func__);
+
 		value.intval = MST_MODE_OFF;
 		psy_do_property("mfc-charger", set,
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		printk("%s : MST_MODE_OFF notify : %d\n", __func__,
 		       value.intval);
-
-		usleep_range(800, 1000);
-		printk("%s : msleep(1)\n", __func__);
-
-		gpio_set_value(mst_pwr_en, 0);
-		printk("%s : mst_pwr_en gets the LOW\n", __func__);
 
 		/* Boost Disable */
 		printk("%s : boost disable to back to Normal", __func__);
@@ -530,6 +558,11 @@ static ssize_t store_mst_drv(struct device *dev,
 
 	sscanf(buf, "%20s\n", test_result);
 
+	if (wpc_det && (gpio_get_value(wpc_det) == 1)) {
+		printk("[MST] Wireless charging is ongoing, do not proceed MST work\n");
+		return count;
+	}
+
 	switch (test_result[0]) {
 
 	case CMD_MST_LDO_OFF:
@@ -595,6 +628,21 @@ static ssize_t store_mst_drv(struct device *dev,
 static int sec_mst_gpio_init(struct device *dev)
 {
 	int ret = 0;
+	struct device_node *np;
+	enum of_gpio_flags irq_gpio_flags;
+
+	/* get wireless chraging check gpio */
+	np = of_find_node_by_name(NULL, "battery");
+	if (!np) {
+		pr_err("%s np NULL\n", __func__);
+	} else {
+		/* wpc_det */
+		wpc_det = of_get_named_gpio_flags(np, "battery,wpc_det",
+			0, &irq_gpio_flags);
+		if (ret < 0) {
+			dev_err(dev, "%s : can't get wpc_det\r\n", __FUNCTION__);
+		}
+	}
 
 	mst_pwr_en =
 	    of_get_named_gpio(dev->of_node, "sec-mst,mst-pwr-gpio", OFF);

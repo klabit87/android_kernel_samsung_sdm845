@@ -196,7 +196,7 @@ void sec_debug_store_extc_idx(bool prefix)
 		if (p_ex_info->extc_idx == 0) {
 			p_ex_info->extc_idx = get_sec_log_idx();
 			if (prefix)
-				p_ex_info->extc_idx += 1023;
+				p_ex_info->extc_idx += SEC_DEBUG_RESET_EXTRC_SIZE;
 		}
 	}
 }

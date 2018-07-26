@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_pcie.c 740024 2018-01-10 12:20:47Z $
+ * $Id: dhd_pcie.c 756631 2018-04-10 05:26:11Z $
  */
 
 /* include files */
@@ -6755,17 +6755,18 @@ dhdpci_bus_read_frames(dhd_bus_t *bus)
 				DHD_OS_WAKE_UNLOCK(bus->dhd);
 			}
 #endif /* DHD_FW_COREDUMP */
-			bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN;
-			dhd_os_send_hang_message(bus->dhd);
 		} else {
 			DHD_ERROR(("%s: Link is Down.\n", __FUNCTION__));
 #ifdef CONFIG_ARCH_MSM
 			bus->no_cfg_restore = 1;
 #endif /* CONFIG_ARCH_MSM */
 			bus->is_linkdown = 1;
-			bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN;
-			dhd_os_send_hang_message(bus->dhd);
 		}
+
+		dhd_prot_debug_info_print(bus->dhd);
+		bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN;
+		dhd_os_send_hang_message(bus->dhd);
+		more = FALSE;
 	}
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
 	return more;

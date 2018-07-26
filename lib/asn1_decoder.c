@@ -327,11 +327,11 @@ next_op:
 	case ASN1_OP_COND_MATCH_ANY_OR_SKIP:
 	case ASN1_OP_COND_MATCH_ANY_ACT:
 	case ASN1_OP_COND_MATCH_ANY_ACT_OR_SKIP:
-
+	
 		if (!(flags & FLAG_CONS)) {
 			if (flags & FLAG_INDEFINITE_LENGTH) {
 				size_t tmp = dp;
-
+				
 				ret = asn1_find_indefinite_length(
 					data, datalen, &tmp, &len, &errmsg);
 				if (ret < 0)

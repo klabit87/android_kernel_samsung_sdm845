@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -52,6 +52,8 @@
 #define EMERGENCY_DLOAD_MAGIC3    0x77777777
 #define EMMC_DLOAD_TYPE		0x2
 
+#define REDUCED_SDI_MAGIC	0x4E4F5344
+
 #define SCM_IO_DISABLE_PMIC_ARBITER	1
 #define SCM_IO_DEASSERT_PS_HOLD		2
 #define SCM_WDOG_DEBUG_BOOT_PART	0x9
@@ -82,6 +84,7 @@ static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
 static int download_mode = 1;
 static struct kobject dload_kobj;
+static void __iomem *reduced_sdi_mode_addr;
 
 #ifdef CONFIG_QCOM_DLOAD_MODE
 #define EDL_MODE_PROP "qcom,msm-imem-emergency_download_mode"
@@ -89,6 +92,7 @@ static struct kobject dload_kobj;
 #ifdef CONFIG_RANDOMIZE_BASE
 #define KASLR_OFFSET_PROP "qcom,msm-imem-kaslr_offset"
 #endif
+#define REDUCED_SDI_MODE_PROP "qcom,msm-imem-reduced_sdi_mode"
 
 static int in_panic;
 static int dload_type = SCM_DLOAD_FULLDUMP;
@@ -555,6 +559,60 @@ static size_t store_emmc_dload(struct kobject *kobj, struct attribute *attr,
 	return count;
 }
 
+int set_reduced_sdi_mode(void)
+{
+	if (!reduced_sdi_mode_addr)
+		return -ENODEV;
+
+	__raw_writel(REDUCED_SDI_MAGIC, reduced_sdi_mode_addr);
+
+	return 0;
+}
+EXPORT_SYMBOL(set_reduced_sdi_mode);
+
+static ssize_t show_reduced_sdi_mode(struct kobject *kobj,
+				     struct attribute *attr,
+				     char *buf)
+{
+	uint32_t read_val, show_val;
+
+	if (!reduced_sdi_mode_addr)
+		return -ENODEV;
+
+	read_val = __raw_readl(reduced_sdi_mode_addr);
+	if (read_val == REDUCED_SDI_MAGIC)
+		show_val = 1;
+	else
+		show_val = 0;
+
+	return snprintf(buf, sizeof(show_val), "%u\n", show_val);
+}
+
+static size_t store_reduced_sdi_mode(struct kobject *kobj,
+				     struct attribute *attr,
+				     const char *buf, size_t count)
+{
+	uint32_t enabled;
+	int ret;
+
+	if (!reduced_sdi_mode_addr)
+		return -ENODEV;
+
+	ret = kstrtouint(buf, 0, &enabled);
+	if (ret < 0)
+		return ret;
+
+	if (!(enabled == 0 || enabled == 1))
+		return -EINVAL;
+
+	if (enabled == 1)
+		__raw_writel(REDUCED_SDI_MAGIC, reduced_sdi_mode_addr);
+	else
+		 __raw_writel(0, reduced_sdi_mode_addr);
+
+	return count;
+}
+
 #ifdef CONFIG_QCOM_MINIDUMP
 static DEFINE_MUTEX(tcsr_lock);
 
@@ -599,12 +657,15 @@ static size_t store_dload_mode(struct kobject *kobj, struct attribute *attr,
 RESET_ATTR(dload_mode, 0644, show_dload_mode, store_dload_mode);
 #endif
 RESET_ATTR(emmc_dload, 0644, show_emmc_dload, store_emmc_dload);
+RESET_ATTR(reduced_sdi_mode, 0644, show_reduced_sdi_mode,
+	store_reduced_sdi_mode);
 
 static struct attribute *reset_attrs[] = {
 	&reset_attr_emmc_dload.attr,
 #ifdef CONFIG_QCOM_MINIDUMP
 	&reset_attr_dload_mode.attr,
 #endif
+	&reset_attr_reduced_sdi_mode.attr,
 	NULL
 };
 
@@ -670,12 +731,22 @@ static int msm_restart_probe(struct platform_device *pdev)
 				"qcom,msm-imem-dload-type");
 	if (!np) {
 		pr_err("unable to find DT imem dload-type node\n");
-		goto skip_sysfs_create;
 	} else {
 		dload_type_addr = of_iomap(np, 0);
 		if (!dload_type_addr) {
 			pr_err("unable to map imem dload-type offset\n");
-			goto skip_sysfs_create;
+		}
+	}
+
+	np = of_find_compatible_node(NULL, NULL, REDUCED_SDI_MODE_PROP);
+	if (!np) {
+		pr_err("unable to find DT imem reduced SDI mode node\n");
+	} else {
+		reduced_sdi_mode_addr = of_iomap(np, 0);
+		if (!reduced_sdi_mode_addr) {
+			pr_err("unable to map imem reduced SDI mode offset\n");
+		} else {
+			__raw_writel(0, reduced_sdi_mode_addr);
 		}
 	}
 

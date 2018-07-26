@@ -521,6 +521,9 @@ static int get_base_luminance(struct SMART_DIM *pSmart)
 	case 'H':
 		memcpy(base_luminance, base_luminance_star_revH, sizeof(base_luminance_star_revH));
 		break;
+	case 'R':
+		memcpy(base_luminance, base_luminance_star_revR, sizeof(base_luminance_star_revR));
+		break;
 	default:
 		memcpy(base_luminance, base_luminance_star_revH, sizeof(base_luminance_star_revH));
 		break;
@@ -556,6 +559,9 @@ static int get_gradation_offset(int table_index, int index, int panel_revision)
 	case 'H':
 		ret = gradation_offset_star_revH[table_index][index];
 		break;
+	case 'R':
+		ret = gradation_offset_star_revR[table_index][index];
+		break;
 	default:
 		ret = gradation_offset_star_revH[table_index][index];
 		break;
@@ -574,6 +580,9 @@ static int get_rgb_offset(int table_index, int index, int panel_revision)
 		break;
 	case 'H':
 		ret = rgb_offset_star_revH[table_index][index];
+		break;
+	case 'R':
+		ret = rgb_offset_star_revR[table_index][index];
 		break;
 	default:
 		ret = rgb_offset_star_revH[table_index][index];
@@ -1159,6 +1168,9 @@ static int get_base_luminance_hmt(int brightness_level, int panel_revision)
 	case 'A' ... 'G':
 		memcpy(base_luminance, base_luminance_reverse_hmt_single, sizeof(base_luminance_reverse_hmt_single));
 		break;
+	case 'R':
+		memcpy(base_luminance, base_luminance_reverse_hmt_single_revR, sizeof(base_luminance_reverse_hmt_single_revR));
+		break;
 	default:
 		memcpy(base_luminance, base_luminance_reverse_hmt_single, sizeof(base_luminance_reverse_hmt_single));
 		break;
@@ -1176,6 +1188,8 @@ static int get_gradation_offset_hmt(int table_index, int index, int panel_revisi
 	switch (panel_revision) {
 	case 'A' ... 'H':
 		return gradation_offset_reverse_hmt_single[table_index][index];
+	case 'R':
+		return gradation_offset_reverse_hmt_single_revR[table_index][index];
 	default:
 		return gradation_offset_reverse_hmt_single[table_index][index];
 	}
@@ -1186,6 +1200,8 @@ static int get_rgb_offset_hmt(int table_index, int index, int panel_revision)
 	switch (panel_revision) {
 	case 'A' ... 'H':
 		return rgb_offset_reverse_hmt_single[table_index][index];
+	case 'R':
+		return rgb_offset_reverse_hmt_single_revR[table_index][index];
 	default:
 		return rgb_offset_reverse_hmt_single[table_index][index];
 	}

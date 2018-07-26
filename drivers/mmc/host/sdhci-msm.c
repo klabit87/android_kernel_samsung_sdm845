@@ -1170,7 +1170,7 @@ int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 	if (msm_host->tuning_in_progress)
 		return 0;
 	msm_host->tuning_in_progress = true;
-	pr_debug("%s: Enter %s\n", mmc_hostname(mmc), __func__);
+	pr_info("%s: Enter %s\n", mmc_hostname(mmc), __func__);
 
 	/* CDC/SDC4 DLL HW calibration is only required for HS400 mode*/
 	if (msm_host->tuning_done && !msm_host->calibration_done &&
@@ -1217,6 +1217,7 @@ retry:
 		struct scatterlist sg;
 		struct mmc_command sts_cmd = {0};
 
+		msm_host->phase_on_tuning = phase;
 		/* set the phase in delay line hw block */
 		rc = msm_config_cm_dll_phase(host, phase);
 		if (rc)
@@ -1272,7 +1273,7 @@ retry:
 					 * be on safer side 1ms delay is given.
 					 */
 					usleep_range(1000, 1200);
-					pr_debug("%s: phase %d sts cmd err %d resp 0x%x\n",
+					pr_info("%s: phase %d sts cmd err %d resp 0x%x\n",
 						mmc_hostname(mmc), phase,
 						sts_cmd.error, sts_cmd.resp[0]);
 					continue;
@@ -1349,9 +1350,16 @@ retry:
 		if (rc)
 			goto kfree;
 		if (msm_host->saved_tuning_phase != phase) {
+			int i = 0;
+			char phase_result[17] = { 0, };
+
 			pr_err("%s: %s: finally setting the tuning phase from %d to %d\n",
 					mmc_hostname(mmc), __func__,
 					msm_host->saved_tuning_phase, phase);
+			for (i = 0; i < tuned_phase_cnt; i++)
+				snprintf(phase_result + i, sizeof(phase_result) - i, "%1x", tuned_phases[i]);
+			pr_err("%s\n", phase_result);
+
 			msm_host->saved_tuning_phase = phase;
 		}
 	} else {
@@ -3079,6 +3087,8 @@ static void sdhci_msm_registers_restore(struct sdhci_host *host)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_msm_host *msm_host = pltfm_host->priv;
+	u8 irq_status;
+	int retry = 50;
 	const struct sdhci_msm_offset *msm_host_offset =
 					msm_host->offset;
 
@@ -3086,10 +3096,9 @@ static void sdhci_msm_registers_restore(struct sdhci_host *host)
 		!msm_host->regs_restore.is_valid)
 		return;
 
+	writel_relaxed(0, host->ioaddr + msm_host_offset->CORE_PWRCTL_MASK);
 	writel_relaxed(msm_host->regs_restore.vendor_func, host->ioaddr +
 			msm_host_offset->CORE_VENDOR_SPEC);
-	writel_relaxed(msm_host->regs_restore.vendor_pwrctl_mask,
-			host->ioaddr + msm_host_offset->CORE_PWRCTL_MASK);
 	writel_relaxed(msm_host->regs_restore.vendor_func2,
 			host->ioaddr +
 			msm_host_offset->CORE_VENDOR_SPEC_FUNC2);
@@ -3100,8 +3109,6 @@ static void sdhci_msm_registers_restore(struct sdhci_host *host)
 			SDHCI_CLOCK_CONTROL);
 	sdhci_writel(host, msm_host->regs_restore.hc_3c_3e,
 			SDHCI_AUTO_CMD_ERR);
-	writel_relaxed(msm_host->regs_restore.vendor_pwrctl_ctl,
-			host->ioaddr + msm_host_offset->CORE_PWRCTL_CTL);
 	sdhci_writel(host, msm_host->regs_restore.hc_38_3a,
 			SDHCI_SIGNAL_ENABLE);
 	sdhci_writel(host, msm_host->regs_restore.hc_34_36,
@@ -3116,6 +3123,39 @@ static void sdhci_msm_registers_restore(struct sdhci_host *host)
 	writel_relaxed(msm_host->regs_restore.testbus_config, host->ioaddr +
 			msm_host_offset->CORE_TESTBUS_CONFIG);
 	msm_host->regs_restore.is_valid = false;
+
+	/*
+	 * Clear the PWRCTL_STATUS register.
+	 * There is a rare HW scenario where the first clear pulse could be
+	 * lost when actual reset and clear/read of status register is
+	 * happening at a time. Hence, retry for at least 10 times to make
+	 * sure status register is cleared. Otherwise, this will result in
+	 * a spurious power IRQ resulting in system instability.
+	 */
+	irq_status = sdhci_msm_readb_relaxed(host,
+				msm_host_offset->CORE_PWRCTL_STATUS);
+	sdhci_msm_writeb_relaxed(irq_status, host,
+				msm_host_offset->CORE_PWRCTL_CLEAR);
+	mb();
+	while (irq_status & sdhci_msm_readb_relaxed(host,
+			msm_host_offset->CORE_PWRCTL_STATUS)) {
+		if (retry == 0) {
+			pr_err("%s: Timedout clearing (0x%x) pwrctl status register\n",
+				mmc_hostname(host->mmc), irq_status);
+			sdhci_msm_dump_pwr_ctrl_regs(host);
+			BUG_ON(1);
+		}
+		sdhci_msm_writeb_relaxed(irq_status, host,
+			msm_host_offset->CORE_PWRCTL_CLEAR);
+		mb();
+		retry--;
+		udelay(2);
+	}
+
+	writel_relaxed(msm_host->regs_restore.vendor_pwrctl_ctl,
+			host->ioaddr + msm_host_offset->CORE_PWRCTL_CTL);
+	writel_relaxed(msm_host->regs_restore.vendor_pwrctl_mask,
+			host->ioaddr + msm_host_offset->CORE_PWRCTL_MASK);
 
 	pr_debug("%s: %s: registers restored. PWRCTL_MASK = 0x%x\n",
 		mmc_hostname(host->mmc), __func__,
@@ -3701,6 +3741,7 @@ void sdhci_msm_dump_vendor_regs(struct sdhci_host *host)
 		pr_info("%s: ICE status %x\n", mmc_hostname(host->mmc), sts);
 		sdhci_msm_ice_print_regs(host);
 	}
+	pr_info("Phase_on_tuning : 0x%x.\n", msm_host->phase_on_tuning);
 }
 
 static void sdhci_msm_reset(struct sdhci_host *host, u8 mask)
@@ -5641,7 +5682,6 @@ static int sdhci_msm_suspend(struct device *dev)
 	int sdio_cfg = 0;
 	ktime_t start = ktime_get();
 
-	pr_err("ENTER %s: %s\n", __func__, mmc_hostname(host->mmc));
 	if (gpio_is_valid(msm_host->pdata->status_gpio) &&
 		(msm_host->mmc->slot.cd_irq >= 0))
 			disable_irq(msm_host->mmc->slot.cd_irq);
@@ -5662,7 +5702,6 @@ out:
 
 	trace_sdhci_msm_suspend(mmc_hostname(host->mmc), ret,
 			ktime_to_us(ktime_sub(ktime_get(), start)));
-	pr_err("EXIT %s: %s\n", __func__, mmc_hostname(host->mmc));
 	return ret;
 }
 
@@ -5675,7 +5714,6 @@ static int sdhci_msm_resume(struct device *dev)
 	int sdio_cfg = 0;
 	ktime_t start = ktime_get();
 
-	pr_err("ENTER %s: %s\n", __func__, mmc_hostname(host->mmc));
 	if (gpio_is_valid(msm_host->pdata->tflash_en_gpio)) {
 		if (!gpio_get_value(msm_host->pdata->tflash_en_gpio)) {
 			gpio_direction_output(msm_host->pdata->tflash_en_gpio, 1);
@@ -5705,7 +5743,6 @@ out:
 
 	trace_sdhci_msm_resume(mmc_hostname(host->mmc), ret,
 			ktime_to_us(ktime_sub(ktime_get(), start)));
-	pr_err("EXIT %s: %s\n", __func__, mmc_hostname(host->mmc));
 	return ret;
 }
 

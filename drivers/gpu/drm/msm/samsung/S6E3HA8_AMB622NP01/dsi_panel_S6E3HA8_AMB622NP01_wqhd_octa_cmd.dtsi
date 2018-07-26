@@ -5059,10 +5059,17 @@
 
 				qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 				qcom,mdss-dsi-off-command=[
+					29 01 00 00 00 00 03 9F A5 A5		/* LV1 (9F) unlock */
 					05 01 00 00 00 00 02 28 00
+					29 01 00 00 00 00 03 9F 5A 5A		/* LV1 (9F) lock */
+
+					29 00 00 00 00 00 03 F0 5A 5A	/* TEST KEY2 Enable*/
+					29 00 00 00 00 00 03 E2 00 00	/* AFC Off */
+					29 01 00 00 14 00 03 F0 A5 A5   /* TEST KEY2 Disable, 20ms delay */
+
 					29 01 00 00 00 00 03 9F A5 A5		/* LV1 (9F) unlock */
 					05 01 00 00 00 00 02 10 00		/* sleep in */
-					29 01 00 00 B4 00 03 9F 5A 5A		/* LV1 (9F) lock, 180ms delay to match 120ms */
+					29 01 00 00 A0 00 03 9F 5A 5A		/* LV1 (9F) lock, 160ms delay to match 100ms */
 				];
 				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 				qcom,partial-update-enabled = "single_roi";
@@ -5192,10 +5199,17 @@
 				];
 				qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 				qcom,mdss-dsi-off-command=[
+					29 01 00 00 00 00 03 9F A5 A5		/* LV1 (9F) unlock */
 					05 01 00 00 00 00 02 28 00
+					29 01 00 00 00 00 03 9F 5A 5A		/* LV1 (9F) lock */
+
+					29 00 00 00 00 00 03 F0 5A 5A	/* TEST KEY2 Enable*/
+					29 00 00 00 00 00 03 E2 00 00	/* AFC Off */
+					29 01 00 00 14 00 03 F0 A5 A5   /* TEST KEY2 Disable, 20ms delay */
+
 					29 01 00 00 00 00 03 9F A5 A5		/* LV1 (9F) unlock */
 					05 01 00 00 00 00 02 10 00		/* sleep in */
-					29 01 00 00 B4 00 03 9F 5A 5A		/* LV1 (9F) lock, 180ms delay to match 120ms */
+					29 01 00 00 A0 00 03 9F 5A 5A		/* LV1 (9F) lock, 160ms delay to match 100ms */
 				];
 				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 				qcom,partial-update-enabled = "single_roi";
@@ -5327,10 +5341,17 @@
 				];
 				qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 				qcom,mdss-dsi-off-command=[
+					29 01 00 00 00 00 03 9F A5 A5		/* LV1 (9F) unlock */
 					05 01 00 00 00 00 02 28 00
+					29 01 00 00 00 00 03 9F 5A 5A		/* LV1 (9F) lock */
+
+					29 00 00 00 00 00 03 F0 5A 5A	/* TEST KEY2 Enable*/
+					29 00 00 00 00 00 03 E2 00 00	/* AFC Off */
+					29 01 00 00 14 00 03 F0 A5 A5   /* TEST KEY2 Disable, 20ms delay */
+
 					29 01 00 00 00 00 03 9F A5 A5		/* LV1 (9F) unlock */
 					05 01 00 00 00 00 02 10 00		/* sleep in */
-					29 01 00 00 B4 00 03 9F 5A 5A		/* LV1 (9F) lock, 180ms delay to match 120ms */
+					29 01 00 00 A0 00 03 9F 5A 5A		/* LV1 (9F) lock, 160ms delay to match 100ms */
 				];
 				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 				qcom,partial-update-enabled = "single_roi";

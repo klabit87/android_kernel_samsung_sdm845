@@ -19,7 +19,7 @@
 
 #define PREDEFINE_FILE_PATH      "/efs/FactoryApp/predefine"
 #define PATH_LEN                 50
-#define FILE_BUF_LEN             80
+#define FILE_BUF_LEN             110
 #define ID_INDEX_NUMS            2
 #define RETRY_MAX                3
 #define VERSION_FILE_NAME_LEN    20
@@ -429,6 +429,7 @@ static int tmd490x_hh_check_crc(void)
 		pr_err("[FACTORY] %s: fd read fail:%d\n", __func__, ret);
 		goto crc_err_read_ver;
 	}
+	efs_version[VERSION_FILE_NAME_LEN - 1] = '\0';
 
 	pr_info("[FACTORY] %s: efs_version:%s\n", __func__, efs_version);
 
@@ -517,9 +518,12 @@ static ssize_t tmd490x_hh_ver_store(struct device *dev,
 	int ret = 0;
 	char *temp_char;
 
+	if (buf[0] == '\0') {
+		pr_err("[FACTORY] %s: hh ver is NULL\n", __func__);
+		return size;
+	}
 	temp_char = (char *)&buf[1];
 	pr_info("[FACTORY] %s: buf:%s:\n", __func__, buf);
-	pr_info("[FACTORY] %s: temp_char:%s:\n", __func__, temp_char);
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
@@ -578,6 +582,7 @@ static ssize_t tmd490x_hh_ver_show(struct device *dev,
 		pr_err("[FACTORY] %s: fd read fail:%d\n", __func__, ret);
 		goto err_fail;
 	}
+	efs_version[VERSION_FILE_NAME_LEN - 1] = '\0';
 
 	filp_close(ver_filp, current->files);
 	set_fs(old_fs);
@@ -630,7 +635,7 @@ static ssize_t tmd490x_hh_write_all_data_store(struct device *dev,
 		msg_buf[3], msg_buf[4], msg_buf[5], msg_buf[6], msg_buf[7],
 		msg_buf[8], msg_buf[9], msg_buf[10]);
 
-	snprintf(write_buf, PAGE_SIZE, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+	snprintf(write_buf, FILE_BUF_LEN, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
 		msg_buf[0], msg_buf[1], msg_buf[2], msg_buf[3], msg_buf[4],
 		msg_buf[5], msg_buf[6], msg_buf[7], msg_buf[8], msg_buf[9],
 		msg_buf[10]);

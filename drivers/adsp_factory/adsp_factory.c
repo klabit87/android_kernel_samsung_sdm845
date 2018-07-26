@@ -25,6 +25,22 @@
 #include <linux/sec_class.h>
 #include "adsp.h"
 
+static u8 msg_size[MSG_SENSOR_MAX] = {		
+	MSG_ACCEL_MAX,
+	MSG_GYRO_MAX,
+	MSG_MAG_MAX,
+	MSG_TYPE_SIZE_ZERO,
+	MSG_LIGHT_MAX,
+	MSG_PROX_MAX,
+	MSG_MOBEAM_MAX,
+	MSG_GYRO_TEMP_MAX,
+	MSG_PRESSURE_TEMP_MAX,
+	MSG_TYPE_SIZE_ZERO,
+	MSG_TYPE_SIZE_ZERO,
+	MSG_TYPE_SIZE_ZERO,
+	MSG_TYPE_SIZE_ZERO,
+};
+
 /* The netlink socket */
 struct adsp_data *data;
 
@@ -200,6 +216,14 @@ static int process_received_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	u16 sensor_type = nlh->nlmsg_type >> 8;
 	u16 msg_type = nlh->nlmsg_type & 0xff;
 
+	/* check the boundary to prevent memory attack */
+	if (msg_type >= MSG_TYPE_MAX || sensor_type >= MSG_SENSOR_MAX ||
+		nlh->nlmsg_len - (int32_t)sizeof(struct nlmsghdr) >
+	    	sizeof(int32_t) * msg_size[sensor_type]) {
+		pr_err("[FACTORY] %d, %d, %d\n", msg_type, sensor_type, nlh->nlmsg_len);
+		return 0;
+	}
+
 	if (sensor_type == MSG_FACTORY_INIT_CMD) {
 		accel_factory_init_work();
 		hidden_hole_init_work();
@@ -207,7 +231,8 @@ static int process_received_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	}
 
 	memcpy(data->msg_buf[sensor_type],
-		(int32_t *)NLMSG_DATA(nlh), nlh->nlmsg_len);
+		(int32_t *)NLMSG_DATA(nlh),
+		nlh->nlmsg_len - (int32_t)sizeof(struct nlmsghdr));
 	data->ready_flag[msg_type] |= 1 << sensor_type;
 
 	return 0;
@@ -245,21 +270,6 @@ struct netlink_kernel_cfg netlink_cfg = {
 static int __init factory_adsp_init(void)
 {
 	int i;
-	u8 msg_size[MSG_SENSOR_MAX] = {		
-		MSG_ACCEL_MAX,
-		MSG_GYRO_MAX,
-		MSG_MAG_MAX,
-		0,
-		MSG_LIGHT_MAX,
-		MSG_PROX_MAX,
-		MSG_MOBEAM_MAX,
-		MSG_GYRO_TEMP_MAX,
-		MSG_PRESSURE_TEMP_MAX,
-		0,
-		0,
-		0,
-		0,
-    };
 
 	pr_info("[FACTORY] %s\n", __func__);
 	data = kzalloc(sizeof(*data), GFP_KERNEL);

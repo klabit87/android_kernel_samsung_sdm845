@@ -172,6 +172,9 @@ struct wcd_cpe_core {
 	/* mutex to protect cpe ssr status variables */
 	struct mutex ssr_lock;
 
+	/* mutex to protect cpe session status variables */
+	struct mutex session_lock;
+
 	/* Store the calibration data needed for cpe */
 	struct cal_type_data *cal_data[WCD_CPE_LSM_CAL_MAX];
 

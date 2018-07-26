@@ -178,6 +178,10 @@ static char ss_panel_revision(struct samsung_display_driver_data *vdd)
 		/* Rev.H */
 		vdd->panel_revision = 'H';
 		break;
+	case 0x04:
+		/* Rev.R */
+		vdd->panel_revision = 'R';
+		break;
 	default:
 		vdd->panel_revision = 'H';
 		LCD_ERR("Invalid panel_rev(default rev : %c)\n",

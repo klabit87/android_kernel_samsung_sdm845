@@ -26,7 +26,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_msgbuf.c 739566 2018-01-09 01:24:24Z $
+ * $Id: dhd_msgbuf.c 756631 2018-04-10 05:26:11Z $
  */
 
 #include <typedefs.h>
@@ -6357,7 +6357,6 @@ dhd_prot_alloc_ring_space(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 			/* Check if ring->rd is valid */
 			if (ring->rd >= ring->max_items) {
 				DHD_ERROR(("%s: Invalid rd idx=%d\n", ring->name, ring->rd));
-				dhd_prot_debug_info_print(dhd);
 				dhd->bus->read_shm_fail = TRUE;
 				return NULL;
 			}
@@ -7495,7 +7494,6 @@ dhd_prot_get_read_addr(dhd_pub_t *dhd, msgbuf_ring_t *ring, uint32 *available_le
 		DHD_ERROR(("\r\n======================= \r\n"));
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 		if (wr >= ring->max_items) {
-			dhd_prot_debug_info_print(dhd);
 			dhd->bus->read_shm_fail = TRUE;
 		}
 #else

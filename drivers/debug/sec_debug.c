@@ -568,6 +568,7 @@ static int sec_debug_panic_handler(struct notifier_block *nb,
 		{ "User Fault", UPLOAD_CAUSE_USER_FAULT, SEC_STRNCMP },
 		{ "Crash Key", UPLOAD_CAUSE_FORCED_UPLOAD, SEC_STRNCMP },
 		{ "User Crash Key", UPLOAD_CAUSE_USER_FORCED_UPLOAD, SEC_STRNCMP },
+		{ "Power Long Press", UPLOAD_CAUSE_POWER_LONG_PRESS, SEC_STRNCMP },
 		{ "CP Crash", UPLOAD_CAUSE_CP_ERROR_FATAL, SEC_STRNCMP },
 		{ "MDM Crash", UPLOAD_CAUSE_MDM_ERROR_FATAL, SEC_STRNCMP },
 		{ "external_modem", UPLOAD_CAUSE_MDM_ERROR_FATAL, SEC_STRNSTR },
@@ -711,6 +712,7 @@ static int __init __sec_debug_dt_addr_init(void) { return 0; }
 void sec_do_bypass_sdi_execution_in_low(void)
 {
 	int ret;
+#if 1
 	struct scm_desc desc = {
 		.args[0] = 1,
 		.args[1] = 0,
@@ -726,7 +728,11 @@ void sec_do_bypass_sdi_execution_in_low(void)
 			  SCM_WDOG_DEBUG_BOOT_PART), &desc);
 	if (ret)
 		pr_err("Failed to disable wdog debug: %d\n", ret);
-
+#else
+	ret = set_reduced_sdi_mode();
+	if (ret)
+		pr_err("Failed to sdi setting: %d\n", ret);
+#endif
 }
 
 static char ap_serial_from_cmdline[20];
