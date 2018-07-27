@@ -7,10 +7,10 @@ BUILD_ROOT_DIR=$BUILD_KERNEL_DIR/..
 BUILD_KERNEL_OUT_DIR=$BUILD_ROOT_DIR/kernel_out/KERNEL_OBJ
 PRODUCT_OUT=$BUILD_ROOT_DIR/kernel_out
 
-DEVICE=starlte_chn
-export KBUILD_COMPILER_STRING=$(/home/vaughnn/android/toolchain/clang-4679922/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
-BUILD_KERNEL_GCC=/home/vaughnn/android/toolchain/aarch64-linux-android/bin/aarch64-linux-android-
-BUILD_KERNEL_CLANG=/home/vaughnn/android/toolchain/clang-4679922/bin/clang
+DEVICE=starlte_hk
+export KBUILD_COMPILER_STRING=$(/home/vaughn/android/toolchain/clang-4679922/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
+BUILD_KERNEL_GCC=/home/vaughn/android/toolchain/aarch64-linux-android/bin/aarch64-linux-android-
+BUILD_KERNEL_CLANG=/home/vaughn/android/toolchain/clang-4679922/bin/clang
 
 case ${DEVICE} in
 	"starlte_chn")
@@ -45,8 +45,6 @@ FUNC_GENERATE_DEFCONFIG()
         echo ""
 
 	make -C $BUILD_KERNEL_DIR O=$BUILD_KERNEL_OUT_DIR -j$BUILD_JOB_NUMBER ARCH=arm64 \
-			CC=$BUILD_KERNEL_CLANG \
-			CLANG_TRIPLE=aarch64-linux-gnu- \
 			CROSS_COMPILE=$BUILD_KERNEL_GCC \
 			$KERNEL_DEFCONFIG || exit -1
 
@@ -69,8 +67,6 @@ FUNC_GENERATE_DTB()
 	rm -rf $BUILD_KERNEL_OUT_DIR/arch/arm64/boot/dts
 
 	make dtbs -C $BUILD_KERNEL_DIR O=$BUILD_KERNEL_OUT_DIR -j$BUILD_JOB_NUMBER ARCH=arm64 \
-			CC=$BUILD_KERNEL_CLANG \
-			CLANG_TRIPLE=aarch64-linux-gnu- \
 			CROSS_COMPILE=$BUILD_KERNEL_GCC || exit -1
 	echo ""
 	echo "================================="
@@ -90,8 +86,6 @@ FUNC_BUILD_KERNEL()
 	rm -rf $BUILD_KERNEL_OUT_DIR/arch/arm64/boot/dts
 
 	make -C $BUILD_KERNEL_DIR O=$BUILD_KERNEL_OUT_DIR -j$BUILD_JOB_NUMBER ARCH=arm64 \
-			CC=$BUILD_KERNEL_CLANG \
-			CLANG_TRIPLE=aarch64-linux-gnu- \
 			CROSS_COMPILE=$BUILD_KERNEL_GCC || exit -1
 
 	cp $BUILD_KERNEL_OUT_DIR/arch/arm64/boot/Image.gz-dtb $KERNEL_IMG
