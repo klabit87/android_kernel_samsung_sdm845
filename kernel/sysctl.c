@@ -303,6 +303,13 @@ static struct ctl_table kern_table[] = {
 		.proc_handler   = proc_dointvec,
 	},
 	{
+		.procname       = "sched_cpu_sync_irqload",
+		.data           = &sysctl_sched_cpu_sync_irqload,
+		.maxlen         = sizeof(unsigned int),
+		.mode           = 0644,
+		.proc_handler   = proc_dointvec,
+	},
+	{
 		.procname	= "sched_group_upmigrate",
 		.data		= &sysctl_sched_group_upmigrate_pct,
 		.maxlen		= sizeof(unsigned int),

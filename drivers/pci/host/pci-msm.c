@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -290,6 +290,13 @@
 	pr_err("%s: " fmt, __func__, arg);  \
 	} while (0)
 
+#ifdef CONFIG_SEC_BSP
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+#define PCIE_SEC_DBG_ERR PCIE_ERR
+#else
+#define PCIE_SEC_DBG_ERR PCIE_DBG
+#endif
+#endif
 
 enum msm_pcie_res {
 	MSM_PCIE_RES_PARF,
@@ -536,6 +543,9 @@ struct msm_pcie_dev_t {
 	ulong				linkdown_counter;
 	ulong				link_turned_on_counter;
 	ulong				link_turned_off_counter;
+#ifdef CONFIG_SEC_BSP
+	ulong				aer_irq_counter;
+#endif
 	ulong				rc_corr_counter;
 	ulong				rc_non_fatal_counter;
 	ulong				rc_fatal_counter;
@@ -4295,7 +4305,7 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 	do {
 		usleep_range(LINK_UP_TIMEOUT_US_MIN, LINK_UP_TIMEOUT_US_MAX);
 		val =  readl_relaxed(dev->elbi + PCIE20_ELBI_SYS_STTS);
-		PCIE_DBG(dev, "PCIe RC%d: LTSSM_STATE:0x%x\n",
+		PCIE_INFO(dev, "PCIe RC%d: LTSSM_STATE:0x%x\n",
 			dev->rc_idx, (val >> 12) & 0x3f);
 	} while ((!(val & XMLH_LINK_UP) ||
 		!msm_pcie_confirm_linkup(dev, false, false, NULL))
@@ -4871,6 +4881,132 @@ out:
 	mutex_unlock(&dev->recovery_lock);
 }
 
+#ifdef CONFIG_SEC_BSP
+struct sec_pcie_aer_info {
+	u32 rc_ue_val;
+	u32 rc_ce_val;
+	u32 rc_err_val;
+	u32 ep_ue_val;
+	u32 ep_ce_val;
+};
+
+static const char *aer_ue_str[] = {
+	"Undefined",			/* Bit Position 0	*/
+	NULL,
+	NULL,
+	NULL,
+	"Data Link Protocol",		/* Bit Position 4	*/
+	"Surprise Down Error",		/* Bit Position 5	*/
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	"Poisoned TLP Received",	/* Bit Position 12	*/
+	"Flow Control Protocol",	/* Bit Position 13	*/
+	"Completion Timeout",		/* Bit Position 14	*/
+	"Completer Abort",		/* Bit Position 15	*/
+	"Unexpected Completion",	/* Bit Position 16	*/
+	"Receiver Overflow",		/* Bit Position 17	*/
+	"Malformed TLP",		/* Bit Position 18	*/
+	"ECRC",				/* Bit Position 19	*/
+	"Unsupported Request",		/* Bit Position 20	*/
+	"ACS Violation",		/* Bit Position 21	*/
+	"Uncorrectable Internal Error",	/* Bit Position 22	*/
+	"MC Blocked TLP",		/* Bit Position 23	*/
+	"AtomicOp Egress Blocked",	/* Bit Position 24	*/
+	"TLP Prefix Blocked Error",	/* Bit Position 25	*/
+	"Poisoned TLP Egress Blocked",	/* Bit Position 26	*/
+};
+
+static const char *aer_ce_str[] = {
+	"Receiver Error",		/* Bit Position 0	*/
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	"Bad TLP",			/* Bit Position 6	*/
+	"Bad DLLP",			/* Bit Position 7	*/
+	"RELAY_NUM Rollover",		/* Bit Position 8	*/
+	NULL,
+	NULL,
+	NULL,
+	"Replay Timer Timeout",		/* Bit Position 12	*/
+	"Advisory Non-Fatal",		/* Bit Position 13	*/
+	"Corrected Internal Error",	/* Bit Position 14	*/
+	"Header Log Overflow",		/* Bit Position 15	*/
+};
+
+static const char *aer_root_err_str[] = {
+	"ERR_COR",			/* Bit Position 0	*/
+	"Multiple ERR_COR",		/* Bit Position 1	*/
+	"ERR_FATAL/NONFATAL",		/* Bit Position 2	*/
+	"Multiple ERR_FATAL/NONFATAL",	/* Bit Position 3	*/
+	"First Uncorrectable Fatal",	/* Bit Position 4	*/
+	"Non-Fatal Error Messages",	/* Bit Position 5	*/
+	"Fatal Error Messages",		/* Bit Position 6	*/
+};
+
+static void sec_pcie_aer_print(struct msm_pcie_dev_t *dev, struct sec_pcie_aer_info *aer, u32 rc, u32 ep)
+{
+	int i;
+	const char *errmsg = NULL;
+
+	PCIE_SEC_DBG_ERR(dev, "RC%d's AER_COUNT:%lu\n", dev->rc_idx, dev->aer_irq_counter);
+
+	if (rc) {
+		PCIE_SEC_DBG_ERR(dev, "RC%d's AER_UNCORR_ERR_STATUS_REG:0x%x\n", dev->rc_idx, aer->rc_ue_val);
+		for (i = 0; i < 32; i++) {
+			if (!(aer->rc_ue_val & (1 << i)))
+				continue;
+
+			errmsg = i < ARRAY_SIZE(aer_ue_str) ? aer_ue_str[i] : NULL;
+			PCIE_SEC_DBG_ERR(dev, "   [%2d] %-22s\n", i, errmsg);
+		}
+
+		PCIE_SEC_DBG_ERR(dev, "RC%d's AER_CORR_ERR_STATUS_REG:0x%x\n", dev->rc_idx, aer->rc_ce_val);
+		for (i = 0; i < 32; i++) {
+			if (!(aer->rc_ce_val & (1 << i)))
+				continue;
+
+			errmsg = i < ARRAY_SIZE(aer_ce_str) ? aer_ce_str[i] : NULL;
+			PCIE_SEC_DBG_ERR(dev, "   [%2d] %-22s\n", i, errmsg);
+		}
+
+		PCIE_SEC_DBG_ERR(dev, "RC%d's AER_ROOT_ERR_STATUS_REG:0x%x\n", dev->rc_idx, aer->rc_err_val);
+		for (i = 0; i < 32; i++) {
+			if (!(aer->rc_err_val & (1 << i)))
+				continue;
+
+			errmsg = i < ARRAY_SIZE(aer_root_err_str) ? aer_root_err_str[i] : NULL;
+			PCIE_SEC_DBG_ERR(dev, "   [%2d] %-22s\n", i, errmsg);
+		}
+	}
+
+	if (ep) {
+		PCIE_SEC_DBG_ERR(dev, "RC%d's EP AER_UNCORR_ERR_STATUS_REG:0x%x\n", dev->rc_idx, aer->ep_ue_val);
+		for (i = 0; i < 32; i++) {
+			if (!(aer->ep_ue_val & (1 << i)))
+				continue;
+
+			errmsg = i < ARRAY_SIZE(aer_ue_str) ? aer_ue_str[i] : NULL;
+			PCIE_SEC_DBG_ERR(dev, "   [%2d] %-22s\n", i, errmsg);
+		}
+
+		PCIE_SEC_DBG_ERR(dev, "RC%d's EP AER_CORR_ERR_STATUS_REG:0x%x\n", dev->rc_idx, aer->ep_ce_val);
+		for (i = 0; i < 32; i++) {
+			if (!(aer->ep_ce_val & (1 << i)))
+				continue;
+
+			errmsg = i < ARRAY_SIZE(aer_ce_str) ? aer_ce_str[i] : NULL;
+			PCIE_SEC_DBG_ERR(dev, "   [%2d] %-22s\n", i, errmsg);
+		}
+	}
+}
+#endif /* CONFIG_SEC_BSP */
+
 static irqreturn_t handle_aer_irq(int irq, void *data)
 {
 	struct msm_pcie_dev_t *dev = data;
@@ -4882,6 +5018,9 @@ static irqreturn_t handle_aer_irq(int irq, void *data)
 	int i, j, ep_src_bdf = 0;
 	void __iomem *ep_base = NULL;
 	unsigned long irqsave_flags;
+#ifdef CONFIG_SEC_BSP
+	dev->aer_irq_counter++;
+#endif
 
 	PCIE_DBG2(dev,
 		"AER Interrupt handler fired for RC%d irq %d\nrc_corr_counter: %lu\nrc_non_fatal_counter: %lu\nrc_fatal_counter: %lu\nep_corr_counter: %lu\nep_non_fatal_counter: %lu\nep_fatal_counter: %lu\n",
@@ -5001,29 +5140,29 @@ out:
 	if (((dev->rc_corr_counter < corr_counter_limit) &&
 		(dev->ep_corr_counter < corr_counter_limit)) ||
 		uncorr_val || ep_uncorr_val) {
-#ifdef CONFIG_SEC_PANIC_PCIE_ERR
-		PCIE_ERR(dev, "RC%d's AER corr_counter:%lu\n",
-				dev->rc_idx, dev->rc_corr_counter);
-		PCIE_ERR(dev, "RC%d's PCIE20_AER_UNCORR_ERR_STATUS_REG:0x%x\n",
-				dev->rc_idx, uncorr_val);
-		PCIE_ERR(dev, "RC%d's PCIE20_AER_CORR_ERR_STATUS_REG:0x%x\n",
-				dev->rc_idx, corr_val);
-		PCIE_ERR(dev, "RC%d's PCIE20_AER_ROOT_ERR_STATUS_REG:0x%x\n",
-				dev->rc_idx, rc_err_status);
+#ifdef CONFIG_SEC_BSP
+		struct sec_pcie_aer_info aer = {0,};
 
-		PCIE_ERR(dev, "EP's AER corr_counter:%lu\n",
-				dev->ep_corr_counter);
-		PCIE_ERR(dev, "EP's PCIE20_AER_UNCORR_ERR_STATUS_REG:0x%x\n",
-				ep_uncorr_val);
-		PCIE_ERR(dev, "EP's PCIE20_AER_CORR_ERR_STATUS_REG:0x%x\n",
-				ep_corr_val);
+		aer.rc_ue_val = uncorr_val;
+		aer.rc_ce_val = corr_val;
+		aer.rc_err_val = rc_err_status;
 
-		panic("PCIe AER detect!\n");
+		aer.ep_ue_val = ep_uncorr_val;
+		aer.ep_ce_val = ep_corr_val;
+
+		sec_pcie_aer_print(dev, &aer, true, true);
 #else
 		PCIE_DBG(dev, "RC's PCIE20_AER_ROOT_ERR_STATUS_REG:0x%x\n",
 				rc_err_status);
 #endif
 	}
+
+#if defined(CONFIG_SEC_BSP) && defined(CONFIG_SEC_PANIC_PCIE_ERR)
+	if (dev->aer_irq_counter >= corr_counter_limit) {
+		panic("PCIe RC%d AER detect(%lu)!\n",
+			dev->rc_idx, dev->aer_irq_counter);
+	}
+#endif
 	msm_pcie_write_reg_field(dev->dm_core,
 			PCIE20_AER_UNCORR_ERR_STATUS_REG,
 			0x3fff031, 0x3fff031);
@@ -6439,6 +6578,9 @@ static int msm_pcie_probe(struct platform_device *pdev)
 	msm_pcie_dev[rc_idx].linkdown_counter = 0;
 	msm_pcie_dev[rc_idx].link_turned_on_counter = 0;
 	msm_pcie_dev[rc_idx].link_turned_off_counter = 0;
+#ifdef CONFIG_SEC_BSP
+	msm_pcie_dev[rc_idx].aer_irq_counter = 0;
+#endif
 	msm_pcie_dev[rc_idx].rc_corr_counter = 0;
 	msm_pcie_dev[rc_idx].rc_non_fatal_counter = 0;
 	msm_pcie_dev[rc_idx].rc_fatal_counter = 0;
@@ -6899,9 +7041,16 @@ static int msm_pcie_pm_suspend(struct pci_dev *dev,
 	u32 val = 0;
 	int ret_l23;
 	unsigned long irqsave_flags;
+	u32 ltssm_pre = 0, ltssm_post = 0, rc_linkup = 0, ep_linkup = 0;
 	struct msm_pcie_dev_t *pcie_dev = PCIE_BUS_PRIV_DATA(dev->bus);
 
 	PCIE_DBG(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+	if (pcie_dev->aer_irq_counter) {
+		panic("PCIe RC%d AER detect(%lu)!\n",
+			pcie_dev->rc_idx, pcie_dev->aer_irq_counter);
+	}
+#endif
 
 	spin_lock_irqsave(&pcie_dev->aer_lock, irqsave_flags);
 	pcie_dev->suspending = true;
@@ -6914,9 +7063,23 @@ static int msm_pcie_pm_suspend(struct pci_dev *dev,
 		return ret;
 	}
 
-	if (dev && !(options & MSM_PCIE_CONFIG_NO_CFG_RESTORE)
-		&& msm_pcie_confirm_linkup(pcie_dev, true, true,
-			pcie_dev->conf)) {
+	PCIE_DBG(pcie_dev,
+		"dev->bus->number = %d dev->bus->primary = %d\n",
+		dev->bus->number, dev->bus->primary);
+
+	if (dev && !(options & MSM_PCIE_CONFIG_NO_CFG_RESTORE)) {
+		rc_linkup = msm_pcie_confirm_linkup(pcie_dev, true, false, pcie_dev->conf);
+		if (rc_linkup) {
+			ep_linkup = readl_relaxed(pcie_dev->conf);
+			PCIE_DBG(pcie_dev,
+				"PCIe: device ID and vender ID of EP of RC %d are 0x%x.\n",
+				pcie_dev->rc_idx, ep_linkup);
+			if (ep_linkup == PCIE_LINK_DOWN) {
+				PCIE_ERR(pcie_dev,
+					"PCIe: The link of RC %d is not really up; device ID and vender ID of EP of RC %d are 0x%x.\n",
+					pcie_dev->rc_idx, pcie_dev->rc_idx, ep_linkup);
+			}
+		}
 		ret = pci_save_state(dev);
 		pcie_dev->saved_state =	pci_store_saved_state(dev);
 	}
@@ -6933,30 +7096,53 @@ static int msm_pcie_pm_suspend(struct pci_dev *dev,
 	spin_unlock_irqrestore(&pcie_dev->cfg_lock,
 				pcie_dev->irqsave_flags);
 
+	ltssm_pre =  readl_relaxed(pcie_dev->parf + PCIE20_PARF_LTSSM);
+	PCIE_INFO(pcie_dev, "PCIe RC%d: PARF LTSSM_STATE:0x%x\n",
+			pcie_dev->rc_idx, ltssm_pre & 0x3f);
+
+	rc_linkup = (u32)msm_pcie_confirm_linkup(pcie_dev, true, false, pcie_dev->conf);
+	if (rc_linkup && (ep_linkup != PCIE_LINK_DOWN)) {
+		ep_linkup = readl_relaxed(pcie_dev->conf);
+		PCIE_DBG(pcie_dev,
+			"PCIe: device ID and vender ID of EP of RC %d are 0x%x.\n",
+			pcie_dev->rc_idx, ep_linkup);
+		if (ep_linkup == PCIE_LINK_DOWN) {
+			PCIE_ERR(pcie_dev,
+				"PCIe: The link of RC %d is not really up; device ID and vender ID of EP of RC %d are 0x%x.\n",
+				pcie_dev->rc_idx, pcie_dev->rc_idx, ep_linkup);
+		}
+	}
+
 	msm_pcie_write_mask(pcie_dev->elbi + PCIE20_ELBI_SYS_CTRL, 0,
 				BIT(4));
 
-	PCIE_DBG(pcie_dev, "RC%d: PME_TURNOFF_MSG is sent out\n",
+	PCIE_INFO(pcie_dev, "RC%d: PME_TURNOFF_MSG is sent out\n",
 		pcie_dev->rc_idx);
 
 	ret_l23 = readl_poll_timeout((pcie_dev->parf
 		+ PCIE20_PARF_PM_STTS), val, (val & BIT(5)), 10000, 100000);
 
+	ltssm_post =  readl_relaxed(pcie_dev->parf + PCIE20_PARF_LTSSM);
+	PCIE_INFO(pcie_dev, "PCIe RC%d: PARF LTSSM_STATE:0x%x\n",
+			pcie_dev->rc_idx, ltssm_post & 0x3f);
+
 	/* check L23_Ready */
-	PCIE_DBG(pcie_dev, "RC%d: PCIE20_PARF_PM_STTS is 0x%x.\n",
+	PCIE_INFO(pcie_dev, "RC%d: PCIE20_PARF_PM_STTS is 0x%x.\n",
 		pcie_dev->rc_idx,
 		readl_relaxed(pcie_dev->parf + PCIE20_PARF_PM_STTS));
+
 	if (!ret_l23)
 		PCIE_DBG(pcie_dev, "RC%d: PM_Enter_L23 is received\n",
 			pcie_dev->rc_idx);
 	else {
 #ifdef CONFIG_SEC_PANIC_PCIE_ERR
-		PCIE_ERR(pcie_dev, "RC%d: PM_Enter_L23 is NOT received\n",
-			pcie_dev->rc_idx);
-		panic("PCIe : PM_Enter_L23 is NOT received\n");
+		PCIE_ERR(pcie_dev, "RC%d: PM_Enter_L23 is NOT received. RC(%s) EP(0x%08x) LTSSM(0x%x, 0x%x)\n",
+			pcie_dev->rc_idx, rc_linkup ? "OK" : "NG", ep_linkup, ltssm_pre & 0x3f, ltssm_post & 0x3f);
+		panic("PCIe RC%d Fail(L23). RC(%s) EP(0x%08x) LTSSM(0x%x, 0x%x)\n",
+			pcie_dev->rc_idx, rc_linkup ? "OK" : "NG", ep_linkup, ltssm_pre & 0x3f, ltssm_post & 0x3f);
 #else
-		PCIE_DBG(pcie_dev, "RC%d: PM_Enter_L23 is NOT received\n",
-			pcie_dev->rc_idx);
+		PCIE_INFO(pcie_dev, "RC%d: PM_Enter_L23 is NOT received. RC(%s) EP(0x%08x) LTSSM(0x%x, 0x%x)\n",
+			pcie_dev->rc_idx, rc_linkup ? "OK" : "NG", ep_linkup, ltssm_pre & 0x3f, ltssm_post & 0x3f);
 #endif
 	}
 
@@ -7012,6 +7198,7 @@ static int msm_pcie_pm_resume(struct pci_dev *dev,
 {
 	int ret;
 	struct msm_pcie_dev_t *pcie_dev = PCIE_BUS_PRIV_DATA(dev->bus);
+	u32 val;
 
 	PCIE_DBG(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
 
@@ -7081,6 +7268,11 @@ static int msm_pcie_pm_resume(struct pci_dev *dev,
 			"RC%d: exit of PCIe recover config\n",
 			pcie_dev->rc_idx);
 	}
+
+	val = readl_relaxed(pcie_dev->dm_core + 0x4);
+	if (!(val & (1 << 2)))
+		PCIE_ERR(pcie_dev, "RC%d: BME is not set. conf[4] = 0x%08x\n",
+			pcie_dev->rc_idx, val);
 
 	PCIE_DBG(pcie_dev, "RC%d: exit\n", pcie_dev->rc_idx);
 

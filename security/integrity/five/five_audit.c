@@ -46,6 +46,7 @@ void five_audit_info(struct task_struct *task, struct file *file,
 {
 	five_audit_msg(task, file, op, prev, tint, cause, result);
 }
+
 void five_audit_err(struct task_struct *task, struct file *file,
 		const char *op, enum task_integrity_value prev,
 		enum task_integrity_value tint, const char *cause, int result)
@@ -106,11 +107,6 @@ static void five_audit_msg(struct task_struct *task, struct file *file,
 	audit_log_format(ab, " res=%d", result);
 	audit_log_end(ab);
 
-	pr_info("FIVE: pid=%d gpid=%d op='%s' cint=0x%x pint=0x%x cause=%s"
-			"comm='%s' name='%s' dev='%s' ino=%lu res=%d",
-		task_pid_nr(tsk), task_pid_nr(tsk->group_leader), op,
-		tint, prev, cause, get_task_comm(comm, tsk),
-		name, dev, ino, result);
 exit:
 	if (pathbuf)
 		__putname(pathbuf);
@@ -146,7 +142,8 @@ void five_audit_hexinfo(struct file *file, const char *msg, char *data,
 				(unsigned long)inode->i_version);
 		iint = integrity_inode_get(inode);
 		if (iint)
-			audit_log_format(ab, " cache_value=%lu ", iint->five_flags);
+			audit_log_format(ab, " cache_value=%lu ",
+							iint->five_flags);
 	}
 
 	audit_log_string(ab, msg);

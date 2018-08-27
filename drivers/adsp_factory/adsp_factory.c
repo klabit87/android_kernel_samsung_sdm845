@@ -120,7 +120,7 @@ int adsp_factory_register(unsigned int type,
 		data->sensor_attr[type], dev_name);
 
 	data->sysfs_created[type] = true;
-	pr_info("[FACTORY] %s - type:%u ptr:%p\n",
+	pr_info("[FACTORY] %s - type:%u ptr:%pK\n",
 		__func__, type, data->sensor_device[type]);
 
 	return ret;
@@ -128,7 +128,7 @@ int adsp_factory_register(unsigned int type,
 
 int adsp_factory_unregister(unsigned int type)
 {
-	pr_info("[FACTORY] %s - type:%u ptr:%p\n",
+	pr_info("[FACTORY] %s - type:%u ptr:%pK\n",
 		__func__, type, data->sensor_device[type]);
 
 	if (data->sysfs_created[type]) {

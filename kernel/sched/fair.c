@@ -6982,6 +6982,7 @@ static int energy_aware_wake_cpu(struct task_struct *p, int target, int sync)
 	int prev_cpu = task_cpu(p);
 	bool do_rotate = false;
 	bool avoid_prev_cpu = false;
+	bool sync_cluster = false;
 
 	sd = rcu_dereference(per_cpu(sd_ea, prev_cpu));
 
@@ -7003,9 +7004,15 @@ static int energy_aware_wake_cpu(struct task_struct *p, int target, int sync)
 		rtg_target = &grp->preferred_cluster->cpus;
 
 	if (sync && bias_to_waker_cpu(p, cpu, rtg_target)) {
-		trace_sched_task_util_bias_to_waker(p, prev_cpu,
+		if(cpu_rq(cpu)->nr_running > 1 || sched_cpu_get_irqload(cpu) > sysctl_sched_cpu_sync_irqload) {
+			sync_cluster = true;
+			trace_sched_set_bias_cluster(p, prev_cpu,
+						task_util(p), cpu, sched_cpu_get_irqload(cpu), cpu_rq(cpu)->nr_running, sync_cluster);
+		} else {
+			trace_sched_task_util_bias_to_waker(p, prev_cpu,
 					task_util(p), cpu, cpu, 0, need_idle);
-		return cpu;
+			return cpu;
+		}
 	}
 
 	if (sysctl_sched_is_big_little) {
@@ -7036,6 +7043,9 @@ static int energy_aware_wake_cpu(struct task_struct *p, int target, int sync)
 
 			/* Assuming all cpus are the same in group */
 			max_cap_cpu = group_first_cpu(sg);
+
+			if (sync_cluster && (capacity_orig_of(max_cap_cpu) < capacity_orig_of(cpu)))
+				continue;
 
 			/*
 			 * Assume smaller max capacity means more energy-efficient.

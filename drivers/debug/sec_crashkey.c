@@ -234,11 +234,7 @@ static void __sec_debug_check_crash_key(unsigned int value, int pressed)
 	}
 
 	__key_store[k_idx++] = value;
-	if (unlikely(k_idx > max_size_key)) {
-		__sec_clear_crash_timer();
-		goto __clear_all;
-	}
-	
+
 	if (__sec_debug_unlock_crash_key(value, &unlock)) {
 		if (unlock == __sec_crash_key->unlock && !unlock_jiffies)
 			unlock_jiffies = jiffies;
@@ -295,7 +291,8 @@ __next:
 			goto __clear_all;
 	}
 
-	return;
+	if (k_idx < max_size_key)
+		return;
 
 __clear_all:
 	other_key_pressed = false;

@@ -789,6 +789,38 @@ DEFINE_EVENT(sched_task_util, sched_task_util_imbalance,
 	TP_PROTO(struct task_struct *p, int task_cpu, unsigned long task_util, int nominated_cpu, int target_cpu, int ediff, bool need_idle),
 	TP_ARGS(p, task_cpu, task_util, nominated_cpu, target_cpu, ediff, need_idle)
 );
+
+TRACE_EVENT(sched_set_bias_cluster,
+
+	TP_PROTO(struct task_struct *p, int task_cpu, unsigned long task_util, int nominated_cpu, u64 irq_load, int nr_running, bool sync_cluster),
+
+	TP_ARGS(p, task_cpu, task_util, nominated_cpu, irq_load, nr_running, sync_cluster),
+
+	TP_STRUCT__entry(
+		__array(char, comm, TASK_COMM_LEN	)
+		__field(int, pid			)
+		__field(int, task_cpu			)
+		__field(unsigned long, task_util	)
+		__field(int, nominated_cpu		)
+		__field(u64, irq_load			)
+		__field(int, nr_running			)
+		__field(bool, sync_cluster			)
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->comm, p->comm, TASK_COMM_LEN);
+		__entry->pid			= p->pid;
+		__entry->task_cpu		= task_cpu;
+		__entry->task_util		= task_util;
+		__entry->nominated_cpu		= nominated_cpu;
+		__entry->irq_load		= irq_load;
+		__entry->nr_running			= nr_running;
+		__entry->sync_cluster		= sync_cluster;
+	),
+
+	TP_printk("comm=%s pid=%d task_cpu=%d task_util=%lu nominated_cpu=%d irq_load=%llu nr_running=%d sync_cluster=%d",
+		__entry->comm, __entry->pid, __entry->task_cpu, __entry->task_util, __entry->nominated_cpu, __entry->irq_load, __entry->nr_running, __entry->sync_cluster)
+);
 #endif
 
 /*

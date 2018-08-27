@@ -2469,6 +2469,21 @@ static int pdic_handle_usb_external_notifier_notification(struct notifier_block 
 			max77705_set_enable_alternate_mode(ALTERNATE_MODE_START);
 		}
 		break;
+	case EXTERNAL_NOTIFY_MDMBLOCK_PRE:
+		if (enable) {
+			if (usbpd_data->dp_is_connect)
+				max77705_dp_detach(usbpd_data);
+		} else {
+			if (usbpd_data->dp_is_connect)
+				max77705_dp_detach(usbpd_data);
+		}
+		break;
+	case EXTERNAL_NOTIFY_MDMBLOCK_POST:
+		if (enable)
+			;
+		else
+			;
+		break;
 	default:
 		break;
 	}
