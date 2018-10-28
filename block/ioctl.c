@@ -218,6 +218,10 @@ static int blk_ioctl_discard(struct block_device *bdev, fmode_t mode,
 
 	if (start + len > (i_size_read(bdev->bd_inode) >> 9))
 		return -EINVAL;
+	printk("%s %d:%d %llu %llu",
+		(flags & BLKDEV_DISCARD_SECURE) ? "SECDIS" : "DIS",
+		MAJOR(bdev->bd_dev), MINOR(bdev->bd_dev),
+		(unsigned long long)start, (unsigned long long)len);
 	return blkdev_issue_discard(bdev, start, len, GFP_KERNEL, flags);
 }
 
@@ -502,7 +506,6 @@ static int blkdev_bszset(struct block_device *bdev, fmode_t mode,
 int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 			unsigned long arg)
 {
-	struct backing_dev_info *bdi;
 	void __user *argp = (void __user *)arg;
 	loff_t size;
 	unsigned int max_sectors;
@@ -525,8 +528,7 @@ int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 	case BLKFRAGET:
 		if (!arg)
 			return -EINVAL;
-		bdi = blk_get_backing_dev_info(bdev);
-		return put_long(arg, (bdi->ra_pages * PAGE_SIZE) / 512);
+		return put_long(arg, (bdev->bd_bdi->ra_pages*PAGE_SIZE) / 512);
 	case BLKROGET:
 		return put_int(arg, bdev_read_only(bdev) != 0);
 	case BLKBSZGET: /* get block device soft block size (cf. BLKSSZGET) */
@@ -553,8 +555,7 @@ int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 	case BLKFRASET:
 		if(!capable(CAP_SYS_ADMIN))
 			return -EACCES;
-		bdi = blk_get_backing_dev_info(bdev);
-		bdi->ra_pages = (arg * 512) / PAGE_SIZE;
+		bdev->bd_bdi->ra_pages = (arg * 512) / PAGE_SIZE;
 		return 0;
 	case BLKBSZSET:
 		return blkdev_bszset(bdev, mode, argp);
@@ -567,6 +568,8 @@ int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 		if ((size >> 9) > ~0UL)
 			return -EFBIG;
 		return put_ulong(arg, size >> 9);
+	case BLKGETSTPART:
+		return put_ulong(arg, bdev->bd_part->start_sect);
 	case BLKGETSIZE64:
 		return put_u64(arg, i_size_read(bdev->bd_inode));
 	case BLKTRACESTART:

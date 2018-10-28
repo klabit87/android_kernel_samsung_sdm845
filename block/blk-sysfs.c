@@ -75,7 +75,7 @@ queue_requests_store(struct request_queue *q, const char *page, size_t count)
 
 static ssize_t queue_ra_show(struct request_queue *q, char *page)
 {
-	unsigned long ra_kb = q->backing_dev_info.ra_pages <<
+	unsigned long ra_kb = q->backing_dev_info->ra_pages <<
 					(PAGE_SHIFT - 10);
 
 	return queue_var_show(ra_kb, (page));
@@ -90,7 +90,7 @@ queue_ra_store(struct request_queue *q, const char *page, size_t count)
 	if (ret < 0)
 		return ret;
 
-	q->backing_dev_info.ra_pages = ra_kb >> (PAGE_SHIFT - 10);
+	q->backing_dev_info->ra_pages = ra_kb >> (PAGE_SHIFT - 10);
 
 	return ret;
 }
@@ -391,7 +391,7 @@ static struct queue_sysfs_entry queue_requests_entry = {
 };
 
 static struct queue_sysfs_entry queue_ra_entry = {
-	.attr = {.name = "read_ahead_kb", .mode = S_IRUGO | S_IWUSR },
+	.attr = {.name = "read_ahead_kb", .mode = S_IRUGO },
 	.show = queue_ra_show,
 	.store = queue_ra_store,
 };
@@ -627,7 +627,7 @@ static void blk_release_queue(struct kobject *kobj)
 	struct request_queue *q =
 		container_of(kobj, struct request_queue, kobj);
 
-	bdi_exit(&q->backing_dev_info);
+	bdi_put(q->backing_dev_info);
 	blkcg_exit_queue(q);
 
 	if (q->elevator) {

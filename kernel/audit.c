@@ -69,6 +69,12 @@
 
 #include "audit.h"
 
+// [ SEC_SELINUX_PORTING_QUALCOMM
+#ifdef CONFIG_PROC_AVC
+#include <linux/proc_avc.h>
+#endif
+// ] SEC_SELINUX_PORTING_QUALCOMM
+
 /* No auditing will take place until audit_initialized == AUDIT_INITIALIZED.
  * (Initialization happens after skb_init is called.) */
 #define AUDIT_DISABLED		-1
@@ -85,7 +91,9 @@ u32		audit_ever_enabled;
 EXPORT_SYMBOL_GPL(audit_enabled);
 
 /* Default state when kernel boots without any parameters. */
-static u32	audit_default;
+// [ SEC_SELINUX_PORTING_COMMON
+static u32	audit_default = 1; // Must be audit_default value 1 for syscall logging
+// ] SEC_SELINUX_PORTING_COMMON
 
 /* If auditing cannot proceed, audit_failure selects what happens. */
 static u32	audit_failure = AUDIT_FAIL_PRINTK;
@@ -392,12 +400,19 @@ static void audit_printk_skb(struct sk_buff *skb)
 	struct nlmsghdr *nlh = nlmsg_hdr(skb);
 	char *data = nlmsg_data(nlh);
 
+// [ SEC_SELINUX_PORTING_QUALCOMM
+#ifdef CONFIG_PROC_AVC
+	if (nlh->nlmsg_type != AUDIT_EOE && nlh->nlmsg_type != AUDIT_NETFILTER_CFG)
+		sec_avc_log("%s\n", data);
+#else
 	if (nlh->nlmsg_type != AUDIT_EOE) {
 		if (printk_ratelimit())
 			pr_notice("type=%d %s\n", nlh->nlmsg_type, data);
 		else
 			audit_log_lost("printk limit exceeded");
 	}
+#endif
+// ] SEC_SELINUX_PORTING_QUALCOMM
 
 	audit_hold_skb(skb);
 }
@@ -434,9 +449,20 @@ restart:
 		}
 		/* we might get lucky and get this in the next auditd */
 		audit_hold_skb(skb);
-	} else
+	} else {
+// [ SEC_SELINUX_PORTING_QUALCOMM
+#ifdef CONFIG_PROC_AVC
+		struct nlmsghdr *nlh = nlmsg_hdr(skb);
+		char *data = nlmsg_data(nlh);
+
+		if (nlh->nlmsg_type != AUDIT_EOE && nlh->nlmsg_type != AUDIT_NETFILTER_CFG)
+			sec_avc_log("%s\n", data);
+#endif
+// ] SEC_SELINUX_PORTING_QUALCOMM
+
 		/* drop the extra reference if sent ok */
 		consume_skb(skb);
+	}
 }
 
 /*
@@ -490,14 +516,14 @@ static void flush_hold_queue(void)
 {
 	struct sk_buff *skb;
 
-	if (!audit_default || !audit_pid)
+	if (!audit_default || !audit_pid || !audit_sock)
 		return;
 
 	skb = skb_dequeue(&audit_skb_hold_queue);
 	if (likely(!skb))
 		return;
 
-	while (skb && audit_pid) {
+	while (skb && audit_pid && audit_sock) {
 		kauditd_send_skb(skb);
 		skb = skb_dequeue(&audit_skb_hold_queue);
 	}
@@ -523,7 +549,7 @@ static int kauditd_thread(void *dummy)
 			if (!audit_backlog_limit ||
 			    (skb_queue_len(&audit_skb_queue) <= audit_backlog_limit))
 				wake_up(&audit_backlog_wait);
-			if (audit_pid)
+			if (audit_pid && audit_sock)
 				kauditd_send_skb(skb);
 			else
 				audit_printk_skb(skb);
@@ -807,14 +833,18 @@ static int audit_set_feature(struct sk_buff *skb)
 	return 0;
 }
 
-static int audit_replace(pid_t pid)
+static int audit_replace(pid_t pid, struct sk_buff *msg_skb)
 {
+	u32 new_audit_nlk_portid;
+	struct sock *new_audit_sock;
 	struct sk_buff *skb = audit_make_reply(0, 0, AUDIT_REPLACE, 0, 0,
 					       &pid, sizeof(pid));
 
 	if (!skb)
 		return -ENOMEM;
-	return netlink_unicast(audit_sock, skb, audit_nlk_portid, 0);
+	new_audit_nlk_portid = NETLINK_CB(msg_skb).portid;
+	new_audit_sock = msg_skb->sk;
+	return netlink_unicast(new_audit_sock, skb, new_audit_nlk_portid, 0);
 }
 
 static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
@@ -891,7 +921,7 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 				return -EACCES;
 			}
 			if (audit_pid && new_pid &&
-			    audit_replace(requesting_pid) != -ECONNREFUSED) {
+			    audit_replace(requesting_pid, skb) != -ECONNREFUSED) {
 				audit_log_config_change("audit_pid", new_pid, audit_pid, 0);
 				return -EEXIST;
 			}

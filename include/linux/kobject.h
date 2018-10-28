@@ -29,7 +29,7 @@
 #include <linux/workqueue.h>
 
 #define UEVENT_HELPER_PATH_LEN		256
-#define UEVENT_NUM_ENVP			32	/* number of env pointers */
+#define UEVENT_NUM_ENVP			64	/* number of env pointers */
 #define UEVENT_BUFFER_SIZE		2048	/* buffer for the variables */
 
 #ifdef CONFIG_UEVENT_HELPER
@@ -108,6 +108,8 @@ extern int __must_check kobject_rename(struct kobject *, const char *new_name);
 extern int __must_check kobject_move(struct kobject *, struct kobject *);
 
 extern struct kobject *kobject_get(struct kobject *kobj);
+extern struct kobject * __must_check kobject_get_unless_zero(
+						struct kobject *kobj);
 extern void kobject_put(struct kobject *kobj);
 
 extern const void *kobject_namespace(struct kobject *kobj);

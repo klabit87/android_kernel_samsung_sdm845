@@ -2,6 +2,9 @@
 #define __MM_CMA_H__
 
 struct cma {
+#ifdef CONFIG_RBIN
+	bool is_rbin;
+#endif
 	unsigned long   base_pfn;
 	unsigned long   count;
 	unsigned long   *bitmap;
@@ -11,6 +14,7 @@ struct cma {
 	struct hlist_head mem_head;
 	spinlock_t mem_head_lock;
 #endif
+	const char *name;
 };
 
 extern struct cma cma_areas[MAX_CMA_AREAS];

@@ -36,6 +36,8 @@
 #include <linux/efi.h>
 #include <linux/swiotlb.h>
 #include <linux/vmalloc.h>
+#include <linux/mm.h>
+#include <linux/rkp.h>
 
 #include <asm/boot.h>
 #include <asm/fixmap.h>
@@ -145,9 +147,11 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 #endif /* CONFIG_NUMA */
 
 #ifdef CONFIG_HAVE_ARCH_PFN_VALID
+#define PFN_MASK ((1UL << (64 - PAGE_SHIFT)) - 1)
+
 int pfn_valid(unsigned long pfn)
 {
-	return memblock_is_map_memory(pfn << PAGE_SHIFT);
+	return (pfn & PFN_MASK) == pfn && memblock_is_map_memory(pfn << PAGE_SHIFT);
 }
 EXPORT_SYMBOL(pfn_valid);
 #endif
@@ -191,6 +195,7 @@ void __init arm64_memblock_init(void)
 {
 	const s64 linear_region_size = -(s64)PAGE_OFFSET;
 
+	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
 	/*
 	 * Ensure that the linear region takes up exactly half of the kernel
 	 * virtual address space. This way, we can distinguish a linear address
@@ -209,8 +214,8 @@ void __init arm64_memblock_init(void)
 	 * linear mapping. Take care not to clip the kernel which may be
 	 * high in memory.
 	 */
-	memblock_remove(max_t(u64, memstart_addr + linear_region_size, __pa(_end)),
-			ULLONG_MAX);
+	memblock_remove(max_t(u64, memstart_addr + linear_region_size,
+			__pa_symbol(_end)), ULLONG_MAX);
 	if (memstart_addr + linear_region_size < memblock_end_of_DRAM()) {
 		/* ensure that memstart_addr remains sufficiently aligned */
 		memstart_addr = round_up(memblock_end_of_DRAM() - linear_region_size,
@@ -225,7 +230,7 @@ void __init arm64_memblock_init(void)
 	 */
 	if (memory_limit != (phys_addr_t)ULLONG_MAX) {
 		memblock_mem_limit_remove_map(memory_limit);
-		memblock_add(__pa(_text), (u64)(_end - _text));
+		memblock_add(__pa_symbol(_text), (u64)(_end - _text));
 	}
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && initrd_start) {
@@ -278,10 +283,17 @@ void __init arm64_memblock_init(void)
 	 * Register the kernel text, kernel data, initrd, and initial
 	 * pagetables with memblock.
 	 */
-	memblock_reserve(__pa(_text), _end - _text);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_KERNEL);
+	memblock_reserve(__pa_symbol(_text), _end - _text);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
+	record_memsize_reserved("initmem", __pa(__init_begin),
+				__init_end - __init_begin, false, false);
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (initrd_start) {
 		memblock_reserve(initrd_start, initrd_end - initrd_start);
+		record_memsize_reserved("initrd", initrd_start,
+					initrd_end - initrd_start, false,
+					false);
 
 		/* the generic initrd code expects virtual addresses */
 		initrd_start = __phys_to_virt(initrd_start);
@@ -297,6 +309,7 @@ void __init arm64_memblock_init(void)
 	else
 		arm64_dma_phys_limit = PHYS_MASK + 1;
 	dma_contiguous_reserve(arm64_dma_phys_limit);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 
 	memblock_allow_resize();
 }
@@ -305,6 +318,7 @@ void __init bootmem_init(void)
 {
 	unsigned long min, max;
 
+	set_memsize_kernel_type(MEMSIZE_KERNEL_PAGING);
 	min = PFN_UP(memblock_start_of_DRAM());
 	max = PFN_DOWN(memblock_end_of_DRAM());
 
@@ -324,6 +338,7 @@ void __init bootmem_init(void)
 
 	high_memory = __va((max << PAGE_SHIFT) - 1) + 1;
 	memblock_dump_all();
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 }
 
 #ifndef CONFIG_SPARSEMEM_VMEMMAP
@@ -484,9 +499,13 @@ void __init mem_init(void)
 	}
 }
 
+#ifdef CONFIG_UH_RKP
+u8 rkp_def_init_done = 0;
+#endif
 void free_initmem(void)
 {
-	free_reserved_area(__va(__pa(__init_begin)), __va(__pa(__init_end)),
+	free_reserved_area(lm_alias(__init_begin),
+			   lm_alias(__init_end),
 			   0, "unused kernel");
 	/*
 	 * Unmap the __init region but leave the VM area in place. This
@@ -494,6 +513,12 @@ void free_initmem(void)
 	 * is not supported by kallsyms.
 	 */
 	unmap_kernel_range((u64)__init_begin, (u64)(__init_end - __init_begin));
+#ifdef CONFIG_UH_RKP
+	rkp_def_init_done = 1;
+	isb();
+	uh_call(UH_APP_RKP, RKP_DEFERRED_START, 0, 0, 0, 0);
+#endif
+
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD

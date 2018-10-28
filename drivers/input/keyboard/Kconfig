@@ -200,6 +200,32 @@ config KEYBOARD_EP93XX
 	  To compile this driver as a module, choose M here: the
 	  module will be called ep93xx_keypad.
 
+config SENSORS_HALL
+	bool "HALL"
+	default n
+	help
+	  Say Y here to enable the HALL
+	  and send a event when HALL state is changed.
+	  Active gpio state is low and active event value is 0.
+
+	  If unsure, say N.
+
+config CERTIFY_HALL
+	tristate "Enable CERTIFY HALL"
+	default n
+	help
+	  Say Y here to enable the CERTIFY HALL
+	  and send a event when CERTIFY HALL state is changed.
+	  Active gpio state is low and active event value is 0.
+
+	  If unsure, say N.
+
+config FOLDER_HALL
+	bool "FOLDER HALL"
+	default n
+	help
+	  Enable FOLDER Hall Feature
+
 config KEYBOARD_GPIO
 	tristate "GPIO Buttons"
 	depends on GPIOLIB || COMPILE_TEST
@@ -733,5 +759,11 @@ config KEYBOARD_BCM
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called bcm-keypad.
+
+config KEYBOARD_ABOV_TOUCH_FOLDER
+	tristate "Abov FT16XX touchkey"
+	depends on I2C
+	help
+	  Say Y here if you want to use ABOV MC96FT16XX chip as touchkey for folder model.
 
 endif

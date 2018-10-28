@@ -68,6 +68,11 @@ struct pinconf_ops {
 	void (*pin_config_config_dbg_show) (struct pinctrl_dev *pctldev,
 					    struct seq_file *s,
 					    unsigned long config);
+#if defined(CONFIG_SEC_PM)
+	void (*pin_config_sec_dbg_show)(struct pinctrl_dev *pctldev,
+					    struct seq_file *s);
+	void (*pin_config_sec_dbg_print)(struct pinctrl_dev *pctldev);
+#endif
 };
 
 #endif

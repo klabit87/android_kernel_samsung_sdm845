@@ -1816,7 +1816,7 @@ static int btrfs_congested_fn(void *congested_data, int bdi_bits)
 	list_for_each_entry_rcu(device, &info->fs_devices->devices, dev_list) {
 		if (!device->bdev)
 			continue;
-		bdi = blk_get_backing_dev_info(device->bdev);
+		bdi = device->bdev->bd_bdi;
 		if (bdi_congested(bdi, bdi_bits)) {
 			ret = 1;
 			break;
@@ -2864,6 +2864,8 @@ int open_ctree(struct super_block *sb,
 	features |= BTRFS_FEATURE_INCOMPAT_MIXED_BACKREF;
 	if (tree_root->fs_info->compress_type == BTRFS_COMPRESS_LZO)
 		features |= BTRFS_FEATURE_INCOMPAT_COMPRESS_LZO;
+	else if (fs_info->compress_type == BTRFS_COMPRESS_ZSTD)
+		features |= BTRFS_FEATURE_INCOMPAT_COMPRESS_ZSTD;
 
 	if (features & BTRFS_FEATURE_INCOMPAT_SKINNY_METADATA)
 		btrfs_info(fs_info, "has skinny extents");

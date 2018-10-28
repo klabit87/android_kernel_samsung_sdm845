@@ -759,18 +759,21 @@ void usb_destroy_configuration(struct usb_device *dev)
 		return;
 
 	if (dev->rawdescriptors) {
-		for (i = 0; i < dev->descriptor.bNumConfigurations; i++)
+		for (i = 0; i < dev->descriptor.bNumConfigurations &&
+              i < USB_MAXCONFIG; i++)
 			kfree(dev->rawdescriptors[i]);
 
 		kfree(dev->rawdescriptors);
 		dev->rawdescriptors = NULL;
 	}
 
-	for (c = 0; c < dev->descriptor.bNumConfigurations; c++) {
+	for (c = 0; c < dev->descriptor.bNumConfigurations &&
+          c < USB_MAXCONFIG; c++) {
 		struct usb_host_config *cf = &dev->config[c];
 
 		kfree(cf->string);
-		for (i = 0; i < cf->desc.bNumInterfaces; i++) {
+		for (i = 0; i < cf->desc.bNumInterfaces &&
+              i < USB_MAXINTERFACES; i++) {
 			if (cf->intf_cache[i])
 				kref_put(&cf->intf_cache[i]->ref,
 					  usb_release_interface_cache);
@@ -991,6 +994,15 @@ int usb_get_bos_descriptor(struct usb_device *dev)
 		case USB_PTM_CAP_TYPE:
 			dev->bos->ptm_cap =
 				(struct usb_ptm_cap_descriptor *)buffer;
+			break;
+		case USB_CAP_TYPE_CONFIG_SUMMARY:
+			/* one such desc per configuration */
+			if (!dev->bos->num_config_summary_desc)
+				dev->bos->config_summary =
+				(struct usb_config_summary_descriptor *)buffer;
+
+			dev->bos->num_config_summary_desc++;
+			break;
 		default:
 			break;
 		}

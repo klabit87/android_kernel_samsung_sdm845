@@ -24,15 +24,21 @@
 #define NMI_WATCHDOG_ENABLED      (1 << NMI_WATCHDOG_ENABLED_BIT)
 #define SOFT_WATCHDOG_ENABLED     (1 << SOFT_WATCHDOG_ENABLED_BIT)
 
+DECLARE_PER_CPU(unsigned long, hrtimer_interrupts);
+DECLARE_PER_CPU(unsigned long, hrtimer_interrupts_saved);
+
 /**
  * touch_nmi_watchdog - restart NMI watchdog timeout.
- * 
+ *
  * If the architecture supports the NMI watchdog, touch_nmi_watchdog()
  * may be used to reset the timeout - for code which intentionally
  * disables interrupts for a long time. This call is stateless.
  */
-#if defined(CONFIG_HAVE_NMI_WATCHDOG) || defined(CONFIG_HARDLOCKUP_DETECTOR)
+#if defined(CONFIG_HAVE_NMI_WATCHDOG) || defined(CONFIG_HARDLOCKUP_DETECTOR_NMI)
 #include <asm/nmi.h>
+#endif
+
+#if defined(CONFIG_HAVE_NMI_WATCHDOG) || defined(CONFIG_HARDLOCKUP_DETECTOR)
 extern void touch_nmi_watchdog(void);
 #else
 static inline void touch_nmi_watchdog(void)
@@ -55,25 +61,37 @@ static inline void hardlockup_detector_disable(void) {}
 #ifdef arch_trigger_cpumask_backtrace
 static inline bool trigger_all_cpu_backtrace(void)
 {
-	arch_trigger_cpumask_backtrace(cpu_online_mask, false);
+	#if defined(CONFIG_ARM64)
+		arch_trigger_all_cpu_backtrace();
+	else
+		arch_trigger_cpumask_backtrace(cpu_online_mask, false);
+	#endif
+
 	return true;
 }
 
 static inline bool trigger_allbutself_cpu_backtrace(void)
 {
-	arch_trigger_cpumask_backtrace(cpu_online_mask, true);
+	#if defined(CONFIG_ARM64)
+		arch_trigger_all_cpu_backtrace();
+	else
+		arch_trigger_cpumask_backtrace(cpu_online_mask, true);
+	#endif
+
 	return true;
 }
 
 static inline bool trigger_cpumask_backtrace(struct cpumask *mask)
 {
 	arch_trigger_cpumask_backtrace(mask, false);
+
 	return true;
 }
 
 static inline bool trigger_single_cpu_backtrace(int cpu)
 {
 	arch_trigger_cpumask_backtrace(cpumask_of(cpu), false);
+
 	return true;
 }
 
@@ -118,6 +136,7 @@ extern int sysctl_hardlockup_all_cpu_backtrace;
 #define sysctl_softlockup_all_cpu_backtrace 0
 #define sysctl_hardlockup_all_cpu_backtrace 0
 #endif
+
 extern bool is_hardlockup(void);
 struct ctl_table;
 extern int proc_watchdog(struct ctl_table *, int ,

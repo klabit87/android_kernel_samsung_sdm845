@@ -1418,8 +1418,10 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 	int ret;
 	WAKE_Q(wake_q);
 
-	if (!bitset)
+	if (!bitset) {
+		printk(KERN_ERR "[QCDEBUG] futex_wait: Invalid bitset");
 		return -EINVAL;
+	}
 
 	ret = get_futex_key(uaddr, flags & FLAGS_SHARED, &key, VERIFY_READ);
 	if (unlikely(ret != 0))
@@ -1455,6 +1457,9 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 out_put_key:
 	put_futex_key(&key);
 out:
+	if (ret == -EINVAL) {
+		printk(KERN_ERR "[QCDEBUG] futex_wake: Bailed without waking thread");
+	}
 	return ret;
 }
 
@@ -1710,6 +1715,9 @@ static int futex_requeue(u32 __user *uaddr1, unsigned int flags,
 	struct futex_hash_bucket *hb1, *hb2;
 	struct futex_q *this, *next;
 	WAKE_Q(wake_q);
+
+	if (nr_wake < 0 || nr_requeue < 0)
+		return -EINVAL;
 
 	if (requeue_pi) {
 		/*

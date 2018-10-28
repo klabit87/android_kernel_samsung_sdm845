@@ -16,6 +16,7 @@
 #include <linux/percpu-refcount.h>
 #include <linux/percpu-rwsem.h>
 #include <linux/workqueue.h>
+#include <linux/bpf-cgroup.h>
 
 #ifdef CONFIG_CGROUPS
 
@@ -301,6 +302,9 @@ struct cgroup {
 	/* used to schedule release agent */
 	struct work_struct release_agent_work;
 
+	/* used to store eBPF programs */
+	struct cgroup_bpf bpf;
+
 	/* ids of the ancestors at each level including self */
 	int ancestor_ids[];
 };
@@ -442,6 +446,7 @@ struct cgroup_subsys {
 	void (*css_free)(struct cgroup_subsys_state *css);
 	void (*css_reset)(struct cgroup_subsys_state *css);
 
+	int (*allow_attach)(struct cgroup_taskset *tset);
 	int (*can_attach)(struct cgroup_taskset *tset);
 	void (*cancel_attach)(struct cgroup_taskset *tset);
 	void (*attach)(struct cgroup_taskset *tset);

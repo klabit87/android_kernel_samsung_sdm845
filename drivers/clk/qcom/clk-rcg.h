@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013, 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -157,8 +157,9 @@ extern const struct clk_ops clk_dyn_rcg_ops;
  * @parent_map: map from software's parent index to hardware's src_sel field
  * @freq_tbl: frequency table
  * @current_freq: last cached frequency when using branches with shared RCGs
+ * @enable_safe_config: When set, the RCG is parked at CXO when it's disabled
  * @clkr: regmap clock handle
- *
+ * @flags: additional flag parameters for the RCG
  */
 struct clk_rcg2 {
 	u32			cmd_rcgr;
@@ -167,7 +168,11 @@ struct clk_rcg2 {
 	const struct parent_map	*parent_map;
 	const struct freq_tbl	*freq_tbl;
 	unsigned long		current_freq;
+	bool			enable_safe_config;
 	struct clk_regmap	clkr;
+	u8			flags;
+#define FORCE_ENABLE_RCG	BIT(0)
+#define DFS_ENABLE_RCG		BIT(1)
 };
 
 #define to_clk_rcg2(_hw) container_of(to_clk_regmap(_hw), struct clk_rcg2, clkr)
@@ -179,5 +184,10 @@ extern const struct clk_ops clk_byte_ops;
 extern const struct clk_ops clk_byte2_ops;
 extern const struct clk_ops clk_pixel_ops;
 extern const struct clk_ops clk_gfx3d_ops;
+extern const struct clk_ops clk_dp_ops;
 
+extern int clk_rcg2_get_dfs_clock_rate(struct clk_rcg2 *clk,
+				struct device *dev, u8 rcg_flags);
+extern unsigned long
+clk_rcg2_calc_rate(unsigned long rate, u32 m, u32 n, u32 mode, u32 hid_div);
 #endif

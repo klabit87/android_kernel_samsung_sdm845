@@ -92,4 +92,15 @@
 
 #define SO_CNX_ADVICE		53
 
+/* START_OF_KNOX_NPA */
+#define SO_SET_DOMAIN_NAME	55
+#define SO_SET_DNS_UID		56
+/* END_OF_KNOX_NPA */
+
+#define SO_COOKIE		57
+
+/* START_OF_KNOX_NPA */
+#define SO_SET_DNS_PID		58
+/* END_OF_KNOX_NPA */
+
 #endif /* __ASM_GENERIC_SOCKET_H */

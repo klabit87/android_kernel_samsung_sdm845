@@ -2,6 +2,9 @@
 #include <linux/linkage.h>
 #include <asm/asm-offsets.h>
 #include <asm/assembler.h>
+#ifdef CONFIG_RKP_CFP_ROPP
+#include <asm/rkp_cfp.h>
+#endif
 
 	.text
 /*
@@ -61,6 +64,9 @@
  *  x0 = struct sleep_stack_data area
  */
 ENTRY(__cpu_suspend_enter)
+#if (defined CONFIG_RKP_CFP_ROPP) && !(defined CONFIG_RKP_CFP_ROPP_SYSREGKEY)
+	stp	RRX, RRK, [x0, #SLEEP_STACK_DATA_CALLEE_REGS+96]
+#endif
 	stp	x29, lr, [x0, #SLEEP_STACK_DATA_CALLEE_REGS]
 	stp	x19, x20, [x0,#SLEEP_STACK_DATA_CALLEE_REGS+16]
 	stp	x21, x22, [x0,#SLEEP_STACK_DATA_CALLEE_REGS+32]
@@ -125,9 +131,6 @@ ENTRY(_cpu_resume)
 	/* load sp from context */
 	ldr	x2, [x0, #CPU_CTX_SP]
 	mov	sp, x2
-	/* save thread_info */
-	and	x2, x2, #~(THREAD_SIZE - 1)
-	msr	sp_el0, x2
 	/*
 	 * cpu_do_resume expects x0 to contain context address pointer
 	 */
@@ -142,6 +145,15 @@ ENTRY(_cpu_resume)
 	ldp	x21, x22, [x29, #32]
 	ldp	x23, x24, [x29, #48]
 	ldp	x25, x26, [x29, #64]
+#ifdef CONFIG_RKP_CFP_ROPP
+#ifdef CONFIG_RKP_CFP_ROPP_SYSREGKEY
+	ropp_load_mk
+	get_thread_info	x27
+	ropp_load_key	x27
+#else
+	ldp	RRX, RRK, [x29, #96]
+#endif
+#endif
 	ldp	x27, x28, [x29, #80]
 	ldp	x29, lr, [x29]
 	mov	x0, #0

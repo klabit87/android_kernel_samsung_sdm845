@@ -6,6 +6,14 @@ menu "USB Physical Layer drivers"
 config USB_PHY
 	def_bool n
 
+config USB_OTG_WAKELOCK
+	bool "Hold a wakelock when USB connected"
+	depends on PM_WAKELOCKS
+	select USB_OTG_UTILS
+	help
+	  Select this to automatically hold a wakelock when USB is
+	  connected, preventing suspend.
+
 #
 # USB Transceiver Drivers
 #
@@ -142,7 +150,7 @@ config USB_ISP1301
 	  To compile this driver as a module, choose M here: the
 	  module will be called phy-isp1301.
 
-config USB_MSM_OTG
+config QCOM_USB_MSM_OTG
 	tristate "Qualcomm on-chip USB OTG controller support"
 	depends on (USB || USB_GADGET) && (ARCH_QCOM || COMPILE_TEST)
 	depends on USB_GADGET || !USB_GADGET # if USB_GADGET=m, this can't be 'y'
@@ -150,13 +158,12 @@ config USB_MSM_OTG
 	depends on EXTCON
 	select USB_PHY
 	help
-	  Enable this to support the USB OTG transceiver on Qualcomm chips. It
-	  handles PHY initialization, clock management, and workarounds
-	  required after resetting the hardware and power management.
-	  This driver is required even for peripheral only or host only
-	  mode configurations.
-	  This driver is not supported on boards like trout which
-	  has an external PHY.
+	  Enable this to support the USB OTG transceiver on Qualcomm development
+	  boards. It handles PHY initialization, clock management, and
+	  workarounds required after resetting the hardware and power
+	  management. This driver is required even for peripheral only or host
+	  only mode configurations. This driver is not supported on boards like
+	  trout which has an external PHY.
 
 config USB_QCOM_8X16_PHY
 	tristate "Qualcomm APQ8016/MSM8916 on-chip USB PHY controller support"
@@ -208,4 +215,42 @@ config USB_ULPI_VIEWPORT
 	  Provides read/write operations to the ULPI phy register set for
 	  controllers with a viewport register (e.g. Chipidea/ARC controllers).
 
+config DUAL_ROLE_USB_INTF
+	bool "Generic DUAL ROLE sysfs interface"
+	depends on SYSFS && USB_PHY
+	help
+	  A generic sysfs interface to track and change the state of
+	  dual role usb phys. The usb phy drivers can register to
+	  this interface to expose it capabilities to the userspace
+	  and thereby allowing userspace to change the port mode.
+
+config USB_MSM_SSPHY_QMP
+	tristate "MSM SSUSB QMP PHY Driver"
+	depends on ARCH_QCOM
+	select USB_PHY
+	help
+	  Enable this to support the SuperSpeed USB transceiver on MSM chips.
+	  This driver supports the PHY which uses the QSCRATCH-based register
+	  set for its control sequences, normally paired with newer DWC3-based
+	  SuperSpeed controllers.
+
+config MSM_QUSB_PHY
+	tristate "MSM QUSB2 PHY Driver"
+	depends on ARCH_QCOM
+	select USB_PHY
+	help
+	  Enable this to support the QUSB2 PHY on MSM chips. This driver supports
+	  the high-speed PHY which is usually paired with either the ChipIdea or
+	  Synopsys DWC3 USB IPs on MSM SOCs. This driver expects to configure the
+	  PHY with a dedicated register I/O memory region.
+
+config MSM_HSUSB_PHY
+	tristate "MSM HSUSB PHY Driver"
+	depends on ARCH_QCOM
+	select USB_PHY
+	help
+	  Enable this to support the HSUSB PHY on MSM chips. This driver supports
+	  the high-speed PHY which is usually paired with either the ChipIdea or
+	  Synopsys DWC3 USB IPs on MSM SOCs. This driver expects to configure the
+	  PHY with a dedicated register I/O memory region.
 endmenu

@@ -1,0 +1,17 @@
+#
+# TEE Driver configuration
+#
+
+config FIVE_TEE_DRIVER
+    bool "Integrity TEE Driver"
+    depends on FIVE && QSEECOM
+    default y
+    help
+      Enable Integrity Trusted Execution Environment support
+
+config TEE_DRIVER_DEBUG
+    bool "Integrity TEE Driver Debug mode"
+    depends on FIVE_TEE_DRIVER
+    default n
+    help
+      Enable Debug mode in TEE Driver

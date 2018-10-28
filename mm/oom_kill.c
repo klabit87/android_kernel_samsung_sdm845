@@ -37,6 +37,7 @@
 #include <linux/ratelimit.h>
 #include <linux/kthread.h>
 #include <linux/init.h>
+#include <linux/show_mem_notifier.h>
 #include <linux/mmu_notifier.h>
 
 #include <asm/tlb.h>
@@ -201,13 +202,6 @@ unsigned long oom_badness(struct task_struct *p, struct mem_cgroup *memcg,
 		atomic_long_read(&p->mm->nr_ptes) + mm_nr_pmds(p->mm);
 	task_unlock(p);
 
-	/*
-	 * Root processes get 3% bonus, just like the __vm_enough_memory()
-	 * implementation used by LSMs.
-	 */
-	if (has_capability_noaudit(p, CAP_SYS_ADMIN))
-		points -= (points * 3) / 100;
-
 	/* Normalize to oom_score_adj units */
 	adj *= totalpages / 1000;
 	points += adj;
@@ -358,6 +352,11 @@ static void select_bad_process(struct oom_control *oc)
 	oc->chosen_points = oc->chosen_points * 1000 / oc->totalpages;
 }
 
+#if defined(CONFIG_ZSWAP)
+extern u64 zswap_pool_pages;
+extern atomic_t zswap_stored_pages;
+#endif
+
 /**
  * dump_tasks - dump current memory state of all system tasks
  * @memcg: current's memory controller, if constrained
@@ -369,12 +368,23 @@ static void select_bad_process(struct oom_control *oc)
  * State information includes task's pid, uid, tgid, vm size, rss, nr_ptes,
  * swapents, oom_score_adj value, and name.
  */
-static void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
+void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 {
 	struct task_struct *p;
 	struct task_struct *task;
+#if defined(CONFIG_ZSWAP)
+	int zswap_stored_pages_temp;
+	unsigned long zswap_pool_pages_temp;
+	unsigned long tasksize_swap;
+#endif
 
+#if defined(CONFIG_ZSWAP)
+	zswap_stored_pages_temp = atomic_read(&zswap_stored_pages);
+	zswap_pool_pages_temp = zswap_pool_pages;
+	pr_info("[ pid ]   uid  tgid total_vm total_rss (   rss     swap  ) nr_ptes nr_pmds swapents oom_score_adj name\n");
+#else
 	pr_info("[ pid ]   uid  tgid total_vm      rss nr_ptes nr_pmds swapents oom_score_adj name\n");
+#endif
 	rcu_read_lock();
 	for_each_process(p) {
 		if (oom_unkillable_task(p, memcg, nodemask))
@@ -390,9 +400,26 @@ static void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 			continue;
 		}
 
+#if defined(CONFIG_ZSWAP)
+		if (zswap_stored_pages_temp)
+			tasksize_swap = zswap_pool_pages_temp
+					* get_mm_counter(task->mm, MM_SWAPENTS)
+					/ zswap_stored_pages_temp;
+		else
+			tasksize_swap = 0;
+		pr_info("[%5d] %5d %5d %8lu  %8lu (%8lu %8lu) %7ld %7ld %8lu         %5hd %s\n",
+#else
 		pr_info("[%5d] %5d %5d %8lu %8lu %7ld %7ld %8lu         %5hd %s\n",
+#endif
+
 			task->pid, from_kuid(&init_user_ns, task_uid(task)),
-			task->tgid, task->mm->total_vm, get_mm_rss(task->mm),
+			task->tgid, task->mm->total_vm,
+#if defined(CONFIG_ZSWAP)
+			get_mm_rss(task->mm) + tasksize_swap,
+			get_mm_rss(task->mm), tasksize_swap,
+#else
+			get_mm_rss(task->mm),
+#endif
 			atomic_long_read(&task->mm->nr_ptes),
 			mm_nr_pmds(task->mm),
 			get_mm_counter(task->mm, MM_SWAPENTS),
@@ -417,8 +444,12 @@ static void dump_header(struct oom_control *oc, struct task_struct *p)
 	dump_stack();
 	if (oc->memcg)
 		mem_cgroup_print_oom_info(oc->memcg, p);
-	else
+	else {
+		show_mem_extra_call_notifiers();
 		show_mem(SHOW_MEM_FILTER_NODES);
+		show_mem_call_notifiers();
+	}
+
 	if (sysctl_oom_dump_tasks)
 		dump_tasks(oc->memcg, oc->nodemask);
 }
@@ -466,8 +497,6 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 {
 	struct mmu_gather tlb;
 	struct vm_area_struct *vma;
-	struct zap_details details = {.check_swap_entries = true,
-				      .ignore_dirty = true};
 	bool ret = true;
 
 	/*
@@ -488,6 +517,7 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 
 	if (!down_read_trylock(&mm->mmap_sem)) {
 		ret = false;
+		trace_skip_task_reaping(tsk->pid);
 		goto unlock_oom;
 	}
 
@@ -507,14 +537,18 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 	}
 
 	/*
-	 * increase mm_users only after we know we will reap something so
-	 * that the mmput_async is called only when we have reaped something
-	 * and delayed __mmput doesn't matter that much
+	 * MMF_OOM_SKIP is set by exit_mmap when the OOM reaper can't
+	 * work on the mm anymore. The check for MMF_OOM_SKIP must run
+	 * under mmap_sem for reading because it serializes against the
+	 * down_write();up_write() cycle in exit_mmap().
 	 */
-	if (!mmget_not_zero(mm)) {
+	if (test_bit(MMF_OOM_SKIP, &mm->flags)) {
 		up_read(&mm->mmap_sem);
+		trace_skip_task_reaping(tsk->pid);
 		goto unlock_oom;
 	}
+
+	trace_start_task_reaping(tsk->pid);
 
 	/*
 	 * Tell all users of get_user/copy_from_user etc... that the content
@@ -524,16 +558,8 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 	 */
 	set_bit(MMF_UNSTABLE, &mm->flags);
 
-	tlb_gather_mmu(&tlb, mm, 0, -1);
 	for (vma = mm->mmap ; vma; vma = vma->vm_next) {
-		if (is_vm_hugetlb_page(vma))
-			continue;
-
-		/*
-		 * mlocked VMAs require explicit munlocking before unmap.
-		 * Let's keep it simple here and skip such VMAs.
-		 */
-		if (vma->vm_flags & VM_LOCKED)
+		if (!can_madv_dontneed_vma(vma))
 			continue;
 
 		/*
@@ -546,11 +572,13 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 		 * we do not want to block exit_mmap by keeping mm ref
 		 * count elevated without a good reason.
 		 */
-		if (vma_is_anonymous(vma) || !(vma->vm_flags & VM_SHARED))
+		if (vma_is_anonymous(vma) || !(vma->vm_flags & VM_SHARED)) {
+			tlb_gather_mmu(&tlb, mm, vma->vm_start, vma->vm_end);
 			unmap_page_range(&tlb, vma, vma->vm_start, vma->vm_end,
-					 &details);
+					 NULL);
+			tlb_finish_mmu(&tlb, vma->vm_start, vma->vm_end);
+		}
 	}
-	tlb_finish_mmu(&tlb, 0, -1);
 	pr_info("oom_reaper: reaped process %d (%s), now anon-rss:%lukB, file-rss:%lukB, shmem-rss:%lukB\n",
 			task_pid_nr(tsk), tsk->comm,
 			K(get_mm_counter(mm, MM_ANONPAGES)),
@@ -558,12 +586,7 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 			K(get_mm_counter(mm, MM_SHMEMPAGES)));
 	up_read(&mm->mmap_sem);
 
-	/*
-	 * Drop our reference but make sure the mmput slow path is called from a
-	 * different context because we shouldn't risk we get stuck there and
-	 * put the oom_reaper out of the way.
-	 */
-	mmput_async(mm);
+	trace_finish_task_reaping(tsk->pid);
 unlock_oom:
 	mutex_unlock(&oom_lock);
 	return ret;
@@ -620,21 +643,27 @@ static int oom_reaper(void *unused)
 	return 0;
 }
 
-static void wake_oom_reaper(struct task_struct *tsk)
+void wake_oom_reaper(struct task_struct *tsk)
 {
 	if (!oom_reaper_th)
 		return;
 
+	/* move the lock here to avoid scenario of queuing
+	 * the same task by both OOM killer and LMK.
+	 */
+	spin_lock(&oom_reaper_lock);
 	/* tsk is already queued? */
-	if (tsk == oom_reaper_list || tsk->oom_reaper_list)
+	if (tsk == oom_reaper_list || tsk->oom_reaper_list) {
+		spin_unlock(&oom_reaper_lock);
 		return;
+	}
 
 	get_task_struct(tsk);
 
-	spin_lock(&oom_reaper_lock);
 	tsk->oom_reaper_list = oom_reaper_list;
 	oom_reaper_list = tsk;
 	spin_unlock(&oom_reaper_lock);
+	trace_wake_reaper(tsk->pid);
 	wake_up(&oom_reaper_wait);
 }
 
@@ -675,8 +704,10 @@ static void mark_oom_victim(struct task_struct *tsk)
 		return;
 
 	/* oom_mm is bound to the signal struct life time. */
-	if (!cmpxchg(&tsk->signal->oom_mm, NULL, mm))
+	if (!cmpxchg(&tsk->signal->oom_mm, NULL, mm)) {
 		atomic_inc(&tsk->signal->oom_mm->mm_count);
+		set_bit(MMF_OOM_VICTIM, &mm->flags);
+	}
 
 	/*
 	 * Make sure that the task is woken up from uninterruptible sleep
@@ -686,6 +717,7 @@ static void mark_oom_victim(struct task_struct *tsk)
 	 */
 	__thaw_task(tsk);
 	atomic_inc(&oom_victims);
+	trace_mark_victim(tsk->pid);
 }
 
 /**

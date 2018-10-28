@@ -35,6 +35,10 @@ alternative_if ARM64_HAS_NO_HW_PREFETCH
 	prfm    pldl1strm, [x1, #256]
 alternative_else_nop_endif
 
+// Need to reserve x16 and x17 for ROPP
+#ifdef CONFIG_RKP_CFP_ROPP
+	stp	x19, x20, [sp, #-16]!
+#endif
 	ldp	x2, x3, [x1]
 	ldp	x4, x5, [x1, #16]
 	ldp	x6, x7, [x1, #32]
@@ -42,7 +46,11 @@ alternative_else_nop_endif
 	ldp	x10, x11, [x1, #64]
 	ldp	x12, x13, [x1, #80]
 	ldp	x14, x15, [x1, #96]
+#ifdef CONFIG_RKP_CFP_ROPP
+	ldp	x19, x20, [x1, #112]
+#else
 	ldp	x16, x17, [x1, #112]
+#endif
 
 	mov	x18, #(PAGE_SIZE - 128)
 	add	x1, x1, #128
@@ -67,8 +75,13 @@ alternative_else_nop_endif
 	ldp	x12, x13, [x1, #80]
 	stnp	x14, x15, [x0, #96]
 	ldp	x14, x15, [x1, #96]
+#ifdef CONFIG_RKP_CFP_ROPP
+	stnp	x19, x20, [x0, #112]
+	ldp	x19, x20, [x1, #112]
+#else
 	stnp	x16, x17, [x0, #112]
 	ldp	x16, x17, [x1, #112]
+#endif
 
 	add	x0, x0, #128
 	add	x1, x1, #128
@@ -82,7 +95,14 @@ alternative_else_nop_endif
 	stnp	x10, x11, [x0, #64]
 	stnp	x12, x13, [x0, #80]
 	stnp	x14, x15, [x0, #96]
+#ifdef CONFIG_RKP_CFP_ROPP
+	stnp	x19, x20, [x0, #112]
+#else
 	stnp	x16, x17, [x0, #112]
+#endif
 
+#ifdef CONFIG_RKP_CFP_ROPP
+	ldp	x19, x20, [sp], #16
+#endif
 	ret
 ENDPROC(copy_page)

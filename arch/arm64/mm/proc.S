@@ -44,6 +44,52 @@
 #define MAIR(attr, mt)	((attr) << ((mt) * 8))
 
 /*
+ *	cpu_cache_off()
+ *
+ *	Turn the CPU D-cache off.
+ */
+ENTRY(cpu_cache_off)
+	mrs	x0, sctlr_el1
+	bic	x0, x0, #1 << 2			// clear SCTLR.C
+	msr	sctlr_el1, x0
+	isb
+	ret
+ENDPROC(cpu_cache_off)
+
+/*
+ *	cpu_reset(loc)
+ *
+ *	Perform a soft reset of the system.  Put the CPU into the same state
+ *	as it would be if it had been reset, and branch to what would be the
+ *	reset vector. It must be executed with the flat identity mapping.
+ *
+ *	- loc   - location to jump to for soft reset
+ */
+	.align	5
+ENTRY(cpu_reset)
+	mrs	x1, sctlr_el1
+	bic	x1, x1, #1
+	msr	sctlr_el1, x1			// disable the MMU
+	isb
+	ret	x0
+ENDPROC(cpu_reset)
+
+ENTRY(cpu_soft_restart)
+	/* Save address of cpu_reset() and reset address */
+	mov	x19, x0
+	mov	x20, x1
+
+	/* Turn D-cache off */
+	bl	cpu_cache_off
+
+	/* Push out all dirty data, and ensure cache is empty */
+	bl	flush_cache_all
+
+	mov	x0, x20
+	ret	x19
+ENDPROC(cpu_soft_restart)
+
+/*
  *	cpu_do_idle()
  *
  *	Idle the processor (wait for interrupt).
@@ -70,11 +116,14 @@ ENTRY(cpu_do_suspend)
 	mrs	x8, mdscr_el1
 	mrs	x9, oslsr_el1
 	mrs	x10, sctlr_el1
+	mrs	x11, tpidr_el1
+	mrs	x12, sp_el0
 	stp	x2, x3, [x0]
 	stp	x4, xzr, [x0, #16]
 	stp	x5, x6, [x0, #32]
 	stp	x7, x8, [x0, #48]
 	stp	x9, x10, [x0, #64]
+	stp	x11, x12, [x0, #80]
 	ret
 ENDPROC(cpu_do_suspend)
 
@@ -90,6 +139,7 @@ ENTRY(cpu_do_resume)
 	ldp	x6, x8, [x0, #32]
 	ldp	x9, x10, [x0, #48]
 	ldp	x11, x12, [x0, #64]
+	ldp	x13, x14, [x0, #80]
 	msr	tpidr_el0, x2
 	msr	tpidrro_el0, x3
 	msr	contextidr_el1, x4
@@ -112,6 +162,8 @@ ENTRY(cpu_do_resume)
 	msr	mdscr_el1, x10
 
 	msr	sctlr_el1, x12
+	msr	tpidr_el1, x13
+	msr	sp_el0, x14
 	/*
 	 * Restore oslsr_el1 by writing oslar_el1
 	 */
@@ -132,16 +184,14 @@ ENDPROC(cpu_do_resume)
  *	- pgd_phys - physical address of new TTB
  */
 ENTRY(cpu_do_switch_mm)
+	mrs	x2, ttbr1_el1
 	mmid	x1, x1				// get mm->context.id
-	bfi	x0, x1, #48, #16		// set the ASID
-	msr	ttbr0_el1, x0			// set TTBR0
+	bfi	x2, x1, #48, #16		// set the ASID
+	msr	ttbr1_el1, x2			// in TTBR1 (since TCR.A1 is set)
 	isb
-alternative_if ARM64_WORKAROUND_CAVIUM_27456
-	ic	iallu
-	dsb	nsh
+	msr	ttbr0_el1, x0			// now update TTBR0
 	isb
-alternative_else_nop_endif
-	ret
+	b	post_ttbr_update_workaround	// Back to C code...
 ENDPROC(cpu_do_switch_mm)
 
 	.pushsection ".idmap.text", "ax"
@@ -222,7 +272,7 @@ ENTRY(__cpu_setup)
 	 * both user and kernel.
 	 */
 	ldr	x10, =TCR_TxSZ(VA_BITS) | TCR_CACHE_FLAGS | TCR_SMP_FLAGS | \
-			TCR_TG_FLAGS | TCR_ASID16 | TCR_TBI0
+			TCR_TG_FLAGS | TCR_ASID16 | TCR_TBI0 | TCR_A1
 	tcr_set_idmap_t0sz	x10, x9
 
 	/*
@@ -240,6 +290,12 @@ ENTRY(__cpu_setup)
 	cbz	x9, 2f
 	cmp	x9, #2
 	b.lt	1f
+#ifdef CONFIG_ARM64_ERRATUM_1024718
+	/* Disable hardware DBM on Kryo3S */
+	cpu_midr_match MIDR_KRYO3S, MIDR_CPU_VAR_REV(7, 12), \
+			MIDR_CPU_VAR_REV(7, 13), x1, x2, x3, x4
+	cbnz	x1, 1f
+#endif
 	orr	x10, x10, #TCR_HD		// hardware Dirty flag update
 1:	orr	x10, x10, #TCR_HA		// hardware Access flag update
 2:

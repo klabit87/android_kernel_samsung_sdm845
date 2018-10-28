@@ -45,6 +45,18 @@ config CPU_FREQ_STAT_DETAILS
 
 	  If in doubt, say N.
 
+config CPU_FREQ_LIMIT
+	bool "CPU frequency limit API"
+	default n
+	help
+	  This driver supports API to limit CPU frequency.
+
+config CPU_FREQ_BOOT_LIMIT
+	bool "CPU frequency limit API during boot"
+	default n
+	help
+	  This driver supports API to limit CPU frequency during boot.
+
 choice
 	prompt "Default CPUFreq governor"
 	default CPU_FREQ_DEFAULT_GOV_USERSPACE if ARM_SA1100_CPUFREQ || ARM_SA1110_CPUFREQ
@@ -101,6 +113,23 @@ config CPU_FREQ_DEFAULT_GOV_CONSERVATIVE
 	  Be aware that not all cpufreq drivers support the conservative
 	  governor. If unsure have a look at the help section of the
 	  driver. Fallback governor will be the performance governor.
+
+config CPU_FREQ_DEFAULT_GOV_SCHED
+	bool "sched"
+	select CPU_FREQ_GOV_SCHED
+	help
+	  Use the CPUfreq governor 'sched' as default. This scales
+	  cpu frequency using CPU utilization estimates from the
+	  scheduler.
+
+config CPU_FREQ_DEFAULT_GOV_INTERACTIVE
+	bool "interactive"
+	select CPU_FREQ_GOV_INTERACTIVE
+	help
+	  Use the CPUFreq governor 'interactive' as default. This allows
+	  you to get a full dynamic cpu frequency capable system by simply
+	  loading your cpufreq low-level hardware driver, using the
+	  'interactive' governor for latency-sensitive workloads.
 
 config CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
 	bool "schedutil"
@@ -169,6 +198,23 @@ config CPU_FREQ_GOV_ONDEMAND
 
 	  If in doubt, say N.
 
+config CPU_FREQ_GOV_INTERACTIVE
+	tristate "'interactive' cpufreq policy governor"
+	help
+	  'interactive' - This driver adds a dynamic cpufreq policy governor
+	  designed for latency-sensitive workloads.
+
+	  This governor attempts to reduce the latency of clock
+	  increases so that the system is more responsive to
+	  interactive workloads.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cpufreq_interactive.
+
+	  For details, take a look at linux/Documentation/cpu-freq.
+
+	  If in doubt, say N.
+
 config CPU_FREQ_GOV_CONSERVATIVE
 	tristate "'conservative' cpufreq governor"
 	depends on CPU_FREQ
@@ -190,6 +236,30 @@ config CPU_FREQ_GOV_CONSERVATIVE
 	  module will be called cpufreq_conservative.
 
 	  For details, take a look at linux/Documentation/cpu-freq.
+
+	  If in doubt, say N.
+
+config CPU_BOOST
+	tristate "Event base short term CPU freq boost"
+	depends on CPU_FREQ
+	help
+	  This driver boosts the frequency of one or more CPUs based on
+	  various events that might occur in the system. As of now, the
+	  events it reacts to are:
+	  - Migration of important threads from one CPU to another.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_SCHED
+	bool "'sched' cpufreq governor"
+	depends on CPU_FREQ
+	depends on SMP
+	select CPU_FREQ_GOV_COMMON
+	help
+	  'sched' - this governor scales cpu frequency from the
+	  scheduler as a function of cpu capacity utilization. It does
+	  not evaluate utilization on a periodic basis (as ondemand
+	  does) but instead is event-driven by the scheduler.
 
 	  If in doubt, say N.
 

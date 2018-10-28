@@ -29,6 +29,7 @@
 #include <linux/dma-mapping.h>
 #include <sound/core.h>
 #include <sound/control.h>
+#include <sound/compress_offload.h>
 #include <sound/info.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
@@ -196,7 +197,6 @@ static inline void snd_leave_user(mm_segment_t fs)
 
 int snd_pcm_info(struct snd_pcm_substream *substream, struct snd_pcm_info *info)
 {
-	struct snd_pcm_runtime *runtime;
 	struct snd_pcm *pcm = substream->pcm;
 	struct snd_pcm_str *pstr = substream->pstr;
 
@@ -212,12 +212,7 @@ int snd_pcm_info(struct snd_pcm_substream *substream, struct snd_pcm_info *info)
 	info->subdevices_count = pstr->substream_count;
 	info->subdevices_avail = pstr->substream_count - pstr->substream_opened;
 	strlcpy(info->subname, substream->name, sizeof(info->subname));
-	runtime = substream->runtime;
-	/* AB: FIXME!!! This is definitely nonsense */
-	if (runtime) {
-		info->sync = runtime->sync;
-		substream->ops->ioctl(substream, SNDRV_PCM_IOCTL1_INFO, info);
-	}
+
 	return 0;
 }
 
@@ -587,7 +582,8 @@ static int snd_pcm_hw_params(struct snd_pcm_substream *substream,
 	runtime->silence_threshold = 0;
 	runtime->silence_size = 0;
 	runtime->boundary = runtime->buffer_size;
-	while (runtime->boundary * 2 <= LONG_MAX - runtime->buffer_size)
+	while (runtime->boundary * 2 * runtime->channels <=
+					LONG_MAX - runtime->buffer_size)
 		runtime->boundary *= 2;
 
 	snd_pcm_timer_resolution_change(substream);
@@ -1034,6 +1030,7 @@ static int snd_pcm_pre_start(struct snd_pcm_substream *substream, int state)
 	if (runtime->status->state != SNDRV_PCM_STATE_PREPARED)
 		return -EBADFD;
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
+	    !substream->hw_no_buffer &&
 	    !snd_pcm_playback_data(substream))
 		return -EPIPE;
 	runtime->trigger_tstamp_latched = false;
@@ -1085,6 +1082,33 @@ int snd_pcm_start(struct snd_pcm_substream *substream)
 {
 	return snd_pcm_action(&snd_pcm_action_start, substream,
 			      SNDRV_PCM_STATE_RUNNING);
+}
+
+static int snd_compressed_ioctl(struct snd_pcm_substream *substream,
+				 unsigned int cmd, void __user *arg)
+{
+	struct snd_pcm_runtime *runtime;
+	int err = 0;
+
+	if (PCM_RUNTIME_CHECK(substream))
+		return -ENXIO;
+	runtime = substream->runtime;
+	pr_debug("%s called with cmd = %d\n", __func__, cmd);
+	err = substream->ops->ioctl(substream, cmd, arg);
+	return err;
+}
+
+static int snd_user_ioctl(struct snd_pcm_substream *substream,
+			  unsigned int cmd, void __user *arg)
+{
+	struct snd_pcm_runtime *runtime;
+	int err = 0;
+
+	if (PCM_RUNTIME_CHECK(substream))
+		return -ENXIO;
+	runtime = substream->runtime;
+	err = substream->ops->ioctl(substream, cmd, arg);
+	return err;
 }
 
 /*
@@ -1986,7 +2010,8 @@ static int snd_pcm_hw_rule_sample_bits(struct snd_pcm_hw_params *params,
 #endif
 
 static unsigned int rates[] = { 5512, 8000, 11025, 16000, 22050, 32000, 44100,
-                                 48000, 64000, 88200, 96000, 176400, 192000 };
+				48000, 64000, 88200, 96000, 176400, 192000,
+				352800, 384000 };
 
 const struct snd_pcm_hw_constraint_list snd_pcm_known_rates = {
 	.count = ARRAY_SIZE(rates),
@@ -2703,6 +2728,7 @@ static int snd_pcm_sync_ptr(struct snd_pcm_substream *substream,
 	volatile struct snd_pcm_mmap_status *status;
 	volatile struct snd_pcm_mmap_control *control;
 	int err;
+	snd_pcm_uframes_t hw_avail;
 
 	memset(&sync_ptr, 0, sizeof(sync_ptr));
 	if (get_user(sync_ptr.flags, (unsigned __user *)&(_sync_ptr->flags)))
@@ -2725,6 +2751,16 @@ static int snd_pcm_sync_ptr(struct snd_pcm_substream *substream,
 		control->avail_min = sync_ptr.c.control.avail_min;
 	else
 		sync_ptr.c.control.avail_min = control->avail_min;
+
+	if (runtime->render_flag & SNDRV_NON_DMA_MODE) {
+		hw_avail = snd_pcm_playback_hw_avail(runtime);
+		if ((hw_avail >= runtime->start_threshold)
+			&& (runtime->render_flag &
+				SNDRV_RENDER_STOPPED)) {
+			if (substream->ops->restart)
+				substream->ops->restart(substream);
+		}
+	}
 	sync_ptr.s.status.state = status->state;
 	sync_ptr.s.status.hw_ptr = status->hw_ptr;
 	sync_ptr.s.status.tstamp = status->tstamp;
@@ -2813,6 +2849,16 @@ static int snd_pcm_common_ioctl1(struct file *file,
 		snd_pcm_stream_unlock_irq(substream);
 		return res;
 	}
+	case SNDRV_COMPRESS_GET_CAPS:
+	case SNDRV_COMPRESS_GET_CODEC_CAPS:
+	case SNDRV_COMPRESS_SET_PARAMS:
+	case SNDRV_COMPRESS_GET_PARAMS:
+	case SNDRV_COMPRESS_TSTAMP:
+	case SNDRV_COMPRESS_DRAIN:
+		return snd_compressed_ioctl(substream, cmd, arg);
+	default:
+		if (((cmd >> 8) & 0xff) == 'U')
+			return snd_user_ioctl(substream, cmd, arg);
 	}
 	pcm_dbg(substream->pcm, "unknown ioctl = 0x%x\n", cmd);
 	return -ENOTTY;
@@ -2982,10 +3028,12 @@ static long snd_pcm_playback_ioctl(struct file *file, unsigned int cmd,
 				   unsigned long arg)
 {
 	struct snd_pcm_file *pcm_file;
+	unsigned char ioctl_magic;
 
 	pcm_file = file->private_data;
+	ioctl_magic = ((cmd >> 8) & 0xff);
 
-	if (((cmd >> 8) & 0xff) != 'A')
+	if (ioctl_magic != 'A' && ioctl_magic != 'C' && ioctl_magic != 'U')
 		return -ENOTTY;
 
 	return snd_pcm_playback_ioctl1(file, pcm_file->substream, cmd,
@@ -2996,10 +3044,12 @@ static long snd_pcm_capture_ioctl(struct file *file, unsigned int cmd,
 				  unsigned long arg)
 {
 	struct snd_pcm_file *pcm_file;
+	unsigned char ioctl_magic;
 
 	pcm_file = file->private_data;
+	ioctl_magic = ((cmd >> 8) & 0xff);
 
-	if (((cmd >> 8) & 0xff) != 'A')
+	if (ioctl_magic != 'A' && ioctl_magic != 'U')
 		return -ENOTTY;
 
 	return snd_pcm_capture_ioctl1(file, pcm_file->substream, cmd,

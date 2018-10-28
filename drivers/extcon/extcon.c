@@ -224,7 +224,7 @@ struct extcon_cable {
 };
 
 static struct class *extcon_class;
-#if defined(CONFIG_ANDROID)
+#if defined(CONFIG_ANDROID) && !IS_ENABLED(CONFIG_SWITCH)
 static struct class_compat *switch_class;
 #endif /* CONFIG_ANDROID */
 
@@ -481,6 +481,21 @@ int extcon_sync(struct extcon_dev *edev, unsigned int id)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(extcon_sync);
+
+int extcon_blocking_sync(struct extcon_dev *edev, unsigned int id, bool val)
+{
+	int index;
+
+	if (!edev)
+		return -EINVAL;
+
+	index = find_cable_index_by_id(edev, id);
+	if (index < 0)
+		return index;
+
+	return blocking_notifier_call_chain(&edev->bnh[index], val, edev);
+}
+EXPORT_SYMBOL(extcon_blocking_sync);
 
 /**
  * extcon_get_state() - Get the state of a external connector.
@@ -921,6 +936,38 @@ int extcon_register_notifier(struct extcon_dev *edev, unsigned int id,
 }
 EXPORT_SYMBOL_GPL(extcon_register_notifier);
 
+int extcon_register_blocking_notifier(struct extcon_dev *edev, unsigned int id,
+			struct notifier_block *nb)
+{
+	int idx = -EINVAL;
+
+	if (!edev || !nb)
+		return -EINVAL;
+
+	idx = find_cable_index_by_id(edev, id);
+	if (idx < 0)
+		return idx;
+
+	return blocking_notifier_chain_register(&edev->bnh[idx], nb);
+}
+EXPORT_SYMBOL(extcon_register_blocking_notifier);
+
+int extcon_unregister_blocking_notifier(struct extcon_dev *edev,
+			unsigned int id, struct notifier_block *nb)
+{
+	int idx;
+
+	if (!edev || !nb)
+		return -EINVAL;
+
+	idx = find_cable_index_by_id(edev, id);
+	if (idx < 0)
+		return idx;
+
+	return blocking_notifier_chain_unregister(&edev->bnh[idx], nb);
+}
+EXPORT_SYMBOL(extcon_unregister_blocking_notifier);
+
 /**
  * extcon_unregister_notifier() - Unregister a notifiee from the extcon device.
  * @edev:	the extcon device that has the external connecotr.
@@ -963,7 +1010,7 @@ static int create_extcon_class(void)
 			return PTR_ERR(extcon_class);
 		extcon_class->dev_groups = extcon_groups;
 
-#if defined(CONFIG_ANDROID)
+#if defined(CONFIG_ANDROID) && !IS_ENABLED(CONFIG_SWITCH)
 		switch_class = class_compat_register("switch");
 		if (WARN(!switch_class, "cannot allocate"))
 			return -ENOMEM;
@@ -1189,7 +1236,7 @@ int extcon_dev_register(struct extcon_dev *edev)
 		put_device(&edev->dev);
 		goto err_dev;
 	}
-#if defined(CONFIG_ANDROID)
+#if defined(CONFIG_ANDROID) && !IS_ENABLED(CONFIG_SWITCH)
 	if (switch_class)
 		ret = class_compat_create_link(switch_class, &edev->dev, NULL);
 #endif /* CONFIG_ANDROID */
@@ -1199,6 +1246,13 @@ int extcon_dev_register(struct extcon_dev *edev)
 	edev->nh = devm_kzalloc(&edev->dev,
 			sizeof(*edev->nh) * edev->max_supported, GFP_KERNEL);
 	if (!edev->nh) {
+		ret = -ENOMEM;
+		goto err_dev;
+	}
+
+	edev->bnh = devm_kzalloc(&edev->dev,
+			sizeof(*edev->bnh) * edev->max_supported, GFP_KERNEL);
+	if (!edev->bnh) {
 		ret = -ENOMEM;
 		goto err_dev;
 	}
@@ -1278,7 +1332,7 @@ void extcon_dev_unregister(struct extcon_dev *edev)
 		kfree(edev->cables);
 	}
 
-#if defined(CONFIG_ANDROID)
+#if defined(CONFIG_ANDROID) && !IS_ENABLED(CONFIG_SWITCH)
 	if (switch_class)
 		class_compat_remove_link(switch_class, &edev->dev, NULL);
 #endif
@@ -1352,7 +1406,7 @@ module_init(extcon_class_init);
 
 static void __exit extcon_class_exit(void)
 {
-#if defined(CONFIG_ANDROID)
+#if defined(CONFIG_ANDROID) && !IS_ENABLED(CONFIG_SWITCH)
 	class_compat_unregister(switch_class);
 #endif
 	class_destroy(extcon_class);

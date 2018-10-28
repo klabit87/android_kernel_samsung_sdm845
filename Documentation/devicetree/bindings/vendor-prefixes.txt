@@ -24,6 +24,7 @@ ampire	Ampire Co., Ltd.
 ams	AMS AG
 amstaos	AMS-Taos Inc.
 analogix	Analogix Semiconductor, Inc.
+android	Google
 apm	Applied Micro Circuits Corporation (APM)
 aptina	Aptina Imaging
 arasan	Arasan Chip Systems
@@ -117,6 +118,7 @@ google	Google, Inc.
 grinn	Grinn
 gumstix	Gumstix, Inc.
 gw	Gateworks Corporation
+halo	Halo Microelectronics Co., Ltd.
 hannstar	HannStar Display Corporation
 haoyu	Haoyu Microelectronic Co. Ltd.
 hardkernel	Hardkernel Co., Ltd

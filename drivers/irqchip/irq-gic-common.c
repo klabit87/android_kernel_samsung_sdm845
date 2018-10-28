@@ -50,21 +50,21 @@ int gic_configure_irq(unsigned int irq, unsigned int type,
 {
 	u32 confmask = 0x2 << ((irq % 16) * 2);
 	u32 confoff = (irq / 16) * 4;
-	u32 val, oldval;
+	u32 newval, oldval, curval;
 	int ret = 0;
 
 	/*
 	 * Read current configuration register, and insert the config
 	 * for "irq", depending on "type".
 	 */
-	val = oldval = readl_relaxed(base + GIC_DIST_CONFIG + confoff);
+	newval = oldval = readl_relaxed(base + GIC_DIST_CONFIG + confoff);
 	if (type & IRQ_TYPE_LEVEL_MASK)
-		val &= ~confmask;
+		newval &= ~confmask;
 	else if (type & IRQ_TYPE_EDGE_BOTH)
-		val |= confmask;
+		newval |= confmask;
 
 	/* If the current configuration is the same, then we are done */
-	if (val == oldval)
+	if (newval == oldval)
 		return 0;
 
 	/*
@@ -75,11 +75,14 @@ int gic_configure_irq(unsigned int irq, unsigned int type,
 	 * does not allow us to set the configuration or we are in a
 	 * non-secure mode, and hence it may not be catastrophic.
 	 */
-	writel_relaxed(val, base + GIC_DIST_CONFIG + confoff);
-	if (readl_relaxed(base + GIC_DIST_CONFIG + confoff) != val) {
-		if (WARN_ON(irq >= 32))
+	writel_relaxed(newval, base + GIC_DIST_CONFIG + confoff);
+	curval = readl_relaxed(base + GIC_DIST_CONFIG + confoff);
+	if (curval != newval) {
+		if (WARN_ON(irq >= 32)) {
+			pr_err("irq(%u), type(0x%x), old(0x%x), new(0x%x), cur(0x%x)\n",
+				irq, type, oldval, newval, curval);
 			ret = -EINVAL;
-		else
+		} else
 			pr_warn("GIC: PPI%d is secure or misconfigured\n",
 				irq - 16);
 	}

@@ -113,6 +113,15 @@ unsigned int elf_hwcap2 __read_mostly;
 EXPORT_SYMBOL(elf_hwcap2);
 
 
+char* (*arch_read_hardware_id)(void);
+EXPORT_SYMBOL(arch_read_hardware_id);
+
+unsigned int boot_reason;
+EXPORT_SYMBOL(boot_reason);
+
+unsigned int cold_boot;
+EXPORT_SYMBOL(cold_boot);
+
 #ifdef MULTI_CPU
 struct processor processor __ro_after_init;
 #endif
@@ -1058,6 +1067,8 @@ void __init hyp_mode_check(void)
 #endif
 }
 
+void __init __weak init_random_pool(void) { }
+
 void __init setup_arch(char **cmdline_p)
 {
 	const struct machine_desc *mdesc;
@@ -1088,7 +1099,9 @@ void __init setup_arch(char **cmdline_p)
 	parse_early_param();
 
 #ifdef CONFIG_MMU
+	set_memsize_kernel_type(MEMSIZE_KERNEL_PAGING);
 	early_paging_init(mdesc);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 #endif
 	setup_dma_zone(mdesc);
 	xen_early_init();
@@ -1146,6 +1159,8 @@ void __init setup_arch(char **cmdline_p)
 
 	if (mdesc->init_early)
 		mdesc->init_early();
+
+	init_random_pool();
 }
 
 
@@ -1270,7 +1285,10 @@ static int c_show(struct seq_file *m, void *v)
 		seq_printf(m, "CPU revision\t: %d\n\n", cpuid & 15);
 	}
 
-	seq_printf(m, "Hardware\t: %s\n", machine_name);
+	if (!arch_read_hardware_id)
+		seq_printf(m, "Hardware\t: %s\n", machine_name);
+	else
+		seq_printf(m, "Hardware\t: %s\n", arch_read_hardware_id());
 	seq_printf(m, "Revision\t: %04x\n", system_rev);
 	seq_printf(m, "Serial\t\t: %s\n", system_serial);
 

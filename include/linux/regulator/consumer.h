@@ -103,6 +103,7 @@ struct regmap;
  *                      Data passed is old voltage cast to (void *).
  * PRE_DISABLE    Regulator is about to be disabled
  * ABORT_DISABLE  Regulator disable failed for some reason
+ * ENABLE         Regulator was enabled.
  *
  * NOTE: These events can be OR'ed together when passed into handler.
  */
@@ -119,6 +120,7 @@ struct regmap;
 #define REGULATOR_EVENT_ABORT_VOLTAGE_CHANGE	0x200
 #define REGULATOR_EVENT_PRE_DISABLE		0x400
 #define REGULATOR_EVENT_ABORT_DISABLE		0x800
+#define REGULATOR_EVENT_ENABLE			0x1000
 
 /**
  * struct pre_voltage_change_data - Data sent with PRE_VOLTAGE_CHANGE event
@@ -223,6 +225,7 @@ void regulator_bulk_free(int num_consumers,
 
 int regulator_count_voltages(struct regulator *regulator);
 int regulator_list_voltage(struct regulator *regulator, unsigned selector);
+int regulator_list_corner_voltage(struct regulator *regulator, int corner);
 int regulator_is_supported_voltage(struct regulator *regulator,
 				   int min_uV, int max_uV);
 unsigned int regulator_get_linear_step(struct regulator *regulator);
@@ -231,6 +234,10 @@ int regulator_set_voltage_time(struct regulator *regulator,
 			       int old_uV, int new_uV);
 int regulator_get_voltage(struct regulator *regulator);
 int regulator_sync_voltage(struct regulator *regulator);
+#ifdef CONFIG_SEC_PM
+int regulator_set_short_detection(struct regulator *regulator,
+				  bool enable, int lv_uA);
+#endif
 int regulator_set_current_limit(struct regulator *regulator,
 			       int min_uA, int max_uA);
 int regulator_get_current_limit(struct regulator *regulator);
@@ -261,6 +268,10 @@ void devm_regulator_unregister_notifier(struct regulator *regulator,
 /* driver data - core doesn't touch */
 void *regulator_get_drvdata(struct regulator *regulator);
 void regulator_set_drvdata(struct regulator *regulator, void *data);
+
+#ifdef CONFIG_SEC_PM
+void regulator_showall_enabled(void);
+#endif
 
 #else
 
@@ -455,6 +466,14 @@ static inline int regulator_is_supported_voltage(struct regulator *regulator,
 	return 0;
 }
 
+#ifdef CONFIG_SEC_PM
+static inline int regulator_set_short_protection(struct regulator *regulator,
+						 bool enable, int lv_uA)
+{
+	return 0;
+}
+#endif
+
 static inline int regulator_set_current_limit(struct regulator *regulator,
 					     int min_uA, int max_uA)
 {
@@ -550,6 +569,11 @@ static inline int regulator_list_voltage(struct regulator *regulator, unsigned s
 	return -EINVAL;
 }
 
+static inline int regulator_list_corner_voltage(struct regulator *regulator,
+	int corner)
+{
+	return -EINVAL;
+}
 #endif
 
 static inline int regulator_set_voltage_triplet(struct regulator *regulator,

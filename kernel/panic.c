@@ -25,6 +25,14 @@
 #include <linux/nmi.h>
 #include <linux/console.h>
 #include <linux/bug.h>
+#define CREATE_TRACE_POINTS
+#include <trace/events/exception.h>
+#include <soc/qcom/minidump.h>
+
+#include <linux/sec_debug.h>
+#include <linux/sec_debug_summary.h>
+#include <linux/sec_debug_user_reset.h>
+#include <asm/memory.h>
 
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
@@ -81,6 +89,9 @@ void __weak crash_smp_send_stop(void)
 {
 	static int cpus_stopped;
 
+	/*To prevent watchdog reset during panic handling. */
+	emerg_pet_watchdog();
+
 	/*
 	 * This function can be called twice in panic path, but obviously
 	 * we execute this only once.
@@ -136,6 +147,10 @@ void panic(const char *fmt, ...)
 	int old_cpu, this_cpu;
 	bool _crash_kexec_post_notifiers = crash_kexec_post_notifiers;
 
+	sec_debug_store_extc_idx(false);
+
+	trace_kernel_panic(0);
+
 	/*
 	 * Disable local interrupts. This will prevent panic_smp_self_stop
 	 * from deadlocking the first cpu that invokes the panic, since
@@ -165,11 +180,14 @@ void panic(const char *fmt, ...)
 	if (old_cpu != PANIC_CPU_INVALID && old_cpu != this_cpu)
 		panic_smp_self_stop();
 
+	secdbg_sched_msg("!!panic!!");
+
 	console_verbose();
 	bust_spinlocks(1);
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
+	dump_stack_minidump(0);
 	pr_emerg("Kernel panic - not syncing: %s\n", buf);
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 	/*
@@ -178,6 +196,17 @@ void panic(const char *fmt, ...)
 	if (!test_taint(TAINT_DIE) && oops_in_progress <= 1)
 		dump_stack();
 #endif
+#if !defined(SEC_PRODUCT_SHIP) && defined(CONFIG_RELOCATABLE_KERNEL)
+	{
+		u64 const kernel_offset = kimage_vaddr - KIMAGE_VADDR;
+		u64 kernel_addr = __virt_to_phys(_text);
+
+		pr_emerg("Kernel loaded at: 0x%llx, offset from compile-time address %llx\n"
+			, kernel_addr, kernel_offset);
+	}
+#endif
+	sec_debug_save_panic_info(buf,
+			(unsigned long)__builtin_return_address(0));
 
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
@@ -260,6 +289,9 @@ void panic(const char *fmt, ...)
 			mdelay(PANIC_TIMER_STEP);
 		}
 	}
+
+	trace_kernel_panic_late(0);
+
 	if (panic_timeout != 0) {
 		/*
 		 * This will not be a clean reboot, with everything

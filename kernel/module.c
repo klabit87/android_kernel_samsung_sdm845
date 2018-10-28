@@ -64,8 +64,102 @@
 #include <uapi/linux/module.h>
 #include "module-internal.h"
 
+
+#ifdef	CONFIG_TIMA_LKMAUTH_CODE_PROT
+#include <asm/tlbflush.h>
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
+
+#ifdef	CONFIG_TIMA_LKMAUTH_CODE_PROT
+#define TIMA_PAC_CMD_ID 0x3f80d221
+#define TIMA_SET_PTE_RO 1
+#define TIMA_SET_PTE_NX 2
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
+
+#ifdef CONFIG_TIMA_LKMAUTH
+
+/*
+ * TEE-dependent configurations
+ */
+#include <linux/qseecom.h>
+
+#ifdef CONFIG_LKMAUTH_SECONDWAY
+#define LKM_MAGIC 0x1122334444332211
+#endif
+
+#define QSEECOM_ALIGN_SIZE  0x40
+#define QSEECOM_ALIGN_MASK  (QSEECOM_ALIGN_SIZE - 1)
+#define QSEECOM_ALIGN(x)    \
+    ((x + QSEECOM_ALIGN_SIZE) & (~QSEECOM_ALIGN_MASK))
+
+struct qseecom_handle {
+    void *dev; /* in/out */
+    unsigned char *sbuf; /* in/out */
+    uint32_t sbuf_len; /* in/out */
+};
+
+static struct qseecom_handle *qhandle = NULL;
+DEFINE_MUTEX(lkmauth_mutex);
+
+extern int qseecom_start_app(struct qseecom_handle **handle, char *app_name, uint32_t size);
+extern int qseecom_shutdown_app(struct qseecom_handle **handle);
+extern int qseecom_send_command(struct qseecom_handle *handle, void *send_buf, uint32_t sbuf_len, void *resp_buf, uint32_t rbuf_len);
+extern struct device *tima_uevent_dev;
+
+#define SVC_LKMAUTH_ID              0x00050000
+#define LKMAUTH_CREATE_CMD(x) (SVC_LKMAUTH_ID | x)
+
+/**
+ * Commands for TZ LKMAUTH application.
+ * */
+typedef enum
+{
+	LKMAUTH_CMD_AUTH		= LKMAUTH_CREATE_CMD(0x00000000),
+	LKMAUTH_CMD_UNKNOWN		= LKMAUTH_CREATE_CMD(0x7FFFFFFF)
+} lkmauth_cmd_type;
+
+/* Return codes for lkmauth tl */
+#define	RET_TL_TIMA_LKMAUTH_OK					0x00000000
+#define	RET_TL_TIMA_LKMAUTH_LKM_BLOCK_FORCE		0x00000002
+
+/* Return codes for lkmauth function */
+#define	RET_LKMAUTH_SUCCESS				0
+#define	RET_LKMAUTH_FAIL				-1
+
+#define HASH_SIZE 20
+
+/*
+ * TEE-independent configurations
+ */
+
+#include <linux/kobject.h>
+#include <linux/spinlock.h>
+
+/* Message types for every command - Add one here for every command you add */
+typedef struct lkmauth_req_s
+{
+	lkmauth_cmd_type cmd_id;
+	unsigned long long module_addr_start;
+	u32 module_len;
+	u32 min;
+	u32 max;
+	char module_name [280];
+	int module_name_len;
+} __attribute__ ((packed)) lkmauth_req_t;
+
+typedef struct lkmauth_rsp_s
+{
+/** First 4 bytes should always be command id */
+	lkmauth_cmd_type cmd_id;
+	int ret;
+	union {
+		unsigned char hash[HASH_SIZE];
+		char result_ondemand[256];
+	}  __attribute__ ((packed)) result;
+} __attribute__ ((packed)) lkmauth_rsp_t;
+#endif
 
 #ifndef ARCH_SHF_SMALL
 #define ARCH_SHF_SMALL 0
@@ -76,11 +170,15 @@
  * to ensure complete separation of code and data, but
  * only when CONFIG_DEBUG_SET_MODULE_RONX=y
  */
+#ifdef	CONFIG_TIMA_LKMAUTH_CODE_PROT
+# define debug_align(X) ALIGN(X, PAGE_SIZE)
+#else
 #ifdef CONFIG_DEBUG_SET_MODULE_RONX
 # define debug_align(X) ALIGN(X, PAGE_SIZE)
 #else
 # define debug_align(X) (X)
 #endif
+#endif /* CONFIG_TIMA_LKMAUTH_CODE_PROT */
 
 /* If this is set, the section belongs in the init part of the module */
 #define INIT_OFFSET_MASK (1UL << (BITS_PER_LONG-1))
@@ -2671,6 +2769,332 @@ static void add_kallsyms(struct module *mod, const struct load_info *info)
 }
 #endif /* CONFIG_KALLSYMS */
 
+#ifdef CONFIG_TIMA_LKMAUTH
+#ifdef CONFIG_LKMAUTH_SECONDWAY
+static DEFINE_SPINLOCK(lkm_va_to_pa_lock);
+#endif
+#define LKMAUTH_RETRY_CNT 5
+int qseecom_set_bandwidth(struct qseecom_handle *handle, bool high);
+#ifdef CONFIG_TIMA_LKM_BLOCK
+static int lkmauth(Elf_Ehdr *hdr, int len, int cnt)
+{
+	int ret = RET_LKMAUTH_FAIL; /* value to be returned for lkmauth */
+	int qsee_ret = 0; /* value used to capture qsee return state */
+	char *envp[3], *status, *result;
+	char app_name[MAX_APP_NAME_SIZE];
+	lkmauth_req_t *kreq = NULL;
+	lkmauth_rsp_t *krsp = NULL;
+	int req_len = 0, rsp_len = 0;
+	mutex_lock(&lkmauth_mutex);
+	pr_warn("TIMA: lkmauth--launch the tzapp to check kernel module; module len is %d\n", len);
+
+	snprintf(app_name, MAX_APP_NAME_SIZE, "%s", "lkmauth");
+
+	if ( NULL == qhandle ) {
+		/* start the lkmauth tzapp only when it is not loaded. */
+		qsee_ret = qseecom_start_app(&qhandle, app_name, 1024);
+	}
+	if ( NULL == qhandle ) {
+		/* qhandle is still NULL. It seems we couldn't start lkmauth tzapp. */
+		pr_err("TIMA: lkmauth--cannot get tzapp handle from kernel.\n");
+		ret = RET_LKMAUTH_FAIL; /* lkm authentication failed. */
+		goto lkmauth_ret; /* leave the function now. */
+	}
+	if (qsee_ret) {
+		/* Another way for lkmauth tzapp loading to fail. */
+		pr_err("TIMA: lkmauth--cannot load tzapp from kernel; qsee_ret =  %d.\n", qsee_ret);
+		qhandle = NULL; /* Do we have a memory leak this way? */
+		ret = RET_LKMAUTH_FAIL; /* lkm authentication failed. */
+		goto lkmauth_ret; /* leave the function now. */
+	}
+
+	/* Generate the request cmd to verify hash of ko.
+	 * Note that we are reusing the same buffer for both request and response,
+	 * and the buffer is allocated in qhandle.
+	 */
+	kreq = (struct lkmauth_req_s *)qhandle->sbuf;
+	kreq->cmd_id = LKMAUTH_CMD_AUTH;
+#ifdef CONFIG_64BIT
+	pr_warn("TIMA: lkmauth -- hdr before kreq is : %lx\n", (unsigned long)hdr);
+	kreq->module_len = len;
+	kreq->module_addr_start = (unsigned long)hdr;
+#else
+	pr_warn("TIMA: lkmauth -- hdr before kreq is : %x\n", (u32)hdr);
+	kreq->module_len = len;
+	kreq->module_addr_start = (u32)hdr;
+#endif
+
+	req_len = sizeof(lkmauth_req_t);
+	if (req_len & QSEECOM_ALIGN_MASK)
+		req_len = QSEECOM_ALIGN(req_len);
+
+	/* prepare the response buffer */
+	krsp =(struct lkmauth_rsp_s *)(qhandle->sbuf + req_len);
+
+	rsp_len = sizeof(lkmauth_rsp_t);
+	if (rsp_len & QSEECOM_ALIGN_MASK)
+		rsp_len = QSEECOM_ALIGN(rsp_len);
+
+#ifdef CONFIG_64BIT
+	pr_warn("TIMA: lkmauth--send cmd (%s) cmdlen(%lx:%d), rsplen(%lx:%d) id 0x%08X, \
+                req (0x%16lX), rsp(0x%16lX), module_start_addr(0x%16llx) module_len %d\n", \
+		app_name, sizeof(lkmauth_req_t), req_len, sizeof(lkmauth_rsp_t), rsp_len, \
+		kreq->cmd_id, (unsigned long)kreq, (unsigned long)krsp, kreq->module_addr_start, kreq->module_len);
+#else
+	pr_warn("TIMA: lkmauth--send cmd (%s) cmdlen(%d:%d), rsplen(%d:%d) id 0x%08X, \
+                req (0x%08X), rsp(0x%08X), module_start_addr(0x%08X) module_len %d\n", \
+		app_name, sizeof(lkmauth_req_t), req_len, sizeof(lkmauth_rsp_t), rsp_len, \
+		kreq->cmd_id, (int)kreq, (int)krsp, kreq->module_addr_start, kreq->module_len);
+#endif
+
+	qseecom_set_bandwidth(qhandle, true);
+	qsee_ret = qseecom_send_command(qhandle, kreq, req_len, krsp, rsp_len);
+	qseecom_set_bandwidth(qhandle, false);
+
+	if (qsee_ret) {
+		pr_err("TIMA: lkmauth--failed to send cmd to qseecom; qsee_ret = %d.\n", qsee_ret);
+		pr_warn("TIMA: lkmauth--shutting down the tzapp.\n");
+		ret = RET_LKMAUTH_FAIL;
+		goto lkmauth_ret;
+	}
+
+	/* parse result */
+	if (krsp->ret == RET_TL_TIMA_LKMAUTH_LKM_BLOCK_FORCE) {
+		pr_warn("TIMA: lkmauth--Succeeded to block lkm through TZ.\n");
+		ret = krsp->ret;
+	} else {
+		pr_err("TIMA: lkmauth--Failed to block lkm through TZ. ret = %x\n", krsp->ret);
+		ret = RET_LKMAUTH_FAIL;
+
+		if( cnt == (LKMAUTH_RETRY_CNT - 1) )
+		{
+			/* Send a notification through uevent. Note that the lkmauth tzapp
+			 * should have already raised an alert in TZ Security log.
+			 */
+			status = kzalloc(16, GFP_KERNEL);
+			if (!status) {
+				pr_err("TIMA: lkmauth--%s kmalloc failed.\n", __func__);
+				goto lkmauth_ret;
+			}
+			snprintf(status , 16 , "TIMA_STATUS=%d", ret);
+			envp[0] = status;
+
+			result = kzalloc(256, GFP_KERNEL);
+			if (!result) {
+				pr_err("TIMA: lkmauth--%s kmalloc failed.\n", __func__);
+				kfree(envp[0]);
+				goto lkmauth_ret;
+			}
+			snprintf(result , 256, "TIMA_RESULT=%s", krsp->result.result_ondemand);
+			pr_warn("TIMA: %s result (%s) \n", krsp->result.result_ondemand, result);
+			envp[1] = result;
+			envp[2] = NULL;
+
+			kobject_uevent_env(&tima_uevent_dev->kobj, KOBJ_CHANGE, envp);
+
+			kfree(envp[0]);
+			kfree(envp[1]);
+		}
+	}
+
+lkmauth_ret:
+		qsee_ret = qseecom_shutdown_app(&qhandle);
+		if ( qsee_ret ) {
+			/* Failed to shut down the lkmauth tzapp. What will happen to
+			 * the qhandle in this case? Can it be used for the next lkmauth
+			 * invocation?
+			 */
+			pr_err("TIMA: lkmauth--failed to shut down the tzapp.\n");
+		}
+		else
+			qhandle = NULL;
+
+	mutex_unlock(&lkmauth_mutex);
+	return ret;
+}
+#else
+static int lkmauth(Elf_Ehdr *hdr, int len, int cnt)
+{
+	int ret = RET_LKMAUTH_FAIL; /* value to be returned for lkmauth */
+	int qsee_ret = 0; /* value used to capture qsee return state */
+	char *envp[3], *status, *result;
+	char app_name[MAX_APP_NAME_SIZE];
+	lkmauth_req_t *kreq = NULL;
+	lkmauth_rsp_t *krsp = NULL;
+	int req_len = 0, rsp_len = 0;
+#ifdef CONFIG_LKMAUTH_SECONDWAY
+	unsigned long long par;
+	unsigned long long virt_addr;
+	unsigned long long *pBuf = NULL;
+	unsigned long long *ptr;
+	unsigned int size;
+	unsigned long flags;
+#endif
+	mutex_lock(&lkmauth_mutex);
+	pr_warn("TIMA: lkmauth--launch the tzapp to check kernel module; module len is %d\n", len);
+
+	snprintf(app_name, MAX_APP_NAME_SIZE, "%s", "lkmauth");
+
+	if ( NULL == qhandle ) {
+		/* start the lkmauth tzapp only when it is not loaded. */
+		qsee_ret = qseecom_start_app(&qhandle, app_name, 1024);
+	}
+	if ( NULL == qhandle ) {
+		/* qhandle is still NULL. It seems we couldn't start lkmauth tzapp. */
+		pr_err("TIMA: lkmauth--cannot get tzapp handle from kernel.\n");
+		ret = RET_LKMAUTH_FAIL; /* lkm authentication failed. */
+		goto lkmauth_ret; /* leave the function now. */
+	}
+	if (qsee_ret) {
+		/* Another way for lkmauth tzapp loading to fail. */
+		pr_err("TIMA: lkmauth--cannot load tzapp from kernel; qsee_ret =  %d.\n", qsee_ret);
+		qhandle = NULL; /* Do we have a memory leak this way? */
+		ret = RET_LKMAUTH_FAIL; /* lkm authentication failed. */
+		goto lkmauth_ret; /* leave the function now. */
+	}
+
+	/* Generate the request cmd to verify hash of ko.
+	 * Note that we are reusing the same buffer for both request and response,
+	 * and the buffer is allocated in qhandle.
+	 */
+	kreq = (struct lkmauth_req_s *)qhandle->sbuf;
+	kreq->cmd_id = LKMAUTH_CMD_AUTH;
+#ifdef CONFIG_64BIT
+	pr_warn("TIMA: lkmauth -- hdr before kreq is : %lx\n", (unsigned long)hdr);
+	kreq->module_len = len;
+#ifdef CONFIG_LKMAUTH_SECONDWAY
+	virt_addr = (unsigned long)hdr;
+	size = ((len/PAGE_SIZE) + 2)*sizeof(pBuf);
+	pBuf = kmalloc(size, GFP_KERNEL);
+
+	if (pBuf == NULL) {
+		printk("lkmauth: failed to allocate memory %d \n", size);
+		goto lkmauth_ret;
+	}
+	ptr = pBuf;
+	*ptr = LKM_MAGIC;
+	ptr++;
+	do {
+		spin_lock_irqsave(&lkm_va_to_pa_lock, flags);
+		__asm__	("at s1e1r, %1\n"
+		"mrs %0, par_el1\n"
+		:"=r"(par):"r"(virt_addr));
+		spin_unlock_irqrestore(&lkm_va_to_pa_lock, flags);
+		if(par & 0x1) {
+			printk("TIMA: lkmauth failed to translate va: %llx \n", virt_addr);
+			goto lkmauth_ret;
+		}
+		//fix last 12 bits
+		*ptr = (unsigned long long)(par & PAGE_MASK);
+		len = len - PAGE_SIZE;
+		virt_addr = virt_addr + PAGE_SIZE;
+		ptr++;
+	} while (len > 0);
+	kreq->module_addr_start = (unsigned long long)(virt_to_phys(pBuf));
+#else
+	kreq->module_addr_start = (unsigned long)hdr;
+#endif
+#else
+	pr_warn("TIMA: lkmauth -- hdr before kreq is : %x\n", (u32)hdr);
+	kreq->module_addr_start = (u32)hdr;
+	kreq->module_len = len;
+#endif
+
+	req_len = sizeof(lkmauth_req_t);
+	if (req_len & QSEECOM_ALIGN_MASK)
+		req_len = QSEECOM_ALIGN(req_len);
+
+	/* prepare the response buffer */
+	krsp =(struct lkmauth_rsp_s *)(qhandle->sbuf + req_len);
+
+	rsp_len = sizeof(lkmauth_rsp_t);
+	if (rsp_len & QSEECOM_ALIGN_MASK)
+		rsp_len = QSEECOM_ALIGN(rsp_len);
+
+#ifdef CONFIG_64BIT
+	pr_warn("TIMA: lkmauth--send cmd (%s) cmdlen(%lx:%d), rsplen(%lx:%d) id 0x%08X, \
+                req (0x%16lX), rsp(0x%16lX), module_start_addr(0x%16llx) module_len %d\n", \
+		app_name, sizeof(lkmauth_req_t), req_len, sizeof(lkmauth_rsp_t), rsp_len, \
+		kreq->cmd_id, (unsigned long)kreq, (unsigned long)krsp, kreq->module_addr_start, kreq->module_len);
+#else
+	pr_warn("TIMA: lkmauth--send cmd (%s) cmdlen(%d:%d), rsplen(%d:%d) id 0x%08X, \
+                req (0x%08X), rsp(0x%08X), module_start_addr(0x%08X) module_len %d\n", \
+		app_name, sizeof(lkmauth_req_t), req_len, sizeof(lkmauth_rsp_t), rsp_len, \
+		kreq->cmd_id, (int)kreq, (int)krsp, kreq->module_addr_start, kreq->module_len);
+#endif
+
+	qseecom_set_bandwidth(qhandle, true);
+	qsee_ret = qseecom_send_command(qhandle, kreq, req_len, krsp, rsp_len);
+	qseecom_set_bandwidth(qhandle, false);
+
+	if (qsee_ret) {
+		pr_err("TIMA: lkmauth--failed to send cmd to qseecom; qsee_ret = %d.\n", qsee_ret);
+		pr_warn("TIMA: lkmauth--shutting down the tzapp.\n");
+		ret = RET_LKMAUTH_FAIL;
+		goto lkmauth_ret;
+	}
+
+	/* parse result */
+	if (krsp->ret == RET_TL_TIMA_LKMAUTH_OK) {
+		pr_warn("TIMA: lkmauth--verification succeeded.\n");
+		ret = RET_LKMAUTH_SUCCESS; /* ret should already be 0 before the assignment. */
+	} else {
+		pr_err("TIMA: lkmauth--verification failed %d\n", krsp->ret);
+		ret = RET_LKMAUTH_FAIL;
+
+		if (cnt == (LKMAUTH_RETRY_CNT - 1))
+		{
+			/* Send a notification through uevent. Note that the lkmauth tzapp
+			 * should have already raised an alert in TZ Security log.
+			 */
+			status = kzalloc(16, GFP_KERNEL);
+			if (!status) {
+				pr_err("TIMA: lkmauth--%s kmalloc failed.\n", __func__);
+				goto lkmauth_ret;
+			}
+			snprintf(status , 16 , "TIMA_STATUS=%d", ret);
+			envp[0] = status;
+
+			result = kzalloc(256, GFP_KERNEL);
+			if (!result) {
+				pr_err("TIMA: lkmauth--%s kmalloc failed.\n", __func__);
+				kfree(envp[0]);
+				goto lkmauth_ret;
+			}
+			snprintf(result , 256, "TIMA_RESULT=%s", krsp->result.result_ondemand);
+			pr_warn("TIMA: %s result (%s) \n", krsp->result.result_ondemand, result);
+			envp[1] = result;
+			envp[2] = NULL;
+
+			kobject_uevent_env(&tima_uevent_dev->kobj, KOBJ_CHANGE, envp);
+
+			kfree(envp[0]);
+			kfree(envp[1]);
+		}
+	}
+
+lkmauth_ret:
+	qsee_ret = qseecom_shutdown_app(&qhandle);
+	if ( qsee_ret ) {
+		/* Failed to shut down the lkmauth tzapp. What will happen to
+		 * the qhandle in this case? Can it be used for the next lkmauth
+		 * invocation?
+		 */
+		pr_err("TIMA: lkmauth--failed to shut down the tzapp.\n");
+	}
+	else
+		qhandle = NULL;
+
+#ifdef CONFIG_LKMAUTH_SECONDWAY
+	if(pBuf)
+		kfree(pBuf);
+#endif
+	mutex_unlock(&lkmauth_mutex);
+	return ret;
+}
+#endif /* CONFIG_TIMA_LKM_BLOCK */
+#endif /* CONFIG_TIMA_LKMAUTH */
+
 static void dynamic_debug_setup(struct _ddebug *debug, unsigned int num)
 {
 	if (!debug)
@@ -2758,8 +3182,18 @@ static int module_sig_check(struct load_info *info, int flags)
 #endif /* !CONFIG_MODULE_SIG */
 
 /* Sanity checks against invalid binaries, wrong arch, weird elf version. */
+#ifdef CONFIG_TIMA_LKMAUTH
+static int elf_header_check(struct load_info *info, unsigned long module_len)
+#else
 static int elf_header_check(struct load_info *info)
+#endif
 {
+#ifdef CONFIG_TIMA_LKMAUTH
+	int i;
+#ifdef CONFIG_LKMAUTH_DEBUG
+	struct module *mod;
+#endif
+#endif
 	if (info->len < sizeof(*(info->hdr)))
 		return -ENOEXEC;
 
@@ -2773,6 +3207,23 @@ static int elf_header_check(struct load_info *info)
 	    || (info->hdr->e_shnum * sizeof(Elf_Shdr) >
 		info->len - info->hdr->e_shoff))
 		return -ENOEXEC;
+
+#ifdef CONFIG_TIMA_LKMAUTH
+#ifdef CONFIG_LKMAUTH_DEBUG
+	info->index.mod = find_sec(info, ".gnu.linkonce.this_module");
+	info->sechdrs = (void *)info->hdr + info->hdr->e_shoff;
+	mod = (void *)info->sechdrs[info->index.mod].sh_addr;
+	printk("TIMA: lkmauth - checking %s\n", mod->name);
+#endif
+	if (lkmauth(info->hdr, module_len, 0) != 0) {
+		for (i=0; i<LKMAUTH_RETRY_CNT; i++) {
+			if (lkmauth(info->hdr, module_len, i) == 0)
+				goto success;
+		}
+		return -ENOEXEC;
+	}
+success:
+#endif
 
 	return 0;
 }
@@ -3350,6 +3801,129 @@ struct mod_initfree {
 	void *module_init;
 };
 
+#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
+#ifndef TIMA_KERNEL_L1_MANAGE
+static inline pmd_t *tima_pmd_off_k(unsigned long virt)
+{
+	return pmd_offset(pud_offset(pgd_offset_k(virt), virt), virt);
+}
+
+void tima_set_pte_val(unsigned long virt,int numpages,int flags)
+{
+	unsigned long start = virt;
+	unsigned long end   = virt + (numpages << PAGE_SHIFT);
+	unsigned long pmd_end;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	while (virt < end)
+	{
+		pmd =tima_pmd_off_k(virt);
+		pmd_end = min(ALIGN(virt + 1, PMD_SIZE), end);
+
+		if ((pmd_val(*pmd) & PMD_TYPE_MASK) != PMD_TYPE_TABLE) {
+			//printk("Not a pagetable\n");
+			virt = pmd_end;
+			continue;
+		}
+
+		while (virt < pmd_end)
+		{
+			pte = pte_offset_kernel(pmd, virt);
+			if(flags == TIMA_SET_PTE_RO)
+			{
+				/*Make pages readonly*/
+				ptep_set_wrprotect(current->mm, virt,pte);
+			}
+			if(flags == TIMA_SET_PTE_NX)
+			{
+				/*Make pages Non Executable*/
+				ptep_set_nxprotect(current->mm, virt,pte);
+			}
+				virt += PAGE_SIZE;
+		}
+	}
+	flush_tlb_kernel_range(start, end);
+}
+#endif
+#ifdef TIMA_KERNEL_L1_MANAGE
+void tima_mod_send_smc_instruction(unsigned int    *vatext,unsigned int    *vadata,unsigned int text_count,unsigned int data_count)
+{
+	unsigned long   cmd_id = TIMA_PAC_CMD_ID;
+/*Call SMC instruction*/
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 6
+	__asm__ __volatile__(".arch_extension sec\n");
+#endif
+	__asm__ __volatile__ (
+						"stmfd  sp!,{r0-r4,r11}\n"
+						"mov    r11, r0\n"
+						"mov    r0, %0\n"
+						"mov    r1, %1\n"
+						"mov    r2, %2\n"
+						"mov    r3, %3\n"
+						"mov    r4, %4\n"
+						"smc    #11\n"
+						"mov    r6, #0\n"
+						"pop    {r0-r4,r11}\n"
+						"mcr    p15, 0, r6, c8, c3, 0\n"
+						"dsb\n"
+						"isb\n"
+						::"r"(cmd_id),"r"(vatext),"r"(text_count),"r"(vadata),"r"(data_count):"r0","r1","r2","r3","r4","r11","cc");
+}
+#endif
+/**
+ *    tima_mod_page_change_access  - Wrapper function to change access control permissions of pages
+ *     It sends code and data pages to secure side to  make code pages readonly and data pages non executable
+ *
+ *
+*/
+
+void tima_mod_page_change_access(struct module *mod)
+{
+        unsigned int    *vatext,*vadata;/* base virtual address of text and data regions*/
+        unsigned int    text_count,data_count;/* Number of text and data pages present in core section */
+	/*Lets first pickup core section */
+        vatext      = mod->module_core;
+        vadata      = (int *)((char *)(mod->module_core) + mod->core_ro_size);
+        text_count  = ((char *)vadata - (char *)vatext);
+        data_count  = debug_align(mod->core_size) - text_count;
+        text_count  = text_count / PAGE_SIZE;
+        data_count  = data_count / PAGE_SIZE;
+
+        /*Should be atleast a page */
+        if(!text_count)
+                text_count = 1;
+        if(!data_count)
+                data_count = 1;
+#ifdef TIMA_KERNEL_L1_MANAGE
+        /* Change permissive bits for core section*/
+        tima_mod_send_smc_instruction(vatext,vadata,text_count,data_count);
+#else
+ /* Change permissive bits for core section and making Code read only, Data Non Executable*/
+        tima_set_pte_val( (unsigned long)vatext,text_count,TIMA_SET_PTE_RO);
+        tima_set_pte_val( (unsigned long)vadata,data_count,TIMA_SET_PTE_NX);
+#endif/*TIMA_KERNEL_L1_MANAGE*/
+
+     /*Lets pickup init section */
+        vatext      = mod->module_init;
+        vadata      = (int *)((char *)(mod->module_init) + mod->init_ro_size);
+        text_count  = ((char *)vadata - (char *)vatext);
+        data_count  = debug_align(mod->init_size) - text_count;
+        text_count  = text_count / PAGE_SIZE;
+        data_count  = data_count / PAGE_SIZE;
+
+#ifdef TIMA_KERNEL_L1_MANAGE
+        /* Change permissive bits for init section*/
+        tima_mod_send_smc_instruction(vatext,vadata,text_count,data_count);
+#else
+/* Change permissive bits for init section and making Code read only,Data Non Executable*/
+        tima_set_pte_val( (unsigned long)vatext,text_count,TIMA_SET_PTE_RO);
+        tima_set_pte_val( (unsigned long)vadata,data_count,TIMA_SET_PTE_NX);
+#endif/*TIMA_KERNEL_L1_MANAGE*/
+}
+
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
+
 static void do_free_init(struct rcu_head *head)
 {
 	struct mod_initfree *m = container_of(head, struct mod_initfree, rcu);
@@ -3380,6 +3954,10 @@ static noinline int do_init_module(struct module *mod)
 	 * PF_USED_ASYNC.  async_schedule*() will set it.
 	 */
 	current->flags &= ~PF_USED_ASYNC;
+
+#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
+    tima_mod_page_change_access(mod);
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
 
 	do_mod_ctors(mod);
 	/* Start the module */
@@ -3583,12 +4161,19 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	struct module *mod;
 	long err;
 	char *after_dashes;
+#ifdef CONFIG_TIMA_LKMAUTH
+	unsigned long module_len = info->len;
+#endif
 
 	err = module_sig_check(info, flags);
 	if (err)
 		goto free_copy;
 
+#ifdef CONFIG_TIMA_LKMAUTH
+	err = elf_header_check(info, module_len);
+#else
 	err = elf_header_check(info);
+#endif
 	if (err)
 		goto free_copy;
 

@@ -13,6 +13,9 @@
 #include <net/dsfield.h>
 #include <linux/if_vlan.h>
 #include <linux/mpls.h>
+#include <net/ndisc.h>
+#include <linux/if_arp.h>
+#include <linux/gcd.h>
 #include "core.h"
 #include "rdev-ops.h"
 
@@ -218,7 +221,7 @@ int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
 				   struct key_params *params, int key_idx,
 				   bool pairwise, const u8 *mac_addr)
 {
-	if (key_idx < 0 || key_idx > 5)
+	if (key_idx > 5)
 		return -EINVAL;
 
 	if (!pairwise && mac_addr && !(rdev->wiphy.flags & WIPHY_FLAG_IBSS_RSN))
@@ -249,8 +252,10 @@ int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
 		/* Disallow BIP (group-only) cipher as pairwise cipher */
 		if (pairwise)
 			return -EINVAL;
+/* Sometimes wpa_supplicant send key_idx to 1024 and it make drop of connection <P180111-00936>
 		if (key_idx < 4)
 			return -EINVAL;
+*/
 		break;
 	case WLAN_CIPHER_SUITE_WEP40:
 	case WLAN_CIPHER_SUITE_WEP104:
@@ -528,123 +533,6 @@ int ieee80211_data_to_8023_exthdr(struct sk_buff *skb, struct ethhdr *ehdr,
 	return 0;
 }
 EXPORT_SYMBOL(ieee80211_data_to_8023_exthdr);
-
-int ieee80211_data_from_8023(struct sk_buff *skb, const u8 *addr,
-			     enum nl80211_iftype iftype,
-			     const u8 *bssid, bool qos)
-{
-	struct ieee80211_hdr hdr;
-	u16 hdrlen, ethertype;
-	__le16 fc;
-	const u8 *encaps_data;
-	int encaps_len, skip_header_bytes;
-	int nh_pos, h_pos;
-	int head_need;
-
-	if (unlikely(skb->len < ETH_HLEN))
-		return -EINVAL;
-
-	nh_pos = skb_network_header(skb) - skb->data;
-	h_pos = skb_transport_header(skb) - skb->data;
-
-	/* convert Ethernet header to proper 802.11 header (based on
-	 * operation mode) */
-	ethertype = (skb->data[12] << 8) | skb->data[13];
-	fc = cpu_to_le16(IEEE80211_FTYPE_DATA | IEEE80211_STYPE_DATA);
-
-	switch (iftype) {
-	case NL80211_IFTYPE_AP:
-	case NL80211_IFTYPE_AP_VLAN:
-	case NL80211_IFTYPE_P2P_GO:
-		fc |= cpu_to_le16(IEEE80211_FCTL_FROMDS);
-		/* DA BSSID SA */
-		memcpy(hdr.addr1, skb->data, ETH_ALEN);
-		memcpy(hdr.addr2, addr, ETH_ALEN);
-		memcpy(hdr.addr3, skb->data + ETH_ALEN, ETH_ALEN);
-		hdrlen = 24;
-		break;
-	case NL80211_IFTYPE_STATION:
-	case NL80211_IFTYPE_P2P_CLIENT:
-		fc |= cpu_to_le16(IEEE80211_FCTL_TODS);
-		/* BSSID SA DA */
-		memcpy(hdr.addr1, bssid, ETH_ALEN);
-		memcpy(hdr.addr2, skb->data + ETH_ALEN, ETH_ALEN);
-		memcpy(hdr.addr3, skb->data, ETH_ALEN);
-		hdrlen = 24;
-		break;
-	case NL80211_IFTYPE_OCB:
-	case NL80211_IFTYPE_ADHOC:
-		/* DA SA BSSID */
-		memcpy(hdr.addr1, skb->data, ETH_ALEN);
-		memcpy(hdr.addr2, skb->data + ETH_ALEN, ETH_ALEN);
-		memcpy(hdr.addr3, bssid, ETH_ALEN);
-		hdrlen = 24;
-		break;
-	default:
-		return -EOPNOTSUPP;
-	}
-
-	if (qos) {
-		fc |= cpu_to_le16(IEEE80211_STYPE_QOS_DATA);
-		hdrlen += 2;
-	}
-
-	hdr.frame_control = fc;
-	hdr.duration_id = 0;
-	hdr.seq_ctrl = 0;
-
-	skip_header_bytes = ETH_HLEN;
-	if (ethertype == ETH_P_AARP || ethertype == ETH_P_IPX) {
-		encaps_data = bridge_tunnel_header;
-		encaps_len = sizeof(bridge_tunnel_header);
-		skip_header_bytes -= 2;
-	} else if (ethertype >= ETH_P_802_3_MIN) {
-		encaps_data = rfc1042_header;
-		encaps_len = sizeof(rfc1042_header);
-		skip_header_bytes -= 2;
-	} else {
-		encaps_data = NULL;
-		encaps_len = 0;
-	}
-
-	skb_pull(skb, skip_header_bytes);
-	nh_pos -= skip_header_bytes;
-	h_pos -= skip_header_bytes;
-
-	head_need = hdrlen + encaps_len - skb_headroom(skb);
-
-	if (head_need > 0 || skb_cloned(skb)) {
-		head_need = max(head_need, 0);
-		if (head_need)
-			skb_orphan(skb);
-
-		if (pskb_expand_head(skb, head_need, 0, GFP_ATOMIC))
-			return -ENOMEM;
-
-		skb->truesize += head_need;
-	}
-
-	if (encaps_data) {
-		memcpy(skb_push(skb, encaps_len), encaps_data, encaps_len);
-		nh_pos += encaps_len;
-		h_pos += encaps_len;
-	}
-
-	memcpy(skb_push(skb, hdrlen), &hdr, hdrlen);
-
-	nh_pos += hdrlen;
-	h_pos += hdrlen;
-
-	/* Update skb pointers to various headers since this modified frame
-	 * is going to go through Linux networking code that may potentially
-	 * need things like pointer to IP header. */
-	skb_reset_mac_header(skb);
-	skb_set_network_header(skb, nh_pos);
-	skb_set_transport_header(skb, h_pos);
-
-	return 0;
-}
-EXPORT_SYMBOL(ieee80211_data_from_8023);
 
 static void
 __frame_add_frag(struct sk_buff *skb, struct page *page,
@@ -933,7 +821,6 @@ void cfg80211_process_wdev_events(struct wireless_dev *wdev)
 {
 	struct cfg80211_event *ev;
 	unsigned long flags;
-	const u8 *bssid = NULL;
 
 	spin_lock_irqsave(&wdev->event_lock, flags);
 	while (!list_empty(&wdev->event_list)) {
@@ -945,20 +832,13 @@ void cfg80211_process_wdev_events(struct wireless_dev *wdev)
 		wdev_lock(wdev);
 		switch (ev->type) {
 		case EVENT_CONNECT_RESULT:
-			if (!is_zero_ether_addr(ev->cr.bssid))
-				bssid = ev->cr.bssid;
 			__cfg80211_connect_result(
-				wdev->netdev, bssid,
-				ev->cr.req_ie, ev->cr.req_ie_len,
-				ev->cr.resp_ie, ev->cr.resp_ie_len,
-				ev->cr.status,
-				ev->cr.status == WLAN_STATUS_SUCCESS,
-				ev->cr.bss);
+				wdev->netdev,
+				&ev->cr,
+				ev->cr.status == WLAN_STATUS_SUCCESS);
 			break;
 		case EVENT_ROAMED:
-			__cfg80211_roamed(wdev, ev->rm.bss, ev->rm.req_ie,
-					  ev->rm.req_ie_len, ev->rm.resp_ie,
-					  ev->rm.resp_ie_len);
+			__cfg80211_roamed(wdev, &ev->rm);
 			break;
 		case EVENT_DISCONNECTED:
 			__cfg80211_disconnected(wdev->netdev,
@@ -1557,31 +1437,57 @@ bool ieee80211_chandef_to_operating_class(struct cfg80211_chan_def *chandef,
 }
 EXPORT_SYMBOL(ieee80211_chandef_to_operating_class);
 
-int cfg80211_validate_beacon_int(struct cfg80211_registered_device *rdev,
-				 u32 beacon_int)
+static void cfg80211_calculate_bi_data(struct wiphy *wiphy, u32 new_beacon_int,
+				       u32 *beacon_int_gcd,
+				       bool *beacon_int_different)
 {
 	struct wireless_dev *wdev;
-	int res = 0;
+
+	*beacon_int_gcd = 0;
+	*beacon_int_different = false;
+
+	list_for_each_entry(wdev, &wiphy->wdev_list, list) {
+		if (!wdev->beacon_interval)
+			continue;
+
+		if (!*beacon_int_gcd) {
+			*beacon_int_gcd = wdev->beacon_interval;
+			continue;
+		}
+
+		if (wdev->beacon_interval == *beacon_int_gcd)
+			continue;
+
+		*beacon_int_different = true;
+		*beacon_int_gcd = gcd(*beacon_int_gcd, wdev->beacon_interval);
+	}
+
+	if (new_beacon_int && *beacon_int_gcd != new_beacon_int) {
+		if (*beacon_int_gcd)
+			*beacon_int_different = true;
+		*beacon_int_gcd = gcd(*beacon_int_gcd, new_beacon_int);
+	}
+}
+
+int cfg80211_validate_beacon_int(struct cfg80211_registered_device *rdev,
+				 enum nl80211_iftype iftype, u32 beacon_int)
+{
+	/*
+	 * This is just a basic pre-condition check; if interface combinations
+	 * are possible the driver must already be checking those with a call
+	 * to cfg80211_check_combinations(), in which case we'll validate more
+	 * through the cfg80211_calculate_bi_data() call and code in
+	 * cfg80211_iter_combinations().
+	 */
 
 	if (beacon_int < 10 || beacon_int > 10000)
 		return -EINVAL;
 
-	list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list) {
-		if (!wdev->beacon_interval)
-			continue;
-		if (wdev->beacon_interval != beacon_int) {
-			res = -EINVAL;
-			break;
-		}
-	}
-
-	return res;
+	return 0;
 }
 
 int cfg80211_iter_combinations(struct wiphy *wiphy,
-			       const int num_different_channels,
-			       const u8 radar_detect,
-			       const int iftype_num[NUM_NL80211_IFTYPES],
+			       struct iface_combination_params *params,
 			       void (*iter)(const struct ieee80211_iface_combination *c,
 					    void *data),
 			       void *data)
@@ -1591,8 +1497,23 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 	int i, j, iftype;
 	int num_interfaces = 0;
 	u32 used_iftypes = 0;
+	u32 beacon_int_gcd;
+	bool beacon_int_different;
 
-	if (radar_detect) {
+	/*
+	 * This is a bit strange, since the iteration used to rely only on
+	 * the data given by the driver, but here it now relies on context,
+	 * in form of the currently operating interfaces.
+	 * This is OK for all current users, and saves us from having to
+	 * push the GCD calculations into all the drivers.
+	 * In the future, this should probably rely more on data that's in
+	 * cfg80211 already - the only thing not would appear to be any new
+	 * interfaces (while being brought up) and channel/radar data.
+	 */
+	cfg80211_calculate_bi_data(wiphy, params->new_beacon_int,
+				   &beacon_int_gcd, &beacon_int_different);
+
+	if (params->radar_detect) {
 		rcu_read_lock();
 		regdom = rcu_dereference(cfg80211_regdomain);
 		if (regdom)
@@ -1601,8 +1522,8 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 	}
 
 	for (iftype = 0; iftype < NUM_NL80211_IFTYPES; iftype++) {
-		num_interfaces += iftype_num[iftype];
-		if (iftype_num[iftype] > 0 &&
+		num_interfaces += params->iftype_num[iftype];
+		if (params->iftype_num[iftype] > 0 &&
 		    !(wiphy->software_iftypes & BIT(iftype)))
 			used_iftypes |= BIT(iftype);
 	}
@@ -1616,7 +1537,7 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 
 		if (num_interfaces > c->max_interfaces)
 			continue;
-		if (num_different_channels > c->num_different_channels)
+		if (params->num_different_channels > c->num_different_channels)
 			continue;
 
 		limits = kmemdup(c->limits, sizeof(limits[0]) * c->n_limits,
@@ -1631,16 +1552,17 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 				all_iftypes |= limits[j].types;
 				if (!(limits[j].types & BIT(iftype)))
 					continue;
-				if (limits[j].max < iftype_num[iftype])
+				if (limits[j].max < params->iftype_num[iftype])
 					goto cont;
-				limits[j].max -= iftype_num[iftype];
+				limits[j].max -= params->iftype_num[iftype];
 			}
 		}
 
-		if (radar_detect != (c->radar_detect_widths & radar_detect))
+		if (params->radar_detect !=
+			(c->radar_detect_widths & params->radar_detect))
 			goto cont;
 
-		if (radar_detect && c->radar_detect_regions &&
+		if (params->radar_detect && c->radar_detect_regions &&
 		    !(c->radar_detect_regions & BIT(region)))
 			goto cont;
 
@@ -1651,6 +1573,14 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 		 */
 		if ((all_iftypes & used_iftypes) != used_iftypes)
 			goto cont;
+
+		if (beacon_int_gcd) {
+			if (c->beacon_int_min_gcd &&
+			    beacon_int_gcd < c->beacon_int_min_gcd)
+				goto cont;
+			if (!c->beacon_int_min_gcd && beacon_int_different)
+				goto cont;
+		}
 
 		/* This combination covered all interface types and
 		 * supported the requested numbers, so we're good.
@@ -1674,14 +1604,11 @@ cfg80211_iter_sum_ifcombs(const struct ieee80211_iface_combination *c,
 }
 
 int cfg80211_check_combinations(struct wiphy *wiphy,
-				const int num_different_channels,
-				const u8 radar_detect,
-				const int iftype_num[NUM_NL80211_IFTYPES])
+				struct iface_combination_params *params)
 {
 	int err, num = 0;
 
-	err = cfg80211_iter_combinations(wiphy, num_different_channels,
-					 radar_detect, iftype_num,
+	err = cfg80211_iter_combinations(wiphy, params,
 					 cfg80211_iter_sum_ifcombs, &num);
 	if (err)
 		return err;
@@ -1793,3 +1720,54 @@ EXPORT_SYMBOL(rfc1042_header);
 const unsigned char bridge_tunnel_header[] __aligned(2) =
 	{ 0xaa, 0xaa, 0x03, 0x00, 0x00, 0xf8 };
 EXPORT_SYMBOL(bridge_tunnel_header);
+
+bool cfg80211_is_gratuitous_arp_unsolicited_na(struct sk_buff *skb)
+{
+	const struct ethhdr *eth = (void *)skb->data;
+	const struct {
+		struct arphdr hdr;
+		u8 ar_sha[ETH_ALEN];
+		u8 ar_sip[4];
+		u8 ar_tha[ETH_ALEN];
+		u8 ar_tip[4];
+	} __packed *arp;
+	const struct ipv6hdr *ipv6;
+	const struct icmp6hdr *icmpv6;
+
+	switch (eth->h_proto) {
+	case cpu_to_be16(ETH_P_ARP):
+		/* can't say - but will probably be dropped later anyway */
+		if (!pskb_may_pull(skb, sizeof(*eth) + sizeof(*arp)))
+			return false;
+
+		arp = (void *)(eth + 1);
+
+		if ((arp->hdr.ar_op == cpu_to_be16(ARPOP_REPLY) ||
+		     arp->hdr.ar_op == cpu_to_be16(ARPOP_REQUEST)) &&
+		    !memcmp(arp->ar_sip, arp->ar_tip, sizeof(arp->ar_sip)))
+			return true;
+		break;
+	case cpu_to_be16(ETH_P_IPV6):
+		/* can't say - but will probably be dropped later anyway */
+		if (!pskb_may_pull(skb, sizeof(*eth) + sizeof(*ipv6) +
+					sizeof(*icmpv6)))
+			return false;
+
+		ipv6 = (void *)(eth + 1);
+		icmpv6 = (void *)(ipv6 + 1);
+
+		if (icmpv6->icmp6_type == NDISC_NEIGHBOUR_ADVERTISEMENT &&
+		    !memcmp(&ipv6->saddr, &ipv6->daddr, sizeof(ipv6->saddr)))
+			return true;
+		break;
+	default:
+		/*
+		 * no need to support other protocols, proxy service isn't
+		 * specified for any others
+		 */
+		break;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL(cfg80211_is_gratuitous_arp_unsolicited_na);

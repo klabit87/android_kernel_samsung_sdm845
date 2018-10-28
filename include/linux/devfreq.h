@@ -167,6 +167,7 @@ struct devfreq {
 	struct list_head node;
 
 	struct mutex lock;
+	struct mutex sysfs_lock;
 	struct device dev;
 	struct devfreq_dev_profile *profile;
 	const struct devfreq_governor *governor;
@@ -265,6 +266,9 @@ static inline int devfreq_update_stats(struct devfreq *df)
  *			the governor may consider slowing the frequency down.
  *			Specify 0 to use the default. Valid value = 0 to 100.
  *			downdifferential < upthreshold must hold.
+ * @simple_scaling:	Setting this flag will scale the clocks up only if the
+ *			load is above @upthreshold and will scale the clocks
+ *			down only if the load is below @downdifferential.
  *
  * If the fed devfreq_simple_ondemand_data pointer is NULL to the governor,
  * the governor uses the default values.
@@ -272,6 +276,7 @@ static inline int devfreq_update_stats(struct devfreq *df)
 struct devfreq_simple_ondemand_data {
 	unsigned int upthreshold;
 	unsigned int downdifferential;
+	unsigned int simple_scaling;
 };
 #endif
 

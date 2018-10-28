@@ -366,6 +366,16 @@ config SENSORS_APDS990X
 	   To compile this driver as a module, choose M here: the
 	   module will be called apds990x. If unsure, say N here.
 
+config TIMA_LOG
+	tristate "Support for dumping TIMA log"
+	depends on TIMA
+	default y
+	help
+	  This option enables support for dumping TIMA log
+	  Please check the memory in device tree file.
+	  And in tz side.
+	  you can see it in debugfs
+
 config HMC6352
 	tristate "Honeywell HMC6352 compass"
 	depends on I2C
@@ -478,6 +488,23 @@ config SRAM
 	  This driver allows you to declare a memory region to be managed by
 	  the genalloc API. It is supposed to be used for small on-chip SRAM
 	  areas found on many SoCs.
+
+config HDCP_QSEECOM
+	tristate "QTI High-Bandwidth Digital Content Protection Module"
+	help
+	  This module implements HDCP 2.2 features over external interfaces
+	  such as the DisplayPort interface. It exposes APIs for the interface
+	  driver to communicate with QTI Secure Execution Environment (QSEE)
+	  via the QSEECOM Driver and also communicates with the Receiver via
+	  APIs exposed by the interface driver.
+
+config QSEECOM
+        tristate "QTI Secure Execution Communicator driver"
+        help
+          Provides a communication interface between userspace and
+          QTI Secure Execution Environment (QSEE) using Secure Channel
+          Manager (SCM) interface. It exposes APIs for both userspace and
+          kernel clients.
 
 config VEXPRESS_SYSCFG
 	bool "Versatile Express System Configuration driver"
@@ -676,7 +703,7 @@ config PANEL_LCD_PIN_RS
 
 	          0 : no connection (eg: connected to ground)
 	      1..17 : directly connected to any of these pins on the DB25 plug
-	    -1..-17 : connected to the same pin through an inverter (eg: transistor).
+	    -1..-17 : connected to the same pin through an inverter (eg: transistor)
 
 	  Default for the 'RS' pin in custom profile is '17' (SELECT IN).
 
@@ -766,6 +793,49 @@ config PANEL_BOOT_MESSAGE
 	  An empty message will only clear the display at driver init time. Any other
 	  printf()-formatted message is valid with newline and escape codes.
 
+config UID_SYS_STATS
+	bool "Per-UID statistics"
+	depends on PROFILING && TASK_XACCT && TASK_IO_ACCOUNTING
+	help
+	  Per UID based cpu time statistics exported to /proc/uid_cputime
+	  Per UID based io statistics exported to /proc/uid_io
+	  Per UID based procstat control in /proc/uid_procstat
+
+config DEBUG_UID_CPUTIME
+	bool "Record each uid cputime"
+	depends on UID_SYS_STATS
+	default n
+	help
+	  Record each uid cputime for debugging
+
+config UID_SYS_STATS_DEBUG
+	bool "Per-TASK statistics"
+	depends on UID_SYS_STATS
+	default n
+	help
+	  Per TASK based io statistics exported to /proc/uid_io
+
+config MEMORY_STATE_TIME
+	tristate "Memory freq/bandwidth time statistics"
+	depends on PROFILING
+	help
+	  Memory time statistics exported to /sys/kernel/memory_state_time
+
+config QPNP_MISC
+	tristate "QPNP Misc Peripheral"
+	depends on MFD_SPMI_PMIC
+	help
+	  Say 'y' here to include support for the QTI QPNP MISC
+	  peripheral. The MISC peripheral holds the USB ID interrupt
+	  and the driver provides an API to check if this interrupt
+	  is available on the current PMIC chip.
+
+config KNOX_KAP
+	bool "Enable KNOX KAP mode"
+	default n
+	help
+	  Knox Active Protection mode
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -778,4 +848,6 @@ source "drivers/misc/mic/Kconfig"
 source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
+source "drivers/misc/samsung/Kconfig"
+source "drivers/misc/dev_ril_bridge/Kconfig"
 endmenu

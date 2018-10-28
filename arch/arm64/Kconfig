@@ -9,6 +9,7 @@ config ARM64
 	select ARCH_HAS_DEVMEM_IS_ALLOWED
 	select ARCH_HAS_ACPI_TABLE_UPGRADE if ACPI
 	select ARCH_HAS_ELF_RANDOMIZE
+	select ARCH_HAS_FORTIFY_SOURCE
 	select ARCH_HAS_GCOV_PROFILE_ALL
 	select ARCH_HAS_GIGANTIC_PAGE
 	select ARCH_HAS_KCOV
@@ -30,7 +31,7 @@ config ARM64
 	select ARM_PSCI_FW
 	select BUILDTIME_EXTABLE_SORT
 	select CLONE_BACKWARDS
-	select COMMON_CLK
+	select COMMON_CLK if !ARCH_QCOM
 	select CPU_PM if (SUSPEND || CPU_IDLE)
 	select DCACHE_WORD_ACCESS
 	select EDAC_SUPPORT
@@ -83,7 +84,6 @@ config ARM64
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_GCC_PLUGINS
 	select HAVE_GENERIC_DMA_COHERENT
-	select HAVE_HW_BREAKPOINT if PERF_EVENTS
 	select HAVE_IRQ_TIME_ACCOUNTING
 	select HAVE_MEMBLOCK
 	select HAVE_MEMBLOCK_NODE_MAP if NUMA
@@ -109,6 +109,7 @@ config ARM64
 	select POWER_SUPPLY
 	select SPARSE_IRQ
 	select SYSCTL_EXCEPTION_TRACE
+	select THREAD_INFO_IN_TASK
 	help
 	  ARM 64-bit (AArch64) Linux support.
 
@@ -119,9 +120,6 @@ config ARCH_PHYS_ADDR_T_64BIT
 	def_bool y
 
 config MMU
-	def_bool y
-
-config DEBUG_RODATA
 	def_bool y
 
 config ARM64_PAGE_SHIFT
@@ -165,6 +163,10 @@ config ARCH_MMAP_RND_COMPAT_BITS_MAX
 
 config NO_IOPORT_MAP
 	def_bool y if !PCI
+
+config ILLEGAL_POINTER_VALUE
+	hex
+	default 0xdead000000000000
 
 config STACKTRACE_SUPPORT
 	def_bool y
@@ -427,6 +429,20 @@ config ARM64_ERRATUM_843419
 
 	  If unsure, say Y.
 
+config ARM64_ERRATUM_1024718
+	bool "Cortex-A55: 1024718: Update of DBM/AP bits without break before make might result in incorrect update"
+	default y
+	help
+	  This option adds work around for Arm Cortex-A55 Erratum 1024718.
+
+	  Affected Cortex-A55 cores (r0p0, r0p1, r1p0) could cause incorrect
+	  update of the hardware dirty bit when the DBM/AP bits are updated
+	  without a break-before-make. The work around is to disable the usage
+	  of hardware DBM locally on the affected cores. CPUs not affected by
+	  erratum will continue to use the feature.
+
+	  If unsure, say Y.
+
 config CAVIUM_ERRATUM_22375
 	bool "Cavium erratum 22375, 24313"
 	default y
@@ -586,6 +602,18 @@ config HOTPLUG_CPU
 	  Say Y here to experiment with turning CPUs off and on.  CPUs
 	  can be controlled through /sys/devices/system/cpu.
 
+# The GPIO number here must be sorted by descending number. In case of
+# a multiplatform kernel, we just want the highest value required by the
+# selected platforms.
+config ARCH_NR_GPIO
+	int
+	default 2048 if ARCH_QCOM
+	default 256
+	help
+	  Maximum number of GPIOs in the system.
+
+	  If unsure, leave the default value.
+
 # Common NUMA Features
 config NUMA
 	bool "Numa Memory Allocation and Scheduler Support"
@@ -655,6 +683,37 @@ config ARCH_HAS_CACHE_LINE_SIZE
 	def_bool y
 
 source "mm/Kconfig"
+
+config ARM64_DMA_USE_IOMMU
+	bool "ARM64 DMA iommu integration"
+	select ARM_HAS_SG_CHAIN
+	select NEED_SG_DMA_LENGTH
+	help
+	  Enable using iommu through the standard dma apis.
+	  dma_alloc_coherent() will allocate scatter-gather memory
+	  which is made virtually contiguous via iommu.
+	  Enable if system contains IOMMU hardware.
+
+if ARM64_DMA_USE_IOMMU
+
+config ARM64_DMA_IOMMU_ALIGNMENT
+	int "Maximum PAGE_SIZE order of alignment for DMA IOMMU buffers"
+	range 4 9
+	default 9
+	help
+	  DMA mapping framework by default aligns all buffers to the smallest
+	  PAGE_SIZE order which is greater than or equal to the requested buffer
+	  size. This works well for buffers up to a few hundreds kilobytes, but
+	  for larger buffers it just a waste of address space. Drivers which has
+	  relatively small addressing window (like 64Mib) might run out of
+	  virtual space with just a few allocations.
+
+	  With this parameter you can specify the maximum PAGE_SIZE order for
+	  DMA IOMMU buffers. Larger buffers will be aligned only to this
+	  specified order. The order is expressed as a power of two multiplied
+	  by the PAGE_SIZE.
+
+endif
 
 config SECCOMP
 	bool "Enable seccomp to safely compute untrusted bytecode"
@@ -733,6 +792,34 @@ config FORCE_MAX_ZONEORDER
 	  However for 4K, we choose a higher default value, 11 as opposed to 10, giving us
 	  4M allocations matching the default size used by generic code.
 
+config UNMAP_KERNEL_AT_EL0
+	bool "Unmap kernel when running in userspace (aka \"KAISER\")" if EXPERT
+	default y
+	help
+	  Speculation attacks against some high-performance processors can
+	  be used to bypass MMU permission checks and leak kernel data to
+	  userspace. This can be defended against by unmapping the kernel
+	  when running in userspace, mapping it back in on exception entry
+	  via a trampoline page in the vector table.
+
+	  If unsure, say Y.
+
+config HARDEN_BRANCH_PREDICTOR
+	bool "Harden the branch predictor against aliasing attacks" if EXPERT
+	help
+	  Speculation attacks against some high-performance processors rely on
+	  being able to manipulate the branch predictor for a victim context by
+	  executing aliasing branches in the attacker context.  Such attacks
+	  can be partially mitigated against by clearing internal branch
+	  predictor state and limiting the prediction logic in some situations.
+
+	  This config option will take CPU-specific actions to harden the
+	  branch predictor against aliasing attacks and may rely on specific
+	  instruction sequences or control bits being set by the system
+	  firmware.
+
+	  If unsure, say Y.
+
 menuconfig ARMV8_DEPRECATED
 	bool "Emulate deprecated/obsolete ARMv8 instructions"
 	depends on COMPAT
@@ -800,6 +887,145 @@ config SETEND_EMULATION
 	  If unsure, say Y
 endif
 
+config ARM64_SW_TTBR0_PAN
+	bool "Emulate Privileged Access Never using TTBR0_EL1 switching"
+	help
+	  Enabling this option prevents the kernel from accessing
+	  user-space memory directly by pointing TTBR0_EL1 to a reserved
+	  zeroed area and reserved ASID. The user access routines
+	  restore the valid TTBR0_EL1 temporarily.
+
+config UH
+	bool "Enable micro hypervisor feature of Samsung"
+	depends on !SEC_FACTORY
+	default n
+	help
+	  It enables a micro hypervisor.
+	  It's samsung's hypervisor and it should be combined with QC hyp.
+	  So you must check a hypX(samsung hypervisor image)
+	  RKP and etc can be loaded on it.
+
+config UH_DEBUG
+	bool "Enable micro hypervisor debug feature"
+	depends on !SEC_FACTORY
+	select UH
+	default n
+	help
+	  It's for debugging uH.
+
+config UH_RKP
+	bool "Enable RKP (Realtime Kernel Protection) UH feature"
+	depends on !SEC_FACTORY
+	select UH
+	default n
+	help
+	  it protects a kernel text and etc.
+
+config UH_RKP_8G
+	bool "Support 8G Model"
+	depends on !SEC_FACTORY
+	select UH
+	default n
+	help
+	  support 8G
+
+config RKP_KDP
+	bool "Protection for cred structure"
+	depends on !SEC_FACTORY
+	depends on UH_RKP
+	default n
+	help
+	  Prevents unauthorized cred modification.
+
+config RKP_NS_PROT
+	bool "Protection for namespace structure"
+	depends on !SEC_FACTORY
+	depends on RKP_KDP
+	default n
+	help
+	  Prevents unauthorized namespace modification.
+
+config RKP_DMAP_PROT
+	bool "Page Double Mapping protection"
+	depends on !SEC_FACTORY
+	depends on RKP_KDP
+	default n
+	help
+	  Prevents unauthorized mapping for page table.
+
+config UH_INFORM
+    bool "Debugfs for information of the security feature's active/inactive statue"
+	default n
+	help
+	  This config has the information of RKP,JOPP,ROPP,KDP,DMV.
+	  It informs that the above feature are whether active or inactive.
+
+menu "Control Flow Protection"
+
+config RKP_CFP
+	bool "JOPP and ROPP"
+	default n
+	help
+	  Control flow protection, including both JOPP and ROPP. Please do NOT
+	  set this CONFIG, JOPP/ROPP will select it.
+
+config RKP_CFP_JOPP
+	bool "JOP Prevention"
+	select RKP_CFP
+	# depends on TIMA_RKP
+	default n
+	help
+	  Restrict function pointer jumps to function entry points only.
+
+config RKP_CFP_JOPP_MAGIC
+	hex
+	depends on RKP_CFP && RKP_CFP_JOPP
+	default "0x00be7bad"
+
+config RKP_CFP_ROPP
+	bool "ROP Prevention"
+	select RKP_CFP
+	# depends on TIMA_RKP
+	default n
+	help
+	  Return address protection.
+
+choice
+	prompt "ROPP key"
+	default RKP_CFP_ROPP_SYSREGKEY
+	depends on RKP_CFP && RKP_CFP_ROPP
+
+config RKP_CFP_ROPP_SYSREGKEY
+	bool "Use system register"
+	help
+	  Master key held by system register.
+
+config RKP_CFP_ROPP_RANDKEY
+	bool "random key"
+	help
+	  For test, no master key, per-thread-key is random.
+
+config RKP_CFP_ROPP_FIXKEY
+	bool "fixed key"
+	help
+	  For test, no master key, per-thread-key is fixed.
+
+config RKP_CFP_ROPP_ZEROKEY
+	bool "zero key"
+	help
+	  For test, no master key, per-thread-key is zero.
+
+endchoice
+
+config RKP_CFP_TEST
+	bool "test file, only include in ENG build"
+	depends on RKP_CFP
+	default n
+	help
+	  For test only.
+
+endmenu
+
 menu "ARMv8.1 architectural features"
 
 config ARM64_HW_AFDBM
@@ -821,7 +1047,7 @@ config ARM64_HW_AFDBM
 
 config ARM64_PAN
 	bool "Enable support for Privileged Access Never (PAN)"
-	default y
+	default n
 	help
 	 Privileged Access Never (PAN; part of the ARMv8.1 Extensions)
 	 prevents the kernel or hypervisor from accessing user-space (EL0)
@@ -864,7 +1090,7 @@ menu "ARMv8.2 architectural features"
 
 config ARM64_UAO
 	bool "Enable support for User Access Override (UAO)"
-	default y
+	default n
 	help
 	  User Access Override (UAO; part of the ARMv8.2 Extensions)
 	  causes the 'unprivileged' variant of the load/store instructions to
@@ -892,6 +1118,13 @@ config ARM64_MODULE_PLTS
 	bool
 	select ARM64_MODULE_CMODEL_LARGE
 	select HAVE_MOD_ARCH_SPECIFIC
+
+config RELOCATABLE_KERNEL
+	bool "set kernel to relocatable in both virtual and physical address"
+	default n
+	help
+	  This configuare will allow you to config the kernel into position
+	  independent kernel, with '--PIE' insert into LD script.
 
 config RELOCATABLE
 	bool
@@ -959,6 +1192,23 @@ config CMDLINE
 	  entering them here. As a minimum, you should specify the the
 	  root device (e.g. root=/dev/nfs).
 
+choice
+	prompt "Kernel command line type" if CMDLINE != ""
+	default CMDLINE_FROM_BOOTLOADER
+
+config CMDLINE_FROM_BOOTLOADER
+	bool "Use bootloader kernel arguments if available"
+	help
+	  Uses the command-line options passed by the boot loader. If
+	  the boot loader doesn't provide any, the default kernel command
+	  string provided in CMDLINE will be used.
+
+config CMDLINE_EXTEND
+	bool "Extend bootloader kernel arguments"
+	help
+	  The command-line arguments provided by the boot loader will be
+	  appended to the default kernel command string.
+
 config CMDLINE_FORCE
 	bool "Always use the default kernel command string"
 	help
@@ -966,6 +1216,7 @@ config CMDLINE_FORCE
 	  loader passes other arguments to the kernel.
 	  This is useful if you cannot or don't want to change the
 	  command-line options your boot loader passes to the kernel.
+endchoice
 
 config EFI_STUB
 	bool
@@ -998,6 +1249,46 @@ config DMI
 	  However, even with this option, the resultant kernel should
 	  continue to boot on existing non-UEFI platforms.
 
+config BUILD_ARM64_APPENDED_DTB_IMAGE
+	bool "Build a concatenated Image.gz/dtb by default"
+	depends on OF
+	help
+	  Enabling this option will cause a concatenated Image.gz and list of
+	  DTBs to be built by default (instead of a standalone Image.gz.)
+	  The image will built in arch/arm64/boot/Image.gz-dtb
+
+choice
+	prompt "Appended DTB Kernel Image name"
+	depends on BUILD_ARM64_APPENDED_DTB_IMAGE
+	help
+	  Enabling this option will cause a specific kernel image Image or
+	  Image.gz to be used for final image creation.
+	  The image will built in arch/arm64/boot/IMAGE-NAME-dtb
+
+	config IMG_GZ_DTB
+		bool "Image.gz-dtb"
+	config IMG_DTB
+		bool "Image-dtb"
+endchoice
+
+config BUILD_ARM64_APPENDED_KERNEL_IMAGE_NAME
+	string
+	depends on BUILD_ARM64_APPENDED_DTB_IMAGE
+	default "Image.gz-dtb" if IMG_GZ_DTB
+	default "Image-dtb" if IMG_DTB
+
+config BUILD_ARM64_APPENDED_DTB_IMAGE_NAMES
+	string "Default dtb names"
+	depends on BUILD_ARM64_APPENDED_DTB_IMAGE
+	help
+	  Space separated list of names of dtbs to append when
+	  building a concatenated Image.gz-dtb.
+
+config BUILD_ARM64_DT_OVERLAY
+	bool "enable DT overlay compilation support"
+	depends on OF
+	help
+	  This option enables support for DT overlay compilation.
 endmenu
 
 menu "Userspace binary formats"
@@ -1028,6 +1319,279 @@ config SYSVIPC_COMPAT
 	depends on COMPAT && SYSVIPC
 
 endmenu
+
+config SEC_STARQLTE_PROJECT
+	depends on ARCH_SDM845
+	default n
+	bool "Samsung STARQLTE Project"
+	help
+	  Support for Samsung STARQLTE Project
+
+config MACH_STARQLTE_SINGLE
+	depends on SEC_STARQLTE_PROJECT
+	default n
+	bool "Samsung STARQLTE SQ"
+	help
+	  Support for Samsung STARQLTE USA SQ device.
+
+config SEC_STAR2QLTE_PROJECT
+	depends on ARCH_SDM845
+	default n
+	bool "Samsung STAR2QLTE Project"
+	help
+	  Support for Samsung STAR2QLTE Project
+
+config MACH_STAR2QLTE_SINGLE
+	depends on SEC_STAR2QLTE_PROJECT
+	default n
+	bool "Samsung STAR2QLTE SQ"
+	help
+	  Support for Samsung STAR2QLTE USA SQ device.
+
+config MACH_STARQLTE_OPEN
+	depends on SEC_STARQLTE_PROJECT
+	default n
+	bool "Samsung STARQLTE OPEN"
+	help
+	  Support for Samsung STARQLTE USA OPEN device.
+
+config MACH_STAR2QLTE_OPEN
+	depends on SEC_STAR2QLTE_PROJECT
+	default n
+	bool "Samsung STAR2QLTE OPEN"
+	help
+	  Support for Samsung STAR2QLTE USA OPEN device.
+
+config MACH_STARQLTE_LDU
+	depends on SEC_STARQLTE_PROJECT
+	default n
+	bool "Samsung STARQLTE LDU"
+	help
+	  Support for Samsung STARQLTE USA LDU device.
+
+config MACH_STAR2QLTE_LDU
+	depends on SEC_STAR2QLTE_PROJECT
+	default n
+	bool "Samsung STAR2QLTE LDU"
+	help
+	  Support for Samsung STAR2QLTE USA LDU device.
+
+config MACH_STARQLTE_CAN_SINGLE
+	depends on SEC_STARQLTE_PROJECT
+	default n
+	bool "Samsung STARQLTE CAN SQ"
+	help
+	  Support for Samsung STARQLTE CAN SQ device.
+
+config MACH_STAR2QLTE_CAN_SINGLE
+	depends on SEC_STAR2QLTE_PROJECT
+	default n
+	bool "Samsung STAR2QLTE CAN SQ"
+	help
+	  Support for Samsung STAR2QLTE CAN SQ device.
+
+config MACH_STARQLTE_CHNZC
+        depends on SEC_STARQLTE_PROJECT
+        default n
+        bool "Samsung STARQLTE CHN OPEN"
+        help
+          Support for Samsung STARQLTE CHN OPEN device.
+
+config MACH_STAR2QLTE_CHNZC
+        depends on SEC_STAR2QLTE_PROJECT
+        default n
+        bool "Samsung STAR2QLTE CHN OPEN"
+        help
+          Support for Samsung STAR2QLTE CHN OPEN device.
+
+config MACH_STARQLTE_CHNHK
+        depends on SEC_STARQLTE_PROJECT
+        default n
+        bool "Samsung STARQLTE CHN HK"
+        help
+          Support for Samsung STARQLTE CHN HK device.
+
+config MACH_STAR2QLTE_CHNHK
+        depends on SEC_STAR2QLTE_PROJECT
+        default n
+        bool "Samsung STAR2QLTE CHN HK"
+        help
+          Support for Samsung STAR2QLTE CHN HK device.
+
+config MACH_STARQLTE_CHNZM
+        depends on SEC_STARQLTE_PROJECT
+        default n
+        bool "Samsung STARQLTE CHN CMCC"
+        help
+          Support for Samsung STARQLTE CHN CMCC device.
+
+config MACH_STAR2QLTE_CHNZM
+        depends on SEC_STAR2QLTE_PROJECT
+        default n
+        bool "Samsung STAR2QLTE CHN CMCC"
+        help
+          Support for Samsung STAR2QLTE CHN CMCC device.
+
+config MACH_STARQLTE_CHN_LDU
+        depends on SEC_STARQLTE_PROJECT
+        default n
+        bool "Samsung STARQLTE CHN LDU"
+        help
+          Support for Samsung STARQLTE CHN LDU device.
+
+config MACH_STAR2QLTE_CHN_LDU
+        depends on SEC_STAR2QLTE_PROJECT
+        default n
+        bool "Samsung STAR2QLTE CHN LDU"
+        help
+          Support for Samsung STAR2QLTE CHNLDU device.
+
+config MACH_STARQLTE_DCM
+        depends on SEC_STARQLTE_PROJECT
+        default n
+        bool "Samsung STARQLTE JPN DCM"
+        help
+          Support for Samsung STARQLTE JPN DCM device.
+
+config MACH_STAR2QLTE_DCM
+        depends on SEC_STAR2QLTE_PROJECT
+        default n
+        bool "Samsung STAR2QLTE JPN DCM"
+        help
+          Support for Samsung STAR2QLTE JPN DCM device.
+
+config MACH_STARQLTE_KDI
+        depends on SEC_STARQLTE_PROJECT
+        default n
+        bool "Samsung STARQLTE JPN KDI"
+        help
+          Support for Samsung STARQLTE JPN KDI device.
+
+config MACH_STAR2QLTE_KDI
+        depends on SEC_STAR2QLTE_PROJECT
+        default n
+        bool "Samsung STAR2QLTE JPN KDI"
+        help
+          Support for Samsung STAR2QLTE JPN KDI device.
+
+config SEC_CROWNQLTE_PROJECT
+	depends on ARCH_SDM845
+	default n
+	bool "Samsung CROWNQLTE Project"
+	help
+	  Support for Samsung CROWNQLTE Project
+
+config SEC_LYKANLTE_PROJECT
+	depends on ARCH_SDM845
+	default n
+	bool "Samsung LYKANLTE Project"
+	help
+	  Support for Samsung LYKANLTE Project
+
+config MACH_CROWNQLTE_USA_SINGLE
+	depends on SEC_CROWNQLTE_PROJECT
+	default n
+	bool "Samsung CROWNQLTE USA SQ"
+	help
+	  Support for Samsung CROWNQLTE USA SQ device.
+
+config MACH_CROWNQLTE_USA_OPEN
+	depends on SEC_CROWNQLTE_PROJECT
+	default n
+	bool "Samsung CROWNQLTE USA SE"
+	help
+	  Support for Samsung CROWNQLTE USA OPEN device.
+
+config MACH_CROWNQLTE_USA_LDU
+	depends on SEC_CROWNQLTE_PROJECT
+	default n
+	bool "Samsung CROWNQLTE LDU"
+	help
+	  Support for Samsung CROWNQLTE USA LDU device.
+
+config MACH_CROWNQLTE_CAN_SINGLE
+	depends on SEC_CROWNQLTE_PROJECT
+	default n
+	bool "Samsung CROWNQLTE CAN SQ"
+	help
+	  Support for Samsung CROWNQLTE CAN SQ device.
+
+config MACH_CROWNQLTE_CHNZC
+	depends on SEC_CROWNQLTE_PROJECT
+	default n
+	bool "Samsung CROWNQLTE CHN OPEN"
+	help
+	  Support for Samsung CROWNQLTE CHN OPEN device.
+
+config MACH_CROWNQLTE_CHN_LDU
+        depends on SEC_CROWNQLTE_PROJECT
+        default n
+        bool "Samsung CROWNQLTE CHN LDU"
+        help
+          Support for Samsung CROWNQLTE CHN LDU device.
+
+config MACH_CROWNQLTE_CHNZM
+	depends on SEC_CROWNQLTE_PROJECT
+	default n
+	bool "Samsung CROWNQLTE CHN CMCC"
+	help
+	  Support for Samsung CROWNQLTE CHN CMCC device.
+
+config MACH_CROWNQLTE_CHNHK
+	depends on SEC_CROWNQLTE_PROJECT
+	default n
+	bool "Samsung CROWNQLTE CHN HK"
+	help
+	  Support for Samsung CROWNQLTE CHN HK device.
+
+config MACH_CROWNQLTE_DCM
+        depends on SEC_CROWNQLTE_PROJECT
+        default n
+        bool "Samsung CROWNQLTE JPN DCM"
+        help
+          Support for Samsung CROWNQLTE JPN DCM device.
+
+config MACH_CROWNQLTE_KDI
+        depends on SEC_CROWNQLTE_PROJECT
+        default n
+        bool "Samsung CROWNQLTE JPN KDI"
+        help
+          Support for Samsung CROWNQLTE JPN KDI device.
+
+config MACH_LYKANLTE_CHNZC
+        depends on SEC_LYKANLTE_PROJECT
+        default n
+        bool "Samsung LYKANLTE CHN OPEN"
+        help
+          Support for Samsung CROWNQLTE CHN OPEN device.
+
+config LOD_SEC
+	bool "kernel security re-enforcement for Linux On Dex, including cap re-check and seccomp report"
+	default n
+
+config TIMA
+	bool "Enable TIMA(Trustzone based Integrity Measurement Archtecture feature"
+	default n
+
+config TIMA_LKMAUTH
+	bool "Enable LKM authentication by TIMA"
+	depends on MODULES
+	help
+	  TIMA authenticates loaded kernel modules. Disable it if you don't
+	  want TIMA enabled.
+
+config TIMA_LKM_BLOCK
+	bool "Block LKM by TIMA"
+	help
+	  LKM is disapproved by Samsung security policy.
+
+config TIMA_LKMAUTH_CODE_PROT
+	bool "Support kernel Module"
+	depends on MODULES
+	default n
+	help
+	  When enabled, this feature will mark all Executable sections in an
+	  LKM as RO
 
 menu "Power management options"
 

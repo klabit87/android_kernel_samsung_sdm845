@@ -92,7 +92,8 @@ static int fat12_ent_bread(struct super_block *sb, struct fat_entry *fatent,
 err_brelse:
 	brelse(bhs[0]);
 err:
-	fat_msg(sb, KERN_ERR, "FAT read failed (blocknr %llu)", (llu)blocknr);
+	fat_msg_ratelimit(sb, KERN_ERR,
+			"FAT read failed (blocknr %llu)", (llu)blocknr);
 	return -EIO;
 }
 
@@ -105,8 +106,8 @@ static int fat_ent_bread(struct super_block *sb, struct fat_entry *fatent,
 	fatent->fat_inode = MSDOS_SB(sb)->fat_inode;
 	fatent->bhs[0] = sb_bread(sb, blocknr);
 	if (!fatent->bhs[0]) {
-		fat_msg(sb, KERN_ERR, "FAT read failed (blocknr %llu)",
-		       (llu)blocknr);
+		fat_msg_ratelimit(sb, KERN_ERR,
+			"FAT read failed (blocknr %llu)", (llu)blocknr);
 		return -EIO;
 	}
 	fatent->nr_bhs = 1;
@@ -167,9 +168,9 @@ static void fat12_ent_put(struct fat_entry *fatent, int new)
 	}
 	spin_unlock(&fat12_entry_lock);
 
-	mark_buffer_dirty_inode(fatent->bhs[0], fatent->fat_inode);
+	mark_buffer_dirty_inode_sync(fatent->bhs[0], fatent->fat_inode);
 	if (fatent->nr_bhs == 2)
-		mark_buffer_dirty_inode(fatent->bhs[1], fatent->fat_inode);
+		mark_buffer_dirty_inode_sync(fatent->bhs[1], fatent->fat_inode);
 }
 
 static void fat16_ent_put(struct fat_entry *fatent, int new)
@@ -178,7 +179,7 @@ static void fat16_ent_put(struct fat_entry *fatent, int new)
 		new = EOF_FAT16;
 
 	*fatent->u.ent16_p = cpu_to_le16(new);
-	mark_buffer_dirty_inode(fatent->bhs[0], fatent->fat_inode);
+	mark_buffer_dirty_inode_sync(fatent->bhs[0], fatent->fat_inode);
 }
 
 static void fat32_ent_put(struct fat_entry *fatent, int new)
@@ -186,7 +187,7 @@ static void fat32_ent_put(struct fat_entry *fatent, int new)
 	WARN_ON(new & 0xf0000000);
 	new |= le32_to_cpu(*fatent->u.ent32_p) & ~0x0fffffff;
 	*fatent->u.ent32_p = cpu_to_le32(new);
-	mark_buffer_dirty_inode(fatent->bhs[0], fatent->fat_inode);
+	mark_buffer_dirty_inode_sync(fatent->bhs[0], fatent->fat_inode);
 }
 
 static int fat12_ent_next(struct fat_entry *fatent)
@@ -391,7 +392,7 @@ static int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
 			}
 			memcpy(c_bh->b_data, bhs[n]->b_data, sb->s_blocksize);
 			set_buffer_uptodate(c_bh);
-			mark_buffer_dirty_inode(c_bh, sbi->fat_inode);
+			mark_buffer_dirty_inode_sync(c_bh, sbi->fat_inode);
 			if (sb->s_flags & MS_SYNCHRONOUS)
 				err = sync_dirty_buffer(c_bh);
 			brelse(c_bh);

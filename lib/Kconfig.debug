@@ -257,6 +257,17 @@ config PAGE_OWNER
 
 	  If unsure, say N.
 
+config PAGE_OWNER_ENABLE_DEFAULT
+	bool "Enable Track page owner by default"
+	depends on PAGE_OWNER
+	---help---
+	  This keeps track of what call chain is the owner of a page, may
+	  help to find bare alloc_page(s) leaks. If you include this
+	  feature on your build, it is enabled by default. You should pass
+	  "page_owner=off" to boot parameter in order to disable it. Eats
+	  a fair amount of memory if enabled. See tools/vm/page_owner_sort.c
+	  for user-space helper.
+
 config DEBUG_FS
 	bool "Debug Filesystem"
 	select SRCU
@@ -768,10 +779,19 @@ config LOCKUP_DETECTOR
 	  The frequency of hrtimer and NMI events and the soft and hard lockup
 	  thresholds can be controlled through the sysctl watchdog_thresh.
 
-config HARDLOCKUP_DETECTOR
+config HARDLOCKUP_DETECTOR_NMI
 	def_bool y
 	depends on LOCKUP_DETECTOR && !HAVE_NMI_WATCHDOG
 	depends on PERF_EVENTS && HAVE_PERF_EVENTS_NMI
+
+config HARDLOCKUP_DETECTOR_OTHER_CPU
+       def_bool y
+       depends on LOCKUP_DETECTOR && SMP
+       depends on !HARDLOCKUP_DETECTOR_NMI && !HAVE_NMI_WATCHDOG
+
+config HARDLOCKUP_DETECTOR
+       def_bool y
+       depends on HARDLOCKUP_DETECTOR_NMI || HARDLOCKUP_DETECTOR_OTHER_CPU
 
 config BOOTPARAM_HARDLOCKUP_PANIC
 	bool "Panic (Reboot) On Hard Lockups"
@@ -923,6 +943,25 @@ config SCHED_INFO
 	bool
 	default n
 
+config PANIC_ON_SCHED_BUG
+	bool "Panic on all bugs encountered by the scheduler"
+	help
+	  Say Y here to panic on all 'BUG:' conditions encountered by the
+	  scheduler, even potentially-recoverable ones such as scheduling
+	  while atomic, sleeping from invalid context, and detection of
+	  broken arch topologies.
+
+	  Say N if unsure.
+
+config PANIC_ON_RT_THROTTLING
+	bool "Panic on RT throttling"
+	help
+	  Say Y here to enable the kernel to panic when a realtime
+	  runqueue is throttled. This may be useful for detecting
+	  and debugging RT throttling issues.
+
+	  Say N if unsure.
+
 config SCHEDSTATS
 	bool "Collect scheduler statistics"
 	depends on DEBUG_KERNEL && PROC_FS
@@ -961,19 +1000,14 @@ config DEBUG_TIMEKEEPING
 
 	  If unsure, say N.
 
-config TIMER_STATS
-	bool "Collect kernel timers statistics"
-	depends on DEBUG_KERNEL && PROC_FS
+config DEBUG_TASK_STACK_SCAN_OFF
+	bool "Disable kmemleak task stack scan by default"
+	depends on DEBUG_KMEMLEAK
 	help
-	  If you say Y here, additional code will be inserted into the
-	  timer routines to collect statistics about kernel timers being
-	  reprogrammed. The statistics can be read from /proc/timer_stats.
-	  The statistics collection is started by writing 1 to /proc/timer_stats,
-	  writing 0 stops it. This feature is useful to collect information
-	  about timer usage patterns in kernel and userspace. This feature
-	  is lightweight if enabled in the kernel config but not activated
-	  (it defaults to deactivated on bootup and will only be activated
-	  if some application like powertop activates it explicitly).
+	  Say Y here to disable kmemleak task stack scan by default
+	  at compile time. It can be enabled later if required by
+	  writing to the debugfs entry :
+	  echo "stack=on" > /sys/kernel/debug/kmemleak.
 
 config DEBUG_PREEMPT
 	bool "Debug preemptible kernel"
@@ -1003,6 +1037,28 @@ config DEBUG_SPINLOCK
 	  and certain other kinds of spinlock errors commonly made.  This is
 	  best used in conjunction with the NMI watchdog so that spinlock
 	  deadlocks are also debuggable.
+choice
+        prompt "Perform Action on spinlock bug"
+        depends on DEBUG_SPINLOCK
+
+        default DEBUG_SPINLOCK_BITE_ON_BUG
+
+        config DEBUG_SPINLOCK_BITE_ON_BUG
+                bool "Cause a Watchdog Bite on Spinlock bug"
+                depends on QCOM_WATCHDOG_V2
+                help
+                  On a spinlock bug, cause a watchdog bite so that we can get
+                  the precise state of the system captured at the time of spin
+                  dump. This is mutually exclusive with the below
+                  DEBUG_SPINLOCK_PANIC_ON_BUG config.
+
+        config DEBUG_SPINLOCK_PANIC_ON_BUG
+                bool "Cause a Kernel Panic on Spinlock bug"
+                help
+                  On a spinlock bug, cause a kernel panic so that we can get the complete
+                  information about the system at the time of spin dump in the dmesg.
+                  This is mutually exclusive with the above DEBUG_SPINLOCK_BITE_ON_BUG.
+endchoice
 
 config DEBUG_MUTEXES
 	bool "Mutex debugging: basic checks"
@@ -1183,7 +1239,7 @@ config DEBUG_KOBJECT
 	depends on DEBUG_KERNEL
 	help
 	  If you say Y here, some extra kobject debugging messages will be sent
-	  to the syslog. 
+	  to the syslog.
 
 config DEBUG_KOBJECT_RELEASE
 	bool "kobject release debugging"
@@ -1428,6 +1484,18 @@ config RCU_CPU_STALL_TIMEOUT
 	  RCU grace period persists, additional CPU stall warnings are
 	  printed at more widely spaced intervals.
 
+config RCU_PANIC_ON_STALL
+	int "Panic on RCU Stalls"
+	range 0 1
+	default 0
+	depends on RCU_STALL_COMMON
+	help
+	  Panic if a given RCU grace period extends more than the specified
+	  number of seconds instead of just printing a CPU stall warning.
+	  This helps to collect cpu context as part of ramdumps for post
+	  mortem analysis.
+
+
 config RCU_TRACE
 	bool "Enable tracing for RCU"
 	depends on DEBUG_KERNEL
@@ -1652,6 +1720,20 @@ config FAIL_MMC_REQUEST
 	  useful to test the error handling in the mmc block device
 	  and to test how the mmc host driver handles retries from
 	  the block device.
+
+config UFS_FAULT_INJECTION
+	bool "Fault-injection capability for UFS IO"
+	select DEBUG_FS
+	depends on FAULT_INJECTION && SCSI_UFSHCD
+	help
+	 Provide fault-injection capability for UFS IO.
+	 This will make the UFS host controller driver to randomly
+	 abort ongoing commands in the host controller, update OCS
+	 field according to the injected fatal error and can also
+	 forcefully hang the command indefinitely till upper layer
+	 timeout occurs. This is useful to test error handling in
+	 the UFS contoller driver and test how the driver handles
+	 the retries from block/SCSI mid layer.
 
 config FAIL_FUTEX
 	bool "Fault-injection capability for futexes"
@@ -1955,6 +2037,19 @@ config MEMTEST
 	        memtest=17, mean do 17 test patterns.
 	  If you are unsure how to answer this question, answer N.
 
+config MEMTEST_ENABLE_DEFAULT
+	int "Enable Memtest pattern test by default? (0-17)"
+	range 0 17
+	default "0"
+	depends on MEMTEST
+	help
+	  This option helps to select Memtest to be enabled through
+	  kernel defconfig options. Alternatively it can be enabled
+	  using memtest=<patterns> kernel command line.
+
+	  Default value is kept as "0" so that it is kept as disabled.
+	  To enable enter any value between 1-17 range.
+
 config TEST_STATIC_KEYS
 	tristate "Test static keys"
 	default n
@@ -1963,6 +2058,16 @@ config TEST_STATIC_KEYS
 	  Test the static key interfaces.
 
 	  If unsure, say N.
+
+config PANIC_ON_DATA_CORRUPTION
+	bool "Cause a Kernel Panic When Data Corruption is detected"
+	help
+	 Select this option to upgrade warnings for potentially
+	 recoverable data corruption scenarios to system-halting panics,
+	 for easier detection and debug.
+
+config DEBUG_TASK_USAGE
+	bool "task_struct usage debugging"
 
 source "samples/Kconfig"
 

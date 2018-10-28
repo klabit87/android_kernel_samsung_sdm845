@@ -33,15 +33,22 @@
 #include <linux/syscalls.h>
 
 #include <asm/atomic.h>
+#include <asm/barrier.h>
 #include <asm/bug.h>
 #include <asm/debug-monitors.h>
 #include <asm/esr.h>
 #include <asm/insn.h>
 #include <asm/traps.h>
+#include <asm/stack_pointer.h>
 #include <asm/stacktrace.h>
 #include <asm/exception.h>
 #include <asm/system_misc.h>
 #include <asm/sysreg.h>
+#include <trace/events/exception.h>
+
+#include <linux/sec_debug.h>
+#include <linux/sec_debug_summary.h>
+#include <linux/sec_debug_user_reset.h>
 
 static const char *handler[]= {
 	"Synchronous Abort",
@@ -142,10 +149,22 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 	unsigned long irq_stack_ptr;
 	int skip;
 
+#if (defined CONFIG_RKP_CFP_ROPP) && (defined CONFIG_RKP_CFP_TEST)
+	unsigned long value = 0x0;
+#endif
+
 	pr_debug("%s(regs = %p tsk = %p)\n", __func__, regs, tsk);
 
 	if (!tsk)
 		tsk = current;
+
+	if (!try_get_task_stack(tsk))
+		return;
+
+#if (defined CONFIG_RKP_CFP_ROPP) && (defined CONFIG_RKP_CFP_TEST)
+	asm volatile("mrs %0, "STR(RRMK)"\n\t" : "=r" (value));
+	printk("CFP_TEST MK= %lx RRK=%lx X17=%lx\n", value, task_thread_info(tsk)->rrk, task_thread_info(tsk)->rrk ^ value);
+#endif
 
 	/*
 	 * Switching between stacks is valid when tracing current and in
@@ -212,6 +231,8 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 				 stack + sizeof(struct pt_regs));
 		}
 	}
+
+	put_task_stack(tsk);
 }
 
 void show_stack(struct task_struct *tsk, unsigned long *sp)
@@ -227,10 +248,9 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 #endif
 #define S_SMP " SMP"
 
-static int __die(const char *str, int err, struct thread_info *thread,
-		 struct pt_regs *regs)
+static int __die(const char *str, int err, struct pt_regs *regs)
 {
-	struct task_struct *tsk = thread->task;
+	struct task_struct *tsk = current;
 	static int die_counter;
 	int ret;
 
@@ -245,11 +265,21 @@ static int __die(const char *str, int err, struct thread_info *thread,
 	print_modules();
 	__show_regs(regs);
 	pr_emerg("Process %.*s (pid: %d, stack limit = 0x%p)\n",
-		 TASK_COMM_LEN, tsk->comm, task_pid_nr(tsk), thread + 1);
+		 TASK_COMM_LEN, tsk->comm, task_pid_nr(tsk),
+		 end_of_stack(tsk));
 
 	if (!user_mode(regs)) {
-		dump_mem(KERN_EMERG, "Stack: ", regs->sp,
-			 THREAD_SIZE + (unsigned long)task_stack_page(tsk));
+#ifdef CONFIG_SEC_DEBUG
+		if (THREAD_SIZE + (unsigned long)task_stack_page(tsk) - regs->sp
+			> THREAD_SIZE) {
+			dump_mem(KERN_EMERG, "Stack: ", regs->sp,
+					THREAD_SIZE / 4 + regs->sp);
+		} else {
+			dump_mem(KERN_EMERG, "Stack: ", regs->sp, THREAD_SIZE
+					+ (unsigned long)task_stack_page(tsk));
+		}
+#endif
+
 		dump_backtrace(regs, tsk);
 		dump_instr(KERN_EMERG, regs);
 	}
@@ -257,37 +287,75 @@ static int __die(const char *str, int err, struct thread_info *thread,
 	return ret;
 }
 
-static DEFINE_RAW_SPINLOCK(die_lock);
+static arch_spinlock_t die_lock = __ARCH_SPIN_LOCK_UNLOCKED;
+static int die_owner = -1;
+static unsigned int die_nest_count;
 
-/*
- * This function is protected against re-entrancy.
- */
-void die(const char *str, struct pt_regs *regs, int err)
+static unsigned long oops_begin(void)
 {
-	struct thread_info *thread = current_thread_info();
-	int ret;
+	int cpu;
+	unsigned long flags;
 
 	oops_enter();
+	secdbg_sched_msg("!!die!!");
 
-	raw_spin_lock_irq(&die_lock);
+	/* racy, but better than risking deadlock. */
+	raw_local_irq_save(flags);
+	cpu = smp_processor_id();
+	if (!arch_spin_trylock(&die_lock)) {
+		if (cpu == die_owner)
+			/* nested oops. should stop eventually */;
+		else
+			arch_spin_lock(&die_lock);
+	}
+	die_nest_count++;
+	die_owner = cpu;
 	console_verbose();
 	bust_spinlocks(1);
-	ret = __die(str, err, thread, regs);
+	return flags;
+}
 
-	if (regs && kexec_should_crash(thread->task))
+static void oops_end(unsigned long flags, struct pt_regs *regs, int notify)
+{
+	if (regs && kexec_should_crash(current))
 		crash_kexec(regs);
 
 	bust_spinlocks(0);
+	die_owner = -1;
 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
-	raw_spin_unlock_irq(&die_lock);
+	die_nest_count--;
+	if (!die_nest_count)
+		/* Nest count reaches zero, release the lock. */
+		arch_spin_unlock(&die_lock);
+	raw_local_irq_restore(flags);
 	oops_exit();
 
 	if (in_interrupt())
 		panic("Fatal exception in interrupt");
 	if (panic_on_oops)
 		panic("Fatal exception");
-	if (ret != NOTIFY_STOP)
+	if (notify != NOTIFY_STOP)
 		do_exit(SIGSEGV);
+}
+
+/*
+ * This function is protected against re-entrancy.
+ */
+void die(const char *str, struct pt_regs *regs, int err)
+{
+	enum bug_trap_type bug_type = BUG_TRAP_TYPE_NONE;
+	unsigned long flags = oops_begin();
+	int ret;
+
+	if (!user_mode(regs))
+		bug_type = report_bug(regs->pc, regs);
+	if (bug_type != BUG_TRAP_TYPE_NONE && !strlen(str))
+		str = "Oops - BUG";
+
+	sec_debug_save_die_info(str, regs);
+	ret = __die(str, err, regs);
+
+	oops_end(flags, regs, ret);
 }
 
 void arm64_notify_die(const char *str, struct pt_regs *regs,
@@ -418,12 +486,16 @@ void arm64_notify_segfault(struct pt_regs *regs, unsigned long addr)
 
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 {
+	void __user *pc = (void __user *)instruction_pointer(regs);
+
 	/* check for AArch32 breakpoint instructions */
 	if (!aarch32_break_handler(regs))
 		return;
 
 	if (call_undef_hook(regs) == 0)
 		return;
+
+	trace_undef_instr(regs, pc);
 
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs, 0);
 }
@@ -435,9 +507,10 @@ int cpu_enable_cache_maint_trap(void *__unused)
 }
 
 #define __user_cache_maint(insn, address, res)			\
-	if (address >= user_addr_max())				\
+	if (address >= user_addr_max()) {			\
 		res = -EFAULT;					\
-	else							\
+	} else {						\
+		uaccess_ttbr0_enable();				\
 		asm volatile (					\
 			"1:	" insn ", %1\n"			\
 			"	mov	%w0, #0\n"		\
@@ -449,7 +522,9 @@ int cpu_enable_cache_maint_trap(void *__unused)
 			"	.popsection\n"			\
 			_ASM_EXTABLE(1b, 3b)			\
 			: "=r" (res)				\
-			: "r" (address), "i" (-EFAULT) )
+			: "r" (address), "i" (-EFAULT));	\
+		uaccess_ttbr0_disable();			\
+	}
 
 static void user_cache_maint_handler(unsigned int esr, struct pt_regs *regs)
 {
@@ -492,6 +567,25 @@ static void ctr_read_handler(unsigned int esr, struct pt_regs *regs)
 	regs->pc += 4;
 }
 
+static void cntvct_read_handler(unsigned int esr, struct pt_regs *regs)
+{
+	int rt = (esr & ESR_ELx_SYS64_ISS_RT_MASK) >> ESR_ELx_SYS64_ISS_RT_SHIFT;
+
+	isb();
+	if (rt != 31)
+		regs->regs[rt] = arch_counter_get_cntvct();
+	regs->pc += 4;
+}
+
+static void cntfrq_read_handler(unsigned int esr, struct pt_regs *regs)
+{
+	int rt = (esr & ESR_ELx_SYS64_ISS_RT_MASK) >> ESR_ELx_SYS64_ISS_RT_SHIFT;
+
+	if (rt != 31)
+		regs->regs[rt] = read_sysreg(cntfrq_el0);
+	regs->pc += 4;
+}
+
 struct sys64_hook {
 	unsigned int esr_mask;
 	unsigned int esr_val;
@@ -510,6 +604,18 @@ static struct sys64_hook sys64_hooks[] = {
 		.esr_val = ESR_ELx_SYS64_ISS_SYS_CTR_READ,
 		.handler = ctr_read_handler,
 	},
+	{
+		/* Trap read access to CNTVCT_EL0 */
+		.esr_mask = ESR_ELx_SYS64_ISS_SYS_OP_MASK,
+		.esr_val = ESR_ELx_SYS64_ISS_SYS_CNTVCT,
+		.handler = cntvct_read_handler,
+	},
+	{
+		/* Trap read access to CNTFRQ_EL0 */
+		.esr_mask = ESR_ELx_SYS64_ISS_SYS_OP_MASK,
+		.esr_val = ESR_ELx_SYS64_ISS_SYS_CNTFRQ,
+		.handler = cntfrq_read_handler,
+	},
 	{},
 };
 
@@ -525,6 +631,124 @@ asmlinkage void __exception do_sysinstr(unsigned int esr, struct pt_regs *regs)
 
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs, 0);
 }
+
+#ifdef CONFIG_COMPAT
+static void cntfrq_cp15_32_read_handler(unsigned int esr, struct pt_regs *regs)
+{
+	int rt =
+	  (esr & ESR_ELx_CP15_32_ISS_RT_MASK) >> ESR_ELx_CP15_32_ISS_RT_SHIFT;
+	int cv =
+	  (esr & ESR_ELx_CP15_32_ISS_CV_MASK) >> ESR_ELx_CP15_32_ISS_CV_SHIFT;
+	int cond =
+	  (esr & ESR_ELx_CP15_32_ISS_COND_MASK) >>
+		ESR_ELx_CP15_32_ISS_COND_SHIFT;
+	bool read_reg = 1;
+
+	if (rt == 13 && !compat_arm_instr_set(regs))
+		read_reg = 0;
+
+	if (cv && cond != 0xf &&
+	    !(*aarch32_opcode_cond_checks[cond])(regs->pstate & 0xffffffff))
+		read_reg = 0;
+
+	if (read_reg)
+		regs->regs[rt] = read_sysreg(cntfrq_el0);
+	regs->pc += 4;
+}
+
+struct cp15_32_hook {
+	unsigned int esr_mask;
+	unsigned int esr_val;
+	void (*handler)(unsigned int esr, struct pt_regs *regs);
+};
+
+static struct cp15_32_hook cp15_32_hooks[] = {
+	{
+		/* Trap CP15 AArch32 read access to CNTFRQ_EL0 */
+		.esr_mask = ESR_ELx_CP15_32_ISS_SYS_OP_MASK,
+		.esr_val = ESR_ELx_CP15_32_ISS_SYS_CNTFRQ,
+		.handler = cntfrq_cp15_32_read_handler,
+	},
+	{},
+};
+
+asmlinkage void __exception do_cp15_32_instr_compat(unsigned int esr,
+						    struct pt_regs *regs)
+{
+	struct cp15_32_hook *hook;
+
+	for (hook = cp15_32_hooks; hook->handler; hook++)
+		if ((hook->esr_mask & esr) == hook->esr_val) {
+			hook->handler(esr, regs);
+			return;
+		}
+
+	force_signal_inject(SIGILL, ILL_ILLOPC, regs, 0);
+}
+
+static void cntvct_cp15_64_read_handler(unsigned int esr, struct pt_regs *regs)
+{
+	int rt =
+	  (esr & ESR_ELx_CP15_64_ISS_RT_MASK) >> ESR_ELx_CP15_64_ISS_RT_SHIFT;
+	int rt2 =
+	  (esr & ESR_ELx_CP15_64_ISS_RT2_MASK) >> ESR_ELx_CP15_64_ISS_RT2_SHIFT;
+	int cv =
+	  (esr & ESR_ELx_CP15_64_ISS_CV_MASK) >> ESR_ELx_CP15_64_ISS_CV_SHIFT;
+	int cond =
+	  (esr & ESR_ELx_CP15_64_ISS_COND_MASK) >>
+		ESR_ELx_CP15_64_ISS_COND_SHIFT;
+	bool read_reg = 1;
+
+	if (rt == 15 || rt2 == 15 || rt == rt2)
+		read_reg = 0;
+
+	if ((rt == 13 || rt2 == 13) && !compat_arm_instr_set(regs))
+		read_reg = 0;
+
+	if (cv && cond != 0xf &&
+	    !(*aarch32_opcode_cond_checks[cond])(regs->pstate & 0xffffffff))
+		read_reg = 0;
+
+	if (read_reg) {
+		u64 cval =  arch_counter_get_cntvct();
+
+		regs->regs[rt] = cval & 0xffffffff;
+		regs->regs[rt2] = cval >> 32;
+	}
+	regs->pc += 4;
+}
+
+struct cp15_64_hook {
+	unsigned int esr_mask;
+	unsigned int esr_val;
+	void (*handler)(unsigned int esr, struct pt_regs *regs);
+};
+
+static struct cp15_64_hook cp15_64_hooks[] = {
+	{
+		/* Trap CP15 AArch32 read access to CNTVCT_EL0 */
+		.esr_mask = ESR_ELx_CP15_64_ISS_SYS_OP_MASK,
+		.esr_val = ESR_ELx_CP15_64_ISS_SYS_CNTVCT,
+		.handler = cntvct_cp15_64_read_handler,
+	},
+	{},
+};
+
+asmlinkage void __exception do_cp15_64_instr_compat(unsigned int esr,
+						    struct pt_regs *regs)
+{
+	struct cp15_64_hook *hook;
+
+	for (hook = cp15_64_hooks; hook->handler; hook++)
+		if ((hook->esr_mask & esr) == hook->esr_val) {
+			hook->handler(esr, regs);
+			return;
+		}
+
+	force_signal_inject(SIGILL, ILL_ILLOPC, regs, 0);
+}
+
+#endif
 
 long compat_arm_syscall(struct pt_regs *regs);
 
@@ -602,6 +826,9 @@ const char *esr_get_class_string(u32 esr)
 asmlinkage void bad_mode(struct pt_regs *regs, int reason, unsigned int esr)
 {
 	console_verbose();
+
+	sec_debug_save_badmode_info(reason, handler[reason],
+			esr, esr_get_class_string(esr));
 
 	pr_crit("Bad mode in %s handler detected on CPU%d, code 0x%08x -- %s\n",
 		handler[reason], smp_processor_id(), esr,

@@ -20,6 +20,8 @@ struct device;
 
 struct clk;
 
+#ifdef CONFIG_COMMON_CLK
+
 /**
  * DOC: clk notifier callback types
  *
@@ -75,8 +77,6 @@ struct clk_notifier_data {
 	unsigned long		old_rate;
 	unsigned long		new_rate;
 };
-
-#ifdef CONFIG_COMMON_CLK
 
 /**
  * clk_notifier_register: register a clock rate-change notifier callback
@@ -420,6 +420,26 @@ struct clk *clk_get_parent(struct clk *clk);
  */
 struct clk *clk_get_sys(const char *dev_id, const char *con_id);
 
+/**
+ * clk_set_flags - set the custom HW specific flags for this clock
+ * @clk: clock source
+ * @flags: custom flags which would be hardware specific, defined for specific
+ *	   hardware.
+ *
+ * Returns success 0 or negative errno.
+ */
+int clk_set_flags(struct clk *clk, unsigned long flags);
+
+/**
+ * clk_list_frequnecy - enumerate supported frequencies
+ * @clk: clock source
+ * @index: identify frequency to list
+ *
+ * Returns a non-negative integer frequency for success
+ * or negative errno in case of failure.
+ */
+unsigned long clk_list_frequency(struct clk *clk, unsigned int index);
+
 #else /* !CONFIG_HAVE_CLK */
 
 static inline struct clk *clk_get(struct device *dev, const char *id)
@@ -504,7 +524,7 @@ static inline void clk_disable_unprepare(struct clk *clk)
 struct device_node;
 struct of_phandle_args;
 
-#if defined(CONFIG_OF) && defined(CONFIG_COMMON_CLK)
+#if defined(CONFIG_OF)
 struct clk *of_clk_get(struct device_node *np, int index);
 struct clk *of_clk_get_by_name(struct device_node *np, const char *name);
 struct clk *of_clk_get_from_provider(struct of_phandle_args *clkspec);

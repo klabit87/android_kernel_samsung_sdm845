@@ -1,0 +1,113 @@
+config SAMSUNG_DEBUG_DISPLAY
+	bool "Add Samsung Debugging code"
+	default n
+
+config DISPLAY_SAMSUNG
+	depends on DRM_MSM
+	bool "mdss config for samsung product"
+	default n
+	---help---
+	Mdss config signature for samsung product
+
+config DISPLAY_USE_INFO
+	depends on DISPLAY_SAMSUNG
+	bool "Support display use info logging"
+	default n
+
+#
+#	PANEL UNIQUE FEATURE
+#
+config DUAL_PANEL
+	depends on DISPLAY_SAMSUNG
+	bool "dual paneloperation"
+	default n
+	---help---
+	dual panel operation support
+
+config PARTIAL_UPDATE
+	depends on DISPLAY_SAMSUNG
+	bool "partial update operation"
+	default n
+	---help---
+	partial update operation support
+
+config CABC_FUNCTION
+	depends on DISPLAY_SAMSUNG
+	bool "DDI cabc operation"
+	default n
+	---help---
+	DDI cabc operation support
+
+config SUPPORT_POC_FLASH
+	depends on DISPLAY_SAMSUNG
+	bool "SUPPORT POC FLASH"
+	default n
+	---help---
+	SUPPORT_POC_FLASH FOR DREAM2 ONLY
+
+#
+#	HOW TO MAKE DEF-CONFIG NAME FOR PANEL
+#
+#	PANEL_DDI-model_PANEL-model_RESOLUTION
+#	PANEL_S6E3FA2    _AMS510CV01_FHD
+#	PANEL_S6E3FA2_AMS510CV01_FHD
+#
+
+config PANEL_S6E3HA6_AMB632NF01_WQHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3HA6 LDI"
+	default n
+	---help---
+	LSI S6E3HA6 LDI 1440_2560 GREAT DSC
+
+
+config PANEL_S6E3HA6_AMS622MR01_WQHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3HA6 LDI"
+	default n
+	---help---
+	LSI S6E3HA6 LDI 1440_2560 DREAM2 DSC
+
+config PANEL_S6E3HA6_AMB577MQ01_WQHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3HA6 LDI"
+	default n
+	---help---
+	LSI S6E3HA6 LDI 1440_2560 DREAM DSC
+
+config PANEL_S6E3FA5_AMS420MS01_FHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3FA5 LDI"
+	default n
+	---help---
+	LSI S6E3FA5 LDI 1080_1920 KELLY
+
+config PANEL_S6E3HA8_AMB622NP01_WQHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3HA8 LDI"
+	default n
+	---help---
+	LSI S6E3HA8 LDI 1440_2560 STAR2 DSC
+
+
+config PANEL_S6E3HA8_AMB577PX01_WQHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3HA8 LDI"
+	default n
+	---help---
+	LSI S6E3HA8 LDI 1440_2560 STAR DSC
+
+config PANEL_S6E3HA8_AMB638RD01_WQHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3HA8 LDI"
+	default n
+	---help---
+	LSI S6E3HA8 LDI 1440_2560 CROWN DSC
+
+config PANEL_S6E3FA5_AMS420QW01_FHD
+	depends on DISPLAY_SAMSUNG
+	bool "LSI S6E3FA5 LDI"
+	default n
+	---help---
+	LSI S6E3FA5 LDI 1080_1920 LYKAN
+

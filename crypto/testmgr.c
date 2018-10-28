@@ -36,9 +36,11 @@
 
 #include "internal.h"
 
+#if 0
 static bool notests;
 module_param(notests, bool, 0644);
 MODULE_PARM_DESC(notests, "disable crypto self-tests");
+#endif
 
 #ifdef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
 
@@ -47,6 +49,14 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 {
 	return 0;
 }
+
+#ifdef CONFIG_CRYPTO_FIPS
+bool in_fips_err(void)
+{
+	return false;
+}
+EXPORT_SYMBOL_GPL(in_fips_err);
+#endif
 
 #else
 
@@ -74,6 +84,12 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 */
 #define ENCRYPT 1
 #define DECRYPT 0
+
+#ifdef CONFIG_CRYPTO_FIPS
+#define FIPS_ERR 1
+#define FIPS_NO_ERR 0
+static int IN_FIPS_ERROR = FIPS_NO_ERR;
+#endif
 
 struct tcrypt_result {
 	struct completion completion;
@@ -145,6 +161,88 @@ struct alg_test_desc {
 };
 
 static unsigned int IDX[8] = { IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8 };
+
+#ifdef CONFIG_CRYPTO_FIPS
+bool in_fips_err(void)
+{
+	return (IN_FIPS_ERROR == FIPS_ERR);
+}
+EXPORT_SYMBOL_GPL(in_fips_err);
+
+void set_in_fips_err(void)
+{
+	IN_FIPS_ERROR = FIPS_ERR;
+}
+EXPORT_SYMBOL_GPL(set_in_fips_err);
+
+#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
+static char *fips_functest_mode;
+
+static char *fips_functest_KAT_list[] = {
+	"ecb(aes-generic)",
+	"cbc(aes-generic)",
+	"gcm_base(ctr(aes-generic),ghash-generic)",
+	"ecb(aes-ce)",
+	"cbc(aes-ce)",
+	"gcm_base(ctr(aes-ce),ghash-generic)",
+	"sha1-generic",
+	"hmac(sha1-generic)",
+	"sha1-ce",
+	"hmac(sha1-ce)",
+	"sha224-generic",
+	"sha256-generic",
+	"hmac(sha224-generic)",
+	"hmac(sha256-generic)",
+	"sha224-ce",
+	"sha256-ce",
+	"hmac(sha224-ce)",
+	"hmac(sha256-ce)",
+	"sha384-generic",
+	"sha512-generic",
+	"hmac(sha384-generic)",
+	"hmac(sha512-generic)",
+	"drbg_nopr_hmac_sha256",
+	"drbg_pr_hmac_sha256",
+	"integrity"
+};
+static char *fips_functest_conditional_list[] = {
+	"ndrng_crngt",
+	"zeroization"
+};
+void reset_in_fips_err(void)
+{
+	IN_FIPS_ERROR = FIPS_NO_ERR;
+}
+EXPORT_SYMBOL_GPL(reset_in_fips_err);
+
+// This function is added to change fips_functest_KAT_num from tcrypt.c
+void set_fips_functest_KAT_mode(const int num)
+{
+	if (num >= 0 && num < SKC_FUNCTEST_KAT_CASE_NUM)
+		fips_functest_mode = fips_functest_KAT_list[num];
+	else
+		fips_functest_mode = SKC_FUNCTEST_NO_TEST;
+}
+EXPORT_SYMBOL_GPL(set_fips_functest_KAT_mode);
+void set_fips_functest_conditional_mode(const int num)
+{
+	if (num >= 0 && num < SKC_FUNCTEST_CONDITIONAL_CASE_NUM)
+		fips_functest_mode = fips_functest_conditional_list[num];
+	else
+		fips_functest_mode = SKC_FUNCTEST_NO_TEST;
+}
+EXPORT_SYMBOL_GPL(set_fips_functest_conditional_mode);
+char *get_fips_functest_mode(void)
+{
+	if (fips_functest_mode)
+		return fips_functest_mode;
+	else
+		return SKC_FUNCTEST_NO_TEST;
+}
+EXPORT_SYMBOL_GPL(get_fips_functest_mode);
+
+#endif // CONFIG_CRYPTO_FIPS_FUNC_TEST
+#endif
 
 static void hexdump(unsigned char *buf, unsigned int len)
 {
@@ -359,14 +457,44 @@ static int __test_hash(struct crypto_ahash *tfm, struct hash_testvec *template,
 			}
 		}
 
-		if (memcmp(result, template[i].digest,
-			   crypto_ahash_digestsize(tfm))) {
-			printk(KERN_ERR "alg: hash: Test %d failed for %s\n",
-			       j, algo);
-			hexdump(result, crypto_ahash_digestsize(tfm));
-			ret = -EINVAL;
-			goto out;
+// Pass wrong digest for functional tests
+// Test case : hmac(sha1), sha1
+#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
+		if (!strcmp(algo, get_fips_functest_mode())) {
+			unsigned char func_buf[1024];
+
+			strcpy(func_buf, template[i].digest);
+			func_buf[0] += 1;
+			set_fips_functest_KAT_mode(0);
+
+			if (memcmp(result, func_buf,
+				crypto_ahash_digestsize(tfm))) {
+				pr_err("alg: hash: Test %d failed for %s\n",
+				       j, algo);
+				hexdump(result, crypto_ahash_digestsize(tfm));
+				ret = -EINVAL;
+				goto out;
+			}
+		} else {
+			if (memcmp(result, template[i].digest,
+				   crypto_ahash_digestsize(tfm))) {
+				pr_err("alg: hash: Test %d failed for %s\n",
+				       j, algo);
+				hexdump(result, crypto_ahash_digestsize(tfm));
+				ret = -EINVAL;
+				goto out;
+			}
 		}
+#else
+			if (memcmp(result, template[i].digest,
+				crypto_ahash_digestsize(tfm))) {
+				pr_err("alg: hash: Test %d failed for %s\n",
+				       j, algo);
+				hexdump(result, crypto_ahash_digestsize(tfm));
+				ret = -EINVAL;
+				goto out;
+			}
+#endif
 	}
 
 	j = 0;
@@ -665,7 +793,23 @@ static int __test_aead(struct crypto_aead *tfm, int enc,
 			ret = -EINVAL;
 			goto out;
 		}
+
+// Pass wrong key for functional tests
+// Test case : gcm(aes)
+#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
+		if (!strcmp(algo, get_fips_functest_mode())) {
+			unsigned char func_buf[1024];
+
+			strcpy(func_buf, template[i].key);
+			func_buf[0] += 1;
+			memcpy(key, func_buf, template[i].klen);
+			set_fips_functest_KAT_mode(0);
+		} else {
+			memcpy(key, template[i].key, template[i].klen);
+		}
+#else
 		memcpy(key, template[i].key, template[i].klen);
+#endif
 
 		ret = crypto_aead_setkey(tfm, key, template[i].klen);
 		if (template[i].fail == !ret) {
@@ -1140,8 +1284,23 @@ static int __test_skcipher(struct crypto_skcipher *tfm, int enc,
 			crypto_skcipher_set_flags(tfm,
 						  CRYPTO_TFM_REQ_WEAK_KEY);
 
+// Pass wrong key for functional tests
+// Test case : ecb(aes)
+#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
+		if (!strcmp(algo, get_fips_functest_mode())) {
+			unsigned char func_buf[1024];
+
+			strcpy(func_buf, template[i].key);
+			func_buf[0] += 1;
+			ret = crypto_skcipher_setkey(tfm, func_buf, template[i].klen);
+			set_fips_functest_KAT_mode(0);
+		} else {
+			ret = crypto_skcipher_setkey(tfm, template[i].key, template[i].klen);
+		}
+#else
 		ret = crypto_skcipher_setkey(tfm, template[i].key,
 					     template[i].klen);
+#endif
 		if (template[i].fail == !ret) {
 			pr_err("alg: skcipher%s: setkey failed on test %d for %s: flags=%x\n",
 			       d, j, algo, crypto_skcipher_get_flags(tfm));
@@ -1762,7 +1921,22 @@ static int drbg_cavs_test(struct drbg_testvec *test, int pr,
 		goto outbuf;
 	}
 
+// Pass wrong entropy for functional tests
+// Test case : drbg
+#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
+	if (!strcmp(driver, get_fips_functest_mode())) {
+		unsigned char func_buf[1024];
+
+		strcpy(func_buf, test->expected);
+		func_buf[0] += 1;
+		set_fips_functest_KAT_mode(0);
+		ret = memcmp(func_buf, buf, test->expectedlen);
+	} else {
+		ret = memcmp(test->expected, buf, test->expectedlen);
+	}
+#else
 	ret = memcmp(test->expected, buf, test->expectedlen);
+#endif
 
 outbuf:
 	crypto_free_rng(drng);
@@ -2085,6 +2259,12 @@ static int alg_test_akcipher(const struct alg_test_desc *desc,
 static int alg_test_null(const struct alg_test_desc *desc,
 			     const char *driver, u32 type, u32 mask)
 {
+#ifdef CONFIG_CRYPTO_FIPS
+	if (desc && desc->fips_allowed) {
+		if (unlikely(in_fips_err()))
+			return -1;
+	}
+#endif
 	return 0;
 }
 
@@ -2376,7 +2556,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 		.fips_allowed = 1,
 	}, {
 		.alg = "authenc(hmac(sha512),cbc(aes))",
-		.fips_allowed = 1,
 		.test = alg_test_aead,
 		.suite = {
 			.aead = {
@@ -2404,7 +2583,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha512),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = {
 				.enc = {
@@ -2415,14 +2593,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 				}
 			}
 		}
-	}, {
-		.alg = "authenc(hmac(sha512),ctr(aes))",
-		.test = alg_test_null,
-		.fips_allowed = 1,
-	}, {
-		.alg = "authenc(hmac(sha512),rfc3686(ctr(aes)))",
-		.test = alg_test_null,
-		.fips_allowed = 1,
 	}, {
 		.alg = "cbc(aes)",
 		.test = alg_test_skcipher,
@@ -4072,6 +4242,22 @@ static const struct alg_test_desc alg_test_descs[] = {
 				}
 			}
 		}
+	}, {
+		.alg = "zstd",
+		.test = alg_test_comp,
+		.fips_allowed = 1,
+		.suite = {
+			.comp = {
+				.comp = {
+					.vecs = zstd_comp_tv_template,
+					.count = 2
+				},
+				.decomp = {
+					.vecs = zstd_decomp_tv_template,
+					.count = 2
+				}
+			}
+		}
 	}
 };
 
@@ -4135,10 +4321,12 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 	int j;
 	int rc;
 
+#if 0
 	if (!fips_enabled && notests) {
 		printk_once(KERN_INFO "alg: self-tests disabled\n");
 		return 0;
 	}
+#endif
 
 	alg_test_descs_check_order();
 
@@ -4178,20 +4366,45 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 					     type, mask);
 
 test_done:
-	if (fips_enabled && rc)
+	if (fips_enabled && rc) {
+		pr_err("FIPS : %s: %s alg self test failed\n",
+			driver, alg);
+#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
+		if (!strcmp("", get_fips_functest_mode()))
+			IN_FIPS_ERROR = FIPS_ERR;
+#else
+		IN_FIPS_ERROR = FIPS_ERR;
+#endif // CONFIG_CRYPTO_FIPS_FUNC_TEST
+#else
 		panic("%s: %s alg self test failed in fips mode!\n", driver, alg);
+#endif //CONFIG_CRYPTO_FIPS
+
+		return rc;
+	}
 
 	if (fips_enabled && !rc)
-		pr_info("alg: self-tests for %s (%s) passed\n", driver, alg);
+		pr_info("FIPS : self-tests for %s (%s) passed\n", driver, alg);
 
 	return rc;
 
 notest:
-	printk(KERN_INFO "alg: No test for %s (%s)\n", alg, driver);
+	pr_info("FIPS : No test for %s (%s)\n", alg, driver);
 	return 0;
 non_fips_alg:
 	return -EINVAL;
 }
+
+int testmgr_crypto_proc_init(void)
+{
+#ifdef CONFIG_CRYPTO_FIPS
+	crypto_init_proc(&IN_FIPS_ERROR);
+#else
+	crypto_init_proc();
+#endif
+	return 0;
+}
+EXPORT_SYMBOL_GPL(testmgr_crypto_proc_init);
 
 #endif /* CONFIG_CRYPTO_MANAGER_DISABLE_TESTS */
 

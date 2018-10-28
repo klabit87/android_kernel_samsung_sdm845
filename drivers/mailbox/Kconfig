@@ -143,4 +143,19 @@ config BCM_PDC_MBOX
 	  Mailbox implementation for the Broadcom PDC ring manager,
 	  which provides access to various offload engines on Broadcom
 	  SoCs. Say Y here if you want to use the Broadcom PDC.
+
+config QTI_RPMH_MBOX
+	bool "TCS Mailbox for QTI RPMH Communication"
+	depends on ARCH_QCOM
+	help
+	  Support for communication with the hardened-RPM blocks in
+	  Qualcomm Technologies Inc (QTI) SoCs using TCS hardware mailbox.
+
+config MSM_QMP
+	bool "QTI Mailbox Protocol(QMP)"
+	depends on MSM_SMEM
+	help
+	  QMP is a lightweight communication protocol for sending messages to
+	  a remote processor. This protocol fits into the Generic Mailbox
+	  Framework. QMP uses a mailbox located in shared memory.
 endif

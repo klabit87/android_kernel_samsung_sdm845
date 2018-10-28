@@ -39,6 +39,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 
+#include <linux/bpf-cgroup.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv6.h>
 
@@ -65,9 +66,6 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
 	struct neighbour *neigh;
 	struct in6_addr *nexthop;
 	int ret;
-
-	skb->protocol = htons(ETH_P_IPV6);
-	skb->dev = dev;
 
 	if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr)) {
 		struct inet6_dev *idev = ip6_dst_idev(skb_dst(skb));
@@ -131,6 +129,14 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
 
 static int ip6_finish_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
+	int ret;
+
+	ret = BPF_CGROUP_RUN_PROG_INET_EGRESS(sk, skb);
+	if (ret) {
+		kfree_skb(skb);
+		return ret;
+	}
+
 	if ((skb->len > ip6_skb_dst_mtu(skb) && !skb_is_gso(skb)) ||
 	    dst_allfrag(skb_dst(skb)) ||
 	    (IP6CB(skb)->frag_max_size && skb->len > IP6CB(skb)->frag_max_size))
@@ -143,6 +149,9 @@ int ip6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	struct net_device *dev = skb_dst(skb)->dev;
 	struct inet6_dev *idev = ip6_dst_idev(skb_dst(skb));
+
+	skb->protocol = htons(ETH_P_IPV6);
+	skb->dev = dev;
 
 	if (unlikely(idev->cnf.disable_ipv6)) {
 		IP6_INC_STATS(net, idev, IPSTATS_MIB_OUTDISCARDS);
@@ -854,7 +863,6 @@ fail_toobig:
 	if (skb->sk && dst_allfrag(skb_dst(skb)))
 		sk_nocaps_add(skb->sk, NETIF_F_GSO_MASK);
 
-	skb->dev = skb_dst(skb)->dev;
 	icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, mtu);
 	err = -EMSGSIZE;
 
@@ -1252,14 +1260,16 @@ static int ip6_setup_cork(struct sock *sk, struct inet_cork_full *cork,
 	v6_cork->tclass = ipc6->tclass;
 	if (rt->dst.flags & DST_XFRM_TUNNEL)
 		mtu = np->pmtudisc >= IPV6_PMTUDISC_PROBE ?
-		      rt->dst.dev->mtu : dst_mtu(&rt->dst);
+		      READ_ONCE(rt->dst.dev->mtu) : dst_mtu(&rt->dst);
 	else
 		mtu = np->pmtudisc >= IPV6_PMTUDISC_PROBE ?
-		      rt->dst.dev->mtu : dst_mtu(rt->dst.path);
+		      READ_ONCE(rt->dst.dev->mtu) : dst_mtu(rt->dst.path);
 	if (np->frag_size < mtu) {
 		if (np->frag_size)
 			mtu = np->frag_size;
 	}
+	if (mtu < IPV6_MIN_MTU)
+		return -EINVAL;
 	cork->base.fragsize = mtu;
 	if (dst_allfrag(rt->dst.path))
 		cork->base.flags |= IPCORK_ALLFRAG;
@@ -1790,10 +1800,13 @@ struct sk_buff *ip6_make_skb(struct sock *sk,
 	cork.base.flags = 0;
 	cork.base.addr = 0;
 	cork.base.opt = NULL;
+	cork.base.dst = NULL;
 	v6_cork.opt = NULL;
 	err = ip6_setup_cork(sk, &cork, &v6_cork, ipc6, rt, fl6);
-	if (err)
-		return ERR_PTR(err);
+	if (err) {
+		ip6_cork_release(&cork, &v6_cork);
+        return ERR_PTR(err);
+	}
 
 	if (ipc6->dontfrag < 0)
 		ipc6->dontfrag = inet6_sk(sk)->dontfrag;

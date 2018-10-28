@@ -104,6 +104,27 @@ fw-shipped-$(CONFIG_USB_EMI62) += emi62/loader.fw emi62/bitstream.fw \
 fw-shipped-$(CONFIG_USB_KAWETH) += kaweth/new_code.bin kaweth/trigger_code.bin \
 				   kaweth/new_code_fix.bin \
 				   kaweth/trigger_code_fix.bin
+
+ifdef CONFIG_WIRELESS_FIRMWARE_65
+fw-shipped-$(CONFIG_WIRELESS_FIRMWARE_UPDATE) += mfc/mfc_fw65_flash.bin
+else
+fw-shipped-$(CONFIG_WIRELESS_FIRMWARE_UPDATE) += mfc/mfc_fw_flash.bin
+endif
+
+# Touchscreen IC Firmware
+fw-shipped-$(CONFIG_TOUCHSCREEN_FTS) += tsp_stm/fts8cd56_dream2.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS) += tsp_sec/y761_star1.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS) += tsp_sec/y761_star2.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS_Y771) += tsp_sec/y761_star2.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS_Y771) += tsp_sec/y771_crown.fw tsp_sec/y771_crown_v2.fw tsp_sec/y771_crown_v1.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS_Y661_DUAL) += tsp_sec/y661_kelly.fw
+fw-shipped-$(CONFIG_KEYBOARD_ABOV_TOUCH_FOLDER) += abov/abov_tk_kelly.fw
+
+fw-shipped-$(CONFIG_EPEN_WACOM_W9018) += epen/w9018_crown.fw
+ifdef CONFIG_SEC_FACTORY
+fw-shipped-$(CONFIG_EPEN_WACOM_W9018) += epen/w9018_crown_garage.fw epen/w9018_crown_unit.fw
+endif
+
 ifdef CONFIG_FIRMWARE_IN_KERNEL
 fw-shipped-$(CONFIG_USB_SERIAL_KEYSPAN_MPR) += keyspan/mpr.fw
 fw-shipped-$(CONFIG_USB_SERIAL_KEYSPAN_USA18X) += keyspan/usa18x.fw
@@ -135,6 +156,9 @@ fw-shipped-$(CONFIG_USB_SERIAL_XIRCOM) += keyspan_pda/xircom_pgs.fw
 fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
+
+fw-shipped-$(CONFIG_FIVE_TEE_DRIVER) += five.b00 five.b01 five.b02 five.b03 \
+				  five.b04 five.b05 five.b06 five.b07 five.mdt
 
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 

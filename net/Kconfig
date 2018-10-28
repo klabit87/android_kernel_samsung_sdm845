@@ -89,6 +89,12 @@ source "net/netlabel/Kconfig"
 
 endif # if INET
 
+config ANDROID_PARANOID_NETWORK
+	bool "Only allow certain groups to create sockets"
+	default y
+	help
+		none
+
 config NETWORK_SECMARK
 	bool "Security Marking"
 	help
@@ -238,6 +244,8 @@ source "net/switchdev/Kconfig"
 source "net/l3mdev/Kconfig"
 source "net/qrtr/Kconfig"
 source "net/ncsi/Kconfig"
+source "net/rmnet_data/Kconfig"
+source "net/ncm/Kconfig"
 
 config RPS
 	bool
@@ -257,10 +265,6 @@ config XPS
 
 config HWBM
        bool
-
-config SOCK_CGROUP_DATA
-	bool
-	default n
 
 config CGROUP_NET_PRIO
 	bool "Network priority cgroup"
@@ -313,6 +317,15 @@ config NET_FLOW_LIMIT
 	  maintain capacity for the other flows. This feature provides servers
 	  with many clients some protection against DoS by a single (spoofed)
 	  flow that greatly exceeds average workload.
+
+config SOCKEV_NLMCAST
+	bool "Enable SOCKEV Netlink Multicast"
+	default n
+	---help---
+	  Default client for SOCKEV notifier events. Sends multicast netlink
+	  messages whenever the socket event notifier is invoked. Enable if
+	  user space entities need to be notified of socket events without
+	  having to poll /proc
 
 menu "Network testing"
 
@@ -422,6 +435,8 @@ config MAY_USE_DEVLINK
 	  on MAY_USE_DEVLINK to ensure they do not cause link errors when
 	  devlink is a loadable module and the driver using it is built-in.
 
+source "net/ipc_router/Kconfig"
+
 endif   # if NET
 
 # Used by archs to tell that they support BPF JIT compiler plus which flavour.
@@ -435,3 +450,9 @@ config HAVE_CBPF_JIT
 # Extended BPF JIT (eBPF)
 config HAVE_EBPF_JIT
 	bool
+
+# Network Pacemaker
+config NETPM
+	bool "Network Pacemaker"
+	---help---
+	This feature implements Network Pacemaker (NETPM)

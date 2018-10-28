@@ -39,6 +39,13 @@ extern unsigned long totalhigh_pages;
 
 void kmap_flush_unused(void);
 
+#ifdef CONFIG_ARCH_WANT_KMAP_ATOMIC_FLUSH
+void kmap_atomic_flush_unused(void);
+int kmap_remove_unused_cpu(unsigned int cpu);
+#else
+static inline void kmap_atomic_flush_unused(void) { }
+#endif
+
 struct page *kmap_to_page(void *addr);
 
 #else /* CONFIG_HIGHMEM */
@@ -80,9 +87,14 @@ static inline void __kunmap_atomic(void *addr)
 #define kmap_atomic_pfn(pfn)	kmap_atomic(pfn_to_page(pfn))
 
 #define kmap_flush_unused()	do {} while(0)
+#define kmap_atomic_flush_unused()	do {} while (0)
 #endif
 
 #endif /* CONFIG_HIGHMEM */
+
+#if !defined(CONFIG_HIGHMEM) || !defined(CONFIG_ARCH_WANT_KMAP_ATOMIC_FLUSH)
+static inline int kmap_remove_unused_cpu(unsigned int cpu) { return 0; }
+#endif
 
 #if defined(CONFIG_HIGHMEM) || defined(CONFIG_X86_32)
 
@@ -180,8 +192,23 @@ static inline struct page *
 alloc_zeroed_user_highpage_movable(struct vm_area_struct *vma,
 					unsigned long vaddr)
 {
+#ifndef CONFIG_CMA
 	return __alloc_zeroed_user_highpage(__GFP_MOVABLE, vma, vaddr);
+#else
+	return __alloc_zeroed_user_highpage(__GFP_MOVABLE|__GFP_CMA, vma,
+						vaddr);
+#endif
 }
+
+#ifdef CONFIG_CMA
+static inline struct page *
+alloc_zeroed_user_highpage_movable_cma(struct vm_area_struct *vma,
+						unsigned long vaddr)
+{
+	return __alloc_zeroed_user_highpage(__GFP_MOVABLE|__GFP_CMA, vma,
+						vaddr);
+}
+#endif
 
 static inline void clear_highpage(struct page *page)
 {

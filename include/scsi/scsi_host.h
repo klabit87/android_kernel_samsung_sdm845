@@ -669,6 +669,12 @@ struct Scsi_Host {
 	unsigned short_inquiry:1;
 
 	/*
+	 * Set "DBD" field in mode_sense caching mode page in case it is
+	 * mandatory by LLD standard.
+	 */
+	unsigned set_dbd_for_caching:1;
+
+	/*
 	 * Optional work queue to be utilized by the transport
 	 */
 	char work_q_name[20];
@@ -730,7 +736,18 @@ struct Scsi_Host {
 	 * Needed just in case we have virtual hosts.
 	 */
 	struct device *dma_dev;
+#ifdef CONFIG_USB_STORAGE_DETECT
+	unsigned int  by_usb;
+#endif
+	unsigned int  by_ufs;
 
+	unsigned int medium_err_cnt;
+	unsigned int hw_err_cnt;
+#define SEC_MAX_LBA_LOGGING	10
+#define SEC_ISSUE_REGION_STEP	(200*1024/4)	/* 200MB : 1 LBA = 4KB */
+	unsigned long issue_LBA_list[SEC_MAX_LBA_LOGGING];
+	unsigned int issue_LBA_count;
+	u64 issue_region_map;
 	/*
 	 * We should ensure that this is aligned, both for better performance
 	 * and also because some compilers (m68k) don't automatically force

@@ -89,6 +89,8 @@
 #include <linux/magic.h>
 #include <linux/slab.h>
 #include <linux/xattr.h>
+#include <linux/seemp_api.h>
+#include <linux/seemp_instrumentation.h>
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -533,8 +535,22 @@ static ssize_t sockfs_listxattr(struct dentry *dentry, char *buffer,
 	return used;
 }
 
+static int sockfs_setattr(struct dentry *dentry, struct iattr *iattr)
+{
+	int err = simple_setattr(dentry, iattr);
+
+	if (!err && (iattr->ia_valid & ATTR_UID)) {
+		struct socket *sock = SOCKET_I(d_inode(dentry));
+
+		sock->sk->sk_uid = iattr->ia_uid;
+	}
+
+	return err;
+}
+
 static const struct inode_operations sockfs_inode_ops = {
 	.listxattr = sockfs_listxattr,
+	.setattr = sockfs_setattr,
 };
 
 /**
@@ -1631,6 +1647,8 @@ SYSCALL_DEFINE6(sendto, int, fd, void __user *, buff, size_t, len,
 	struct msghdr msg;
 	struct iovec iov;
 	int fput_needed;
+
+	seemp_logk_sendto(fd, buff, len, flags, addr, addr_len);
 
 	err = import_single_range(WRITE, buff, len, &iov, &msg.msg_iter);
 	if (unlikely(err))

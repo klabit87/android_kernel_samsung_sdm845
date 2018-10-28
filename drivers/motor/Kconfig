@@ -1,0 +1,44 @@
+config MOTOR_DRV_SM5720
+	tristate "SM5720 motor"
+	default n
+	depends on MFD_SM5720 && I2C
+	help
+	  Say Y to enalbe MOTOR_DRV_SM5720
+	  You will get supprot for that.
+	  motor of SM5720 of PMIC
+
+	  If unsure, say N.
+
+config SS_VIBRATOR
+	tristate "SS_VIBRATOR"
+	default n
+	help
+	  Say Y to enable SAMSUNG VIBRATOR support
+	  SS Vibrator
+	  You will get supprot for that.
+
+	  If unsure, say N.
+
+config BOOST_POWER_SHARE
+	bool "Boost Power Share"
+	default n
+	help
+	  Say Y to enable Boost Power(5V) share.
+
+config MOTOR_DRV_MAX77705
+	tristate "Maxim MAX77705 motor"
+	default n
+	depends on MFD_MAX77705
+	help
+	  If you say yes here you will get support for the
+	  motor of Maxim MAX77705 PMIC.
+	  To enable this driver, MFD_MAX77705 should be enabled and
+	  MFD_MAX77705 calls this driver.
+
+
+config BLDC_VIBRATOR
+	tristate "BLDC_VIBRATOR"
+	default n
+	help
+	  Say Y to enable MOTOR BLDC drive by PMIC support
+
