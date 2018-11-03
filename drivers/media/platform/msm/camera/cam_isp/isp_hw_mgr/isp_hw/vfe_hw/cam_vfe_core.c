@@ -24,6 +24,11 @@
 #include "cam_ife_hw_mgr.h"
 #include "cam_debug_util.h"
 
+#define CAM_VFE_WM_MAX 20
+#define CAM_VFE_WM_BASE_ADDR 0x00002200
+#define CAM_VFE_WM_REG_SIZE  0x00000100
+#define CAM_VFE_WM_n_CFG_ADDR(n) ((CAM_VFE_WM_BASE_ADDR + n*CAM_VFE_WM_REG_SIZE) + 0x8)
+
 static const char drv_name[] = "vfe";
 static uint32_t irq_reg_offset[CAM_IFE_IRQ_REGISTERS_MAX] = {
 	0x0000006C,
@@ -171,6 +176,7 @@ static int cam_vfe_irq_err_top_half(uint32_t    evt_id,
 	struct cam_vfe_top_irq_evt_payload  *evt_payload;
 	struct cam_vfe_hw_core_info         *core_info;
 	bool                                 error_flag = false;
+    uint32_t                             reg_value;
 
 	pr_err("IRQ status_0 = %x, IRQ status_1 = %x",
 		th_payload->evt_status_arr[0], th_payload->evt_status_arr[1]);
@@ -195,6 +201,12 @@ static int cam_vfe_irq_err_top_half(uint32_t    evt_id,
 			core_info->irq_err_handle);
 		cam_irq_controller_clear_and_mask(evt_id,
 			core_info->vfe_irq_controller);
+		CAM_ERR(CAM_ISP, "Stopping WMs");
+		/*stop all the WMs for this VFE*/
+		for (i = 0; i < CAM_VFE_WM_MAX; i++)
+			cam_io_w_mb(0x0, handler_priv->mem_base +
+				CAM_VFE_WM_n_CFG_ADDR(i));
+
 		error_flag = true;
 	}
 
@@ -227,6 +239,51 @@ static int cam_vfe_irq_err_top_half(uint32_t    evt_id,
 
 	th_payload->evt_payload_priv = evt_payload;
 
+    /* Dump the camnoc ife registers */
+    /* read TITAN_A_CAMNOC_AMM_IFE02_MAIN_SPECIFICTONTTPTR_MAXWR_LOW */
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x420);
+    CAM_INFO(CAM_ISP, "IFE02_MAIN_SPECIFICTONTTPTR_MAXWR_LOW value:0x%x",
+            reg_value);
+
+    /* read TITAN_A_CAMNOC_AMM_IFE13_MAIN_SPECIFICTONTTPTR_MAXWR_LOW */
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x820);
+    CAM_INFO(CAM_ISP, "IFE13_MAIN_SPECIFICTONTTPTR_MAXWR_LOW value:0x%x",
+            reg_value);
+	reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x430);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE02_PRIORITYLUT_LOW:0x430   value:0x%x",
+            reg_value);
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x434);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE02_PRIORITYLUT_HIGH:0x434  value:0x%x",
+            reg_value);
+
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x438);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE02_URGENCY_LOW:0x438  value:0x%x",
+            reg_value);
+
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x440);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE02_DANGERLUT_LOW:0x440  value:0x%x",
+            reg_value);
+
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x448);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE02_SAFELUT_LOW:0x448  value:0x%x",
+            reg_value);
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x830);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE13_PRIORITYLUT_LOW:0x830  value:0x%x",
+            reg_value);
+
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x834);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE13_PRIORITYLUT_HIGH:0x834  value:0x%x",
+            reg_value);
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x838);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE13_URGENCY_LOW:0x838  value:0x%x",
+            reg_value);
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x840);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE13_DANGERLUT_LOW:0x840  value:0x%x",
+            reg_value);
+
+    reg_value = cam_io_r_mb(core_info->cam_noc_base + 0x848);
+    CAM_INFO(CAM_ISP, "SPECIFIC_IFE13_SAFELUT_LOW:0x848  value:0x%x",
+            reg_value);
 	return rc;
 }
 
@@ -709,6 +766,7 @@ int cam_vfe_process_cmd(void *hw_priv, uint32_t cmd_type,
 	case CAM_ISP_HW_CMD_CLOCK_UPDATE:
 	case CAM_ISP_HW_CMD_BW_UPDATE:
 	case CAM_ISP_HW_CMD_BW_CONTROL:
+	case CAM_ISP_HW_CMD_GET_REG_DUMP:
 		rc = core_info->vfe_top->hw_ops.process_cmd(
 			core_info->vfe_top->top_priv, cmd_type, cmd_args,
 			arg_size);
@@ -751,6 +809,7 @@ int cam_vfe_core_init(struct cam_vfe_hw_core_info  *core_info,
 {
 	int rc = -EINVAL;
 	int i;
+	void __iomem *camnoc_base = NULL;
 
 	CAM_DBG(CAM_ISP, "Enter");
 
@@ -783,6 +842,16 @@ int cam_vfe_core_init(struct cam_vfe_hw_core_info  *core_info,
 		INIT_LIST_HEAD(&core_info->evt_payload[i].list);
 		list_add_tail(&core_info->evt_payload[i].list,
 			&core_info->free_payload_list);
+	}
+
+	if (!camnoc_base) {
+		camnoc_base = ioremap_nocache(0xac42000, 0x5000);
+		if (!camnoc_base) {
+			CAM_ERR(CAM_ISP, "%s: Error remapping address 0x%zx",
+				__func__, (size_t)0xac42000);
+			return -ENOMEM;
+		}
+		core_info->cam_noc_base = camnoc_base;
 	}
 
 	spin_lock_init(&core_info->spin_lock);

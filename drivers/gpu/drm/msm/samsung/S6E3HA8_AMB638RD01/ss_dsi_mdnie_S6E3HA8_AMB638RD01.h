@@ -2238,7 +2238,7 @@ static char DSI_HBM_CE_MDNIE_2[] = {
 	0x00,
 	0x70, //lce_illum_gain
 	0x01, //lce_ref_offset 9
-	0x34,
+	0x40,
 	0x01, //lce_ref_gain 9
 	0x40,
 	0x66, //lce_block_size h v 0000 0000
@@ -2302,10 +2302,10 @@ static char DSI_HBM_CE_MDNIE_2[] = {
 	0x04,
 	0x07, //bi_filter_en bi_en bcr_en 000
 	0x40, //reduce_halo_neg
-	0x00, //reduce_halo_pos
+	0x40, //reduce_halo_pos
 	0x6e, //neg_bi_min
 	0x82, //neg_bi_max
-	0xe6, //pos_bi_min
+	0x00, //pos_bi_min
 	0xff, //pos_bi_max
 	0x02, //nr fa de cs gamma 0 0000
 	0xff, //nr_mask_th
@@ -2513,7 +2513,7 @@ static char DSI_HBM_CE_D65_MDNIE_2[] = {
 	0x00,
 	0x70, //lce_illum_gain
 	0x01, //lce_ref_offset 9
-	0x34,
+	0x40,
 	0x01, //lce_ref_gain 9
 	0x40,
 	0x66, //lce_block_size h v 0000 0000
@@ -2577,10 +2577,10 @@ static char DSI_HBM_CE_D65_MDNIE_2[] = {
 	0x04,
 	0x07, //bi_filter_en bi_en bcr_en 000
 	0x40, //reduce_halo_neg
-	0x00, //reduce_halo_pos
+	0x40, //reduce_halo_pos
 	0x6e, //neg_bi_min
 	0x82, //neg_bi_max
-	0xe6, //pos_bi_min
+	0x00, //pos_bi_min
 	0xff, //pos_bi_max
 	0x02, //nr fa de cs gamma 0 0000
 	0xff, //nr_mask_th

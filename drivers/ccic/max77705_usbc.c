@@ -2535,6 +2535,21 @@ static int pdic_handle_usb_external_notifier_notification(struct notifier_block 
 			max77705_set_enable_alternate_mode(ALTERNATE_MODE_START);
 		}
 		break;
+	case EXTERNAL_NOTIFY_MDMBLOCK_PRE:
+		if (enable) {
+			if (usbpd_data->dp_is_connect)
+				max77705_dp_detach(usbpd_data);
+		} else {
+			if (usbpd_data->dp_is_connect)
+				max77705_dp_detach(usbpd_data);
+		}
+		break;
+	case EXTERNAL_NOTIFY_MDMBLOCK_POST:
+		if (enable)
+			;
+		else
+			;
+		break;
 	default:
 		break;
 	}
@@ -2719,6 +2734,7 @@ static int max77705_usbc_probe(struct platform_device *pdev)
 	usbc_data->cc_pin_status = NO_DETERMINATION;
 	usbc_data->power_role = DUAL_ROLE_PROP_PR_NONE;
 	usbc_data->auto_vbus_en = false;
+	usbc_data->is_first_booting = 1;
 #if defined(CONFIG_USB_HOST_NOTIFY)
 	send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 0);
 #endif
@@ -2760,7 +2776,6 @@ static int max77705_usbc_probe(struct platform_device *pdev)
 	max77705_pd_init(usbc_data);
 	max77705_write_reg(usbc_data->muic, REG_PD_INT_M, 0x1C);
 	max77705_write_reg(usbc_data->muic, REG_VDM_INT_M, 0xFF);
-	usbc_data->is_first_booting = 1;
 	max77705_usbc_disable_auto_vbus(usbc_data);
 	INIT_DELAYED_WORK(&usbc_data->vbus_hard_reset_work,
 				vbus_control_hard_reset);

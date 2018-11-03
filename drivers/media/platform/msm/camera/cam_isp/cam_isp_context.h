@@ -67,6 +67,7 @@ struct cam_isp_ctx_irq_ops {
 	cam_isp_hw_event_cb_func         irq_ops[CAM_ISP_HW_EVENT_MAX];
 };
 
+
 /**
  * struct cam_isp_ctx_req - ISP context request object
  *
@@ -82,9 +83,7 @@ struct cam_isp_ctx_irq_ops {
  *                         the request has been completed.
  * @bubble_report:         Flag to track if bubble report is active on
  *                         current request
- * @packet_opcode_type:    Request packet opcode type,
- *                         ie INIT packet or update packet
- *
+ * @hw_update_data         hw update data for this request
  */
 struct cam_isp_ctx_req {
 	struct cam_ctx_request           *base;
@@ -97,9 +96,7 @@ struct cam_isp_ctx_req {
 	uint32_t                          num_fence_map_in;
 	uint32_t                          num_acked;
 	int32_t                           bubble_report;
-	uint32_t                          packet_opcode_type;
-	struct cam_isp_bw_config_internal bw_config[CAM_IFE_HW_NUM_MAX];
-	bool                              bw_config_valid[CAM_IFE_HW_NUM_MAX];
+	struct  cam_isp_prepare_hw_update_data  hw_update_data;                          
 };
 
 /**
@@ -140,6 +137,7 @@ struct cam_isp_context {
 	int64_t                          last_applied_req_id;
 	uint32_t                         frame_skip_count;
 	bool                             rdi_only_context;
+	bool                             dual_ife_usage;
 };
 
 /**
@@ -169,5 +167,13 @@ int cam_isp_context_init(struct cam_isp_context *ctx,
  */
 int cam_isp_context_deinit(struct cam_isp_context *ctx);
 
+/**
+ * cam_isp_context_dump_active_request()
+ *
+ * @brief: 	Dump the info in the context
+ * @ctx: 	ISP context object to dump
+ *
+ */
+int cam_isp_context_dump_active_request(struct cam_isp_context *isp_ctx);
 
 #endif  /* __CAM_ISP_CONTEXT_H__ */

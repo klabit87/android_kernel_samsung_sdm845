@@ -74,13 +74,16 @@ static int msm_bus_dbg_mas_set(void)
 	}
 
 	writel_relaxed((uint32_t)0x0, dcd_base + 0x60);
+	writel_relaxed((uint32_t)0x0, dcd_base + 0x194);
 
 	/* Ensure DCD val is set before exiting */
 	wmb();
 
 	reg_val = readl_relaxed(dcd_base + 0x60);
+	CAM_ERR(CAM_ICP, "0x60: Set DCD: %u", reg_val);
+	reg_val = readl_relaxed(dcd_base + 0x194);
+	CAM_ERR(CAM_ICP, "0x194: Set DCD: %u", reg_val);
 
-	CAM_ERR(CAM_ICP, "Set DCD: %u", reg_val);
 	return 0;
 }
 
@@ -1008,6 +1011,8 @@ static int cam_icp_update_clk_rate(struct cam_icp_hw_mgr *hw_mgr,
 		curr_clk_rate = hw_mgr->clk_info[ICP_CLK_HW_IPE].curr_clk;
 		id = CAM_ICP_IPE_CMD_UPDATE_CLK;
 	}
+	CAM_INFO(CAM_ICP, "clk_rate %u for dev_type %d", curr_clk_rate,
+			ctx_data->icp_dev_acquire_info->dev_type);
 
 	clk_upd_cmd.curr_clk_rate = curr_clk_rate;
 	clk_upd_cmd.ipe_bps_pc_enable = icp_hw_mgr.ipe_bps_pc_flag;
@@ -1076,7 +1081,9 @@ static int cam_icp_update_cpas_vote(struct cam_icp_hw_mgr *hw_mgr,
 	 *			ipe1_dev_intf->hw_priv, id,
 	 *			&clk_update, sizeof(clk_update));
 	 */
-
+	CAM_INFO(CAM_ICP, "compress_bw %llu uncompress_bw %llu dev_type %d",
+		clk_info->compressed_bw, clk_info->uncompressed_bw,
+		ctx_data->icp_dev_acquire_info->dev_type);
 	return 0;
 }
 

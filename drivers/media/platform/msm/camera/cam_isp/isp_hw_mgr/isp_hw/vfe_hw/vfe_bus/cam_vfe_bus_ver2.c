@@ -1073,6 +1073,7 @@ static int cam_vfe_bus_start_wm(struct cam_isp_resource_node *wm_res)
 		common_data->mem_base + rsrc_data->hw_regs->buffer_height_cfg);
 	cam_io_w(rsrc_data->pack_fmt,
 		common_data->mem_base + rsrc_data->hw_regs->packer_cfg);
+	CAM_INFO(CAM_ISP, "VFE :%d Start WM%d ", common_data->core_index, rsrc_data->index);
 
 	/* Configure stride for RDIs */
 	if (rsrc_data->index < 3)
@@ -1099,7 +1100,12 @@ static int cam_vfe_bus_start_wm(struct cam_isp_resource_node *wm_res)
 
 	/* enable ubwc if needed*/
 	if (rsrc_data->en_ubwc) {
-		cam_io_w_mb(0x1, common_data->mem_base +
+		int val = cam_io_r_mb(common_data->mem_base +
+			rsrc_data->hw_regs->ubwc_regs->mode_cfg);
+		CAM_DBG(CAM_ISP, "ubwc reg %d, res id %d",
+			val, rsrc_data->index);
+		val |= 0x1;
+		cam_io_w_mb(val, common_data->mem_base +
 			rsrc_data->hw_regs->ubwc_regs->mode_cfg);
 	}
 
@@ -1132,11 +1138,10 @@ static int cam_vfe_bus_stop_wm(struct cam_isp_resource_node *wm_res)
 
 	/* Disble WM */
 	/* Disable all register access, reply on global reset */
-	/*
+	CAM_INFO(CAM_ISP, "VFE :%d Stop WM%d ", common_data->core_index, rsrc_data->index);
 	cam_io_w_mb(0x0,
 		common_data->mem_base + rsrc_data->hw_regs->cfg);
-	*/
-
+	
 	CAM_DBG(CAM_ISP, "irq_disabled %d", rsrc_data->irq_enabled);
 	/* Unsubscribe IRQ */
 	if (rsrc_data->irq_enabled)
@@ -2133,7 +2138,7 @@ static int cam_vfe_bus_start_vfe_out(
 	rsrc_data = vfe_out->res_priv;
 	common_data = rsrc_data->common_data;
 
-	CAM_DBG(CAM_ISP, "Start resource index %d", rsrc_data->out_type);
+	CAM_INFO(CAM_ISP, "VFE :%d Start resource index %d", common_data->core_index, rsrc_data->out_type);
 
 	if (vfe_out->res_state != CAM_ISP_RESOURCE_STATE_RESERVED) {
 		CAM_ERR(CAM_ISP, "Invalid resource state:%d",
@@ -2156,6 +2161,7 @@ static int cam_vfe_bus_stop_vfe_out(
 {
 	int rc = 0, i;
 	struct cam_vfe_bus_ver2_vfe_out_data  *rsrc_data = NULL;
+	struct cam_vfe_bus_ver2_common_data   *common_data = NULL;
 
 	if (!vfe_out) {
 		CAM_ERR(CAM_ISP, "Invalid input");
@@ -2163,7 +2169,9 @@ static int cam_vfe_bus_stop_vfe_out(
 	}
 
 	rsrc_data = vfe_out->res_priv;
+	common_data = rsrc_data->common_data;
 
+	CAM_INFO(CAM_ISP, "VFE :%d Stop resource index %d", common_data->core_index, rsrc_data->out_type);
 	if (vfe_out->res_state == CAM_ISP_RESOURCE_STATE_AVAILABLE ||
 		vfe_out->res_state == CAM_ISP_RESOURCE_STATE_RESERVED) {
 		CAM_DBG(CAM_ISP, "vfe_out res_state is %d", vfe_out->res_state);
@@ -2523,10 +2531,10 @@ static int cam_vfe_bus_update_wm(void *priv, void *cmd_args,
 					&& !rc) {
 				switch (wm_data->format) {
 				case CAM_FORMAT_UBWC_TP10:
-					ubwc_bw_limit = 0x8 | BIT(0);
+					ubwc_bw_limit = (0x8 << 1) | BIT(0);
 					break;
 				case CAM_FORMAT_UBWC_NV12_4R:
-					ubwc_bw_limit = 0xB | BIT(0);
+					ubwc_bw_limit = (0xB << 1) | BIT(0);
 					break;
 				default:
 					ubwc_bw_limit = 0;

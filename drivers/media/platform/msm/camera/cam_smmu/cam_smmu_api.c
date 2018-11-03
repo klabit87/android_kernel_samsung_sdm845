@@ -287,7 +287,7 @@ static void cam_smmu_page_fault_work(struct work_struct *work)
 	}
 	mutex_unlock(&iommu_cb_set.cb_info[idx].lock);
 	kfree(payload);
-    BUG_ON(1);
+
 }
 
 static void cam_smmu_print_user_list(int idx)

@@ -1734,7 +1734,7 @@ static int sx9320_probe(struct i2c_client *client,
 #if defined(CONFIG_CCIC_NOTIFIER) && defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 	manager_notifier_register(&data->cpuidle_ccic_nb,
 					sx9320_ccic_handle_notification,
-					MANAGER_NOTIFY_CCIC_USB);
+					MANAGER_NOTIFY_CCIC_SENSORHUB);
 #elif defined(CONFIG_MUIC_NOTIFIER)
 	muic_notifier_register(&data->cpuidle_muic_nb,
 		sx9320_cpuidle_muic_notifier, MUIC_NOTIFY_DEV_CPUIDLE);

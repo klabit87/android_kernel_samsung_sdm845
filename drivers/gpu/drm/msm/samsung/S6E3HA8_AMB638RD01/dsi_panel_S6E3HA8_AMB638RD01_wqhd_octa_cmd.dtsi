@@ -539,6 +539,8 @@
 			29 01 00 00 11 00 02 F7 03		/* Gamma, LTPS(AID) update, 16.7ms delay */
 			29 01 00 00 00 00 07			/* HLPM / ALPM Control */
 				BB 00 00 00 00 00 00
+			29 01 00 00 00 00 02 B0 25		/* Global Para */
+			29 01 00 00 00 00 03 BB 88 80	/* HLPM V0 Voltage */
 			29 01 00 00 00 00 03 FC 5A 5A	/* TEST KEY Enable */
 			29 01 00 00 00 00 02 B0 2B		/* Global Para */
 			29 01 00 00 00 00 02 FD 03		/* AVS ON */

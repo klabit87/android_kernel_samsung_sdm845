@@ -897,6 +897,16 @@ int manager_notifier_register(struct notifier_block *nb, notifier_fn_t notifier,
 		pr_info("usb: [M] %s BATTERY: cable_type=%d (%s) \n", __func__, m_noti.sub3,
 			typec_manager.muic_cable_type? "MUIC" : "CCIC");
 		nb->notifier_call(nb, m_noti.id, &(m_noti));
+		alternate_mode_start_wait |= 0x100;
+#if defined(CONFIG_SEC_DISPLAYPORT)
+		if (alternate_mode_start_wait == 0x111) {
+			pr_info("usb: [M] %s USB & DP & BATTERY driver is registered! Alternate mode Start!\n", __func__);
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+			if (pccic_data && pccic_data->set_enable_alternate_mode)
+				pccic_data->set_enable_alternate_mode(ALTERNATE_MODE_READY | ALTERNATE_MODE_START);
+#endif
+		}
+#endif
 
 	} else if(listener == MANAGER_NOTIFY_CCIC_USB) {
 		/* CC_NOTI_USB_STATUS_TYPEDEF */
@@ -927,13 +937,24 @@ int manager_notifier_register(struct notifier_block *nb, notifier_fn_t notifier,
 			CCIC_NOTI_USB_STATUS_Print[m_noti.sub2]);
 		nb->notifier_call(nb, m_noti.id, &(m_noti));
 		alternate_mode_start_wait |= 0x1;
-		if (alternate_mode_start_wait == 0x11) {
-			pr_info("usb: [M] %s USB & DP driver is registered! Alternate mode Start!\n", __func__);
+#if defined(CONFIG_SEC_DISPLAYPORT)
+		if (alternate_mode_start_wait == 0x111) {
+			pr_info("usb: [M] %s USB & DP & BATTERY driver is registered! Alternate mode Start!\n", __func__);
 #if defined(CONFIG_CCIC_ALTERNATE_MODE)
 			if (pccic_data && pccic_data->set_enable_alternate_mode)
 				pccic_data->set_enable_alternate_mode(ALTERNATE_MODE_READY | ALTERNATE_MODE_START);
 #endif
 		}
+#endif
+#if !defined(CONFIG_SEC_DISPLAYPORT)
+		if ((alternate_mode_start_wait & 0xF) == 0x1) {
+			pr_info("usb: [M] %s USB driver is registered! Alternate mode Start!\n", __func__);
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+			if (pccic_data && pccic_data->set_enable_alternate_mode)
+				pccic_data->set_enable_alternate_mode(ALTERNATE_MODE_READY | ALTERNATE_MODE_START);
+#endif
+		}
+#endif
 	} else if(listener == MANAGER_NOTIFY_CCIC_DP) {
 		m_noti.src = CCIC_NOTIFY_DEV_MANAGER;
 		m_noti.dest = CCIC_NOTIFY_DEV_DP;
@@ -959,13 +980,15 @@ int manager_notifier_register(struct notifier_block *nb, notifier_fn_t notifier,
 			}
 		}
 		alternate_mode_start_wait |= 0x10;
-		if (alternate_mode_start_wait == 0x11) {
-			pr_info("usb: [M] %s USB & DP driver is registered! Alternate mode Start!\n", __func__);
+#if defined(CONFIG_SEC_DISPLAYPORT)
+		if (alternate_mode_start_wait == 0x111) {
+			pr_info("usb: [M] %s USB & DP & BATTERY driver is registered! Alternate mode Start!\n", __func__);
 #if defined(CONFIG_CCIC_ALTERNATE_MODE)
 			if (pccic_data && pccic_data->set_enable_alternate_mode)
 				pccic_data->set_enable_alternate_mode(ALTERNATE_MODE_READY | ALTERNATE_MODE_START);
 #endif
 		}
+#endif
 	}
 	return ret;
 }

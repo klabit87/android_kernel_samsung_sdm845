@@ -105,7 +105,7 @@ static int cam_vfe_top_set_hw_clk_rate(
 	if (max_clk_rate == top_priv->hw_clk_rate)
 		return 0;
 
-	CAM_DBG(CAM_ISP, "VFE: Clock name=%s idx=%d clk=%lld",
+	CAM_INFO(CAM_ISP, "VFE: Clock name=%s idx=%d clk=%ld",
 		soc_info->clk_name[soc_info->src_clk_idx],
 		soc_info->src_clk_idx, max_clk_rate);
 
@@ -213,12 +213,12 @@ static int cam_vfe_top_set_axi_bw_vote(
 		apply_bw_update = true;
 	}
 
-	CAM_DBG(CAM_ISP,
-		"counter=%d, apply_bw_update=%d",
-		top_priv->counter_to_update_axi_vote,
-		apply_bw_update);
-
 	if (apply_bw_update == true) {
+		CAM_INFO(CAM_ISP, "apply_bw_update=%d compressed_bw:%llu uncompressed_bw:%llu",
+			apply_bw_update,
+			top_priv->to_be_applied_axi_vote.compressed_bw,
+			top_priv->to_be_applied_axi_vote.uncompressed_bw);
+
 		rc = cam_cpas_update_axi_vote(
 			soc_private->cpas_handle,
 			&top_priv->to_be_applied_axi_vote);
@@ -383,6 +383,30 @@ static int cam_vfe_top_mux_get_reg_update(
 			CAM_ISP_HW_CMD_GET_REG_UPDATE, cmd_args, arg_size);
 
 	return -EINVAL;
+}
+
+static int cam_vfe_top_mux_get_reg_dump(
+	struct cam_vfe_top_ver2_priv *top_priv,
+	void *cmd_args, uint32_t arg_size)
+{
+	struct cam_isp_hw_get_cmd_update  *cmd_update = cmd_args;
+
+	if (cmd_update->res->process_cmd)
+		cmd_update->res->process_cmd(cmd_update->res,
+			CAM_ISP_HW_CMD_GET_REG_DUMP, cmd_args, arg_size);
+
+	/* dump the bw votings */
+	CAM_INFO(CAM_ISP, "VFE:%d BW vote (uncompressed:%llu  compressed:%llu)",
+		top_priv->common_data.hw_intf->hw_idx,
+		top_priv->applied_axi_vote.uncompressed_bw,
+		top_priv->applied_axi_vote.compressed_bw);
+
+	/* dump the clock votings */
+	CAM_INFO(CAM_ISP, "VFE:%d clk=%ld",
+		top_priv->common_data.hw_intf->hw_idx,
+		top_priv->hw_clk_rate);
+
+	return 0;
 }
 
 int cam_vfe_top_get_hw_caps(void *device_priv,
@@ -637,6 +661,9 @@ int cam_vfe_top_process_cmd(void *device_priv, uint32_t cmd_type,
 		break;
 	case CAM_ISP_HW_CMD_BW_CONTROL:
 		rc = cam_vfe_top_bw_control(top_priv, cmd_args, arg_size);
+		break;
+	case CAM_ISP_HW_CMD_GET_REG_DUMP:
+		rc = cam_vfe_top_mux_get_reg_dump(top_priv, cmd_args, arg_size);
 		break;
 	default:
 		rc = -EINVAL;

@@ -2571,6 +2571,86 @@ static int cam_ife_csid_write(void *hw_priv,
 	return -EINVAL;
 }
 
+static int cam_ife_csid_get_regdump(struct cam_ife_csid_hw *csid_hw,
+	void *cmd_args)
+{
+	struct cam_ife_csid_reg_offset    *csid_reg;
+	struct cam_hw_soc_info            *soc_info;
+	struct cam_isp_resource_node      *res;
+	uint32_t id;
+	int val;
+
+	csid_reg = csid_hw->csid_info->csid_reg;
+	soc_info = &csid_hw->hw_info->soc_info;
+	res = (struct cam_isp_resource_node  *)cmd_args;
+
+	if (res->res_type != CAM_ISP_RESOURCE_PIX_PATH ||
+		res->res_id >= CAM_IFE_PIX_PATH_RES_MAX) {
+		CAM_DBG(CAM_ISP, "CSID:%d Invalid res_type:%d res id%d",
+			csid_hw->hw_intf->hw_idx, res->res_type,
+			res->res_id);
+		return -EINVAL;
+	}
+
+	if (csid_hw->hw_info->hw_state != CAM_HW_STATE_POWER_UP) {
+		CAM_ERR(CAM_ISP, "CSID:%d Invalid dev state :%d",
+			csid_hw->hw_intf->hw_idx,
+			csid_hw->hw_info->hw_state);
+		return -EINVAL;
+	}
+
+	if (res->res_id == CAM_IFE_PIX_PATH_RES_IPP) {
+		CAM_INFO(CAM_ISP, "Dumping CSID:%d IPP registers ",
+			csid_hw->hw_intf->hw_idx);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->ipp_reg->csid_ipp_cfg0_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->ipp_reg->csid_ipp_cfg0_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->ipp_reg->csid_ipp_cfg1_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->ipp_reg->csid_ipp_cfg1_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->ipp_reg->csid_ipp_ctrl_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->ipp_reg->csid_ipp_ctrl_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->ipp_reg->csid_ipp_hcrop_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->ipp_reg->csid_ipp_hcrop_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->ipp_reg->csid_ipp_vcrop_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->ipp_reg->csid_ipp_vcrop_addr, val);
+	} else {
+		id = res->res_id;
+		CAM_INFO(CAM_ISP, "Dumping CSID:%d RDI:%d registers ",
+			csid_hw->hw_intf->hw_idx, id);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->rdi_reg[id]->csid_rdi_cfg0_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->rdi_reg[id]->csid_rdi_cfg0_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->rdi_reg[id]->csid_rdi_cfg1_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->rdi_reg[id]->csid_rdi_cfg1_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->rdi_reg[id]->csid_rdi_ctrl_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->rdi_reg[id]->csid_rdi_ctrl_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->rdi_reg[id]->csid_rdi_rpp_hcrop_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->rdi_reg[id]->csid_rdi_rpp_hcrop_addr, val);
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->rdi_reg[id]->csid_rdi_rpp_vcrop_addr);
+		CAM_INFO(CAM_ISP, "offset 0x%x=0x08%x",
+			csid_reg->rdi_reg[id]->csid_rdi_rpp_vcrop_addr, val);
+	}
+
+	return 0;
+}
+
 static int cam_ife_csid_process_cmd(void *hw_priv,
 	uint32_t cmd_type, void *cmd_args, uint32_t arg_size)
 {
@@ -2592,6 +2672,9 @@ static int cam_ife_csid_process_cmd(void *hw_priv,
 		break;
 	case CAM_IFE_CSID_SET_CSID_DEBUG:
 		rc = cam_ife_csid_set_csid_debug(csid_hw, cmd_args);
+		break;
+	case CAM_IFE_CSID_CMD_GET_REG_DUMP:
+		rc = cam_ife_csid_get_regdump(csid_hw, cmd_args);
 		break;
 	default:
 		CAM_ERR(CAM_ISP, "CSID:%d un supported cmd:%d",

@@ -1644,7 +1644,7 @@ int adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
 	if (!kgsl_gmu_isenabled(KGSL_DEVICE(adreno_dev)))
 		return 0;
 
-	for (i = 0; i < GMU_WAKEUP_RETRY_MAX; i++) {
+	for (i = 0; i < GMU_LONG_WAKEUP_RETRY_LIMIT; i++) {
 		adreno_read_gmureg(adreno_dev, ADRENO_REG_GMU_AHB_FENCE_STATUS,
 			&status);
 
@@ -1659,6 +1659,13 @@ int adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
 
 		/* Try to write the fenced register again */
 		adreno_writereg(adreno_dev, offset, val);
+
+		if (i == GMU_SHORT_WAKEUP_RETRY_LIMIT)
+			dev_err(adreno_dev->dev.dev,
+				"Waited %d usecs to write fenced register 0x%x. Continuing to wait...\n",
+				(GMU_SHORT_WAKEUP_RETRY_LIMIT *
+				GMU_WAKEUP_DELAY_US),
+				reg_offset);
 	}
 
 	dev_err(adreno_dev->dev.dev,

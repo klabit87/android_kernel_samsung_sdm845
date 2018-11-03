@@ -2151,8 +2151,13 @@ ssize_t sec_bat_store_attrs(
 
 				pr_info("%s: %s\n", __func__, buf);
 				for (i = CISD_DATA_RESET_ALG; i < CISD_DATA_MAX_PER_DAY; i++) {
-					sscanf(p, "%10d%n", &pcisd->data[i], &x);
-					p += (size_t)x;
+					if (sscanf(p, "%10d%n", &pcisd->data[i], &x) > 0)
+						p += (size_t)x;
+					else {
+						pr_info("%s: NO DATA (cisd_data)\n", __func__);
+						temp_data[CISD_DATA_RESET_ALG] = -1;
+						break;
+					}
 				}
 
 				pr_info("%s: %s cisd data\n", __func__,

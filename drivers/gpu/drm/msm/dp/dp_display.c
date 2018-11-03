@@ -70,6 +70,10 @@ static struct dp_display *g_dp_display;
 static struct switch_dev switch_secdp = {
 	.name = "secdp",
 };
+
+static struct switch_dev switch_secdp_msg = {
+	.name = "secdp_msg",
+};
 #endif
 
 struct dp_hdcp {
@@ -152,6 +156,12 @@ static const struct of_device_id dp_dt_match[] = {
 
 #ifdef CONFIG_SEC_DISPLAYPORT
 struct dp_display_private *g_secdp_priv;
+
+void secdp_send_poor_connection_event(void)
+{
+	switch_set_state(&switch_secdp_msg, 1);
+	switch_set_state(&switch_secdp_msg, 0);
+}
 
 bool secdp_get_power_status(void)
 {
@@ -750,6 +760,9 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 	if (rc) {
 		if (!secdp_get_hpd_status() || !secdp_get_cable_status() || rc == -EIO) {
 			pr_info("hpd_low or cable_lost or AUX failure\n");
+#ifndef CONFIG_SEC_FACTORY
+			dp->link->poor_connection = true;
+#endif
 			goto end;
 		}
 
@@ -797,6 +810,13 @@ notify:
 	dp_display_send_hpd_notification(dp, true);
 
 end:
+#ifndef CONFIG_SEC_FACTORY
+	if (dp->link->poor_connection) {
+		secdp_send_poor_connection_event();
+		pr_info("poor connection! send secdp_msg uevent\n");
+		dp->link->poor_connection = 0;
+	}
+#endif
 	return rc;
 }
 
@@ -1690,7 +1710,7 @@ static void secdp_link_status_work(struct work_struct *work)
 
 	pr_info("+++ status_update_cnt %d\n", dp->link->status_update_cnt);
 
-	if (secdp_get_cable_status() && dp->power_on && dp->sec.dex.curr) {
+	if (secdp_get_cable_status() && dp->power_on) {
 
 		if (!dp->ctrl->get_link_train_status(dp->ctrl) ||
 			dp->link->status_update_cnt > 4) {
@@ -1706,6 +1726,9 @@ static void secdp_link_status_work(struct work_struct *work)
 			flush_workqueue(dp->wq);
 
 			dp_display_handle_disconnect(dp);
+
+			secdp_send_poor_connection_event();
+			pr_info("poor connection! send secdp_msg uevent\n");
 		} else {
 			if (!secdp_check_link_stable(dp->link)) {
 				pr_info("Check poor connection, again\n");
@@ -2154,10 +2177,12 @@ static int dp_display_post_enable(struct dp_display *dp_display)
 	schedule_delayed_work(&dp->sec.hdcp_start_work,
 					msecs_to_jiffies(3500));
 #endif
-	/* check poor connection only if it's dex mode */
-	if (secdp_check_dex_mode())
-		schedule_delayed_work(&dp->sec.link_status_work,
-						msecs_to_jiffies(13000));
+#ifndef CONFIG_SEC_FACTORY
+	schedule_delayed_work(&dp->sec.link_status_work,
+					msecs_to_jiffies(13000));
+#else
+	pr_info("skip chekcing poor connection\n");
+#endif
 #endif
 end:
 	/* clear framework event notifier */
@@ -2418,6 +2443,10 @@ static int dp_display_probe(struct platform_device *pdev)
 	rc = switch_dev_register(&switch_secdp);
 	if (rc)
 		pr_info("Failed to register secdp switch(%d)\n", rc);
+
+	rc = switch_dev_register(&switch_secdp_msg);
+	if (rc)
+		pr_info("Failed to register secdp_msg switch(%d)\n", rc);
 #endif
 
 	dp->pdev = pdev;
@@ -2508,6 +2537,7 @@ static int dp_display_remove(struct platform_device *pdev)
 
 #ifdef CONFIG_SEC_DISPLAYPORT 
 	switch_dev_unregister(&switch_secdp); 
+	switch_dev_unregister(&switch_secdp_msg); 
 #endif
 	return 0;
 }

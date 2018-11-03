@@ -16,6 +16,7 @@
 #include <linux/of.h>
 #include <linux/time.h>
 #include <linux/list.h>
+#include <linux/iommu.h>
 #include <uapi/media/cam_isp.h>
 #include "cam_hw_mgr_intf.h"
 
@@ -77,7 +78,6 @@ struct cam_isp_stop_hw_method {
  * @right_pix_vote:             Bandwidth vote for right ISP
  * @rdi_vote:                   RDI bandwidth requirements
  */
-
 struct cam_isp_bw_config_internal {
 	uint32_t                       usage_type;
 	uint32_t                       num_rdi;
@@ -87,17 +87,61 @@ struct cam_isp_bw_config_internal {
 };
 
 /**
+ * struct cam_isp_pf_plane_dbg_entry - isp page fault debug plane information
+ * @plane_id: id of the current plane
+ * @width:    width of current plane
+ * @height:   height of current plane
+ * @mapped_addr: mapped address for this plane
+ * @mapped_size: mapped size for current plane
+ */
+struct cam_isp_pf_plane_dbg_entry {
+	uint32_t plane_id;
+	uint32_t width;
+	uint32_t height;
+	void    *mapped_addr;
+	void    *mapped_buf_end_addr;
+	ssize_t  mapped_total_size;
+};
+
+#define CAM_ISP_PORT_MAX 25
+
+/**
+ * struct cam_isp_pf_port_dbg_entry - is page fault debug entry for port
+ * @port_id: id of the port
+ * @format: Image format for the port
+ * @plane_map: plane informations for the port
+ */
+struct cam_isp_pf_port_dbg_entry {
+	uint32_t port_id;
+	uint32_t format;
+	uint32_t num_planes;
+	struct cam_isp_pf_plane_dbg_entry plane_map[CAM_PACKET_MAX_PLANES];
+};
+
+/**
+ * struct cam_isp_pf_handler_dbg_data - isp page fault debug data
+ * num_ports: number of ports used in request
+ * port_map: array of ports used
+ */
+struct cam_isp_pf_hander_dbg_data {
+	uint32_t num_ports;
+	struct cam_isp_pf_port_dbg_entry port_map[CAM_ISP_PORT_MAX];
+};
+
+/**
  * struct cam_isp_prepare_hw_update_data - hw prepare data
  *
  * @packet_opcode_type:     Packet header opcode in the packet header
  *                   this opcode defines, packet is init packet or
  *                   update packet
+ * @cam_isp_pf_debug: 	    isp smmu page fault debug data
  *
  */
 struct cam_isp_prepare_hw_update_data {
 	uint32_t                          packet_opcode_type;
 	struct cam_isp_bw_config_internal bw_config[CAM_IFE_HW_NUM_MAX];
 	bool                              bw_config_valid[CAM_IFE_HW_NUM_MAX];
+	struct cam_isp_pf_hander_dbg_data cam_isp_pf_dbg;
 };
 
 
@@ -174,7 +218,16 @@ enum cam_isp_hw_mgr_command {
 	CAM_ISP_HW_MGR_CMD_IS_RDI_ONLY_CONTEXT,
 	CAM_ISP_HW_MGR_CMD_PAUSE_HW,
 	CAM_ISP_HW_MGR_CMD_RESUME_HW,
+	CAM_ISP_HW_MFG_CMD_REG_PFAULT_HANDLER,
+	CAM_ISP_HW_MGR_CMD_IS_DAUL_IFE_USAGE,
+	CAM_ISP_HW_MGR_CMD_STOP_RES_IFE_OUT,
 	CAM_ISP_HW_MGR_CMD_MAX,
+};
+
+struct isp_reg_pf_handler_args {
+	void (*handler_cb)(struct iommu_domain *domain,
+		struct device *dev, unsigned long iova, int flags, void *token);
+	void *handler_arg;
 };
 
 /**
@@ -189,6 +242,8 @@ struct cam_isp_hw_cmd_args {
 	uint32_t                            cmd_type;
 	union {
 		uint32_t                      is_rdi_only_context;
+		uint32_t                      is_dual_ife_usage;
+		void *arg;
 	} u;
 };
 

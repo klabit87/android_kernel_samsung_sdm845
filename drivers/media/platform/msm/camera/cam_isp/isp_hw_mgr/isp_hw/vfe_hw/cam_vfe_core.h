@@ -58,6 +58,7 @@ struct cam_vfe_hw_core_info {
 	int                                 irq_handle;
 	int                                 irq_err_handle;
 	spinlock_t                          spin_lock;
+	void __iomem                       *cam_noc_base;
 };
 
 int cam_vfe_get_hw_caps(void *device_priv,

@@ -30,6 +30,9 @@ struct cam_vfe_mux_camif_data {
 	struct cam_vfe_top_ver2_reg_offset_common   *common_reg;
 	struct cam_vfe_camif_reg_data               *reg_data;
 	struct cam_hw_soc_info                      *soc_info;
+	void __iomem                                *camnoc_base;
+	void __iomem                                *csid0_base;
+	void __iomem                                *csid1_base;
 
 	enum cam_isp_hw_sync_mode          sync_mode;
 	uint32_t                           dsp_mode;
@@ -296,6 +299,87 @@ static int cam_vfe_camif_resource_stop(
 	return rc;
 }
 
+static int cam_vfe_camif_reg_dump(
+	struct cam_isp_resource_node *camif_res)
+{
+	struct cam_vfe_mux_camif_data *camif_priv;
+	struct cam_vfe_soc_private *soc_private;
+	int rc = 0, i, j;
+	uint32_t val_0, val_1, val_2, val_3, wm_offset;
+
+	if (!camif_res) {
+		CAM_ERR(CAM_ISP, "Error! Invalid input arguments");
+		return -EINVAL;
+	}
+
+	if ((camif_res->res_state == CAM_ISP_RESOURCE_STATE_RESERVED) ||
+		(camif_res->res_state == CAM_ISP_RESOURCE_STATE_AVAILABLE))
+		return 0;
+
+	camif_priv = (struct cam_vfe_mux_camif_data *)camif_res->res_priv;
+	soc_private = camif_priv->soc_info->soc_private;
+	CAM_INFO(CAM_ISP, "dump ife:%d registers", camif_priv->hw_intf->hw_idx);
+
+	for (i = 0x0; (i + 0xc) <= 0xF5C; i += 0x10) {
+		val_0 = cam_io_r_mb(camif_priv->mem_base + i);
+		val_1 = cam_io_r_mb(camif_priv->mem_base + i + 4);
+		val_2 = cam_io_r_mb(camif_priv->mem_base + i + 0x8);
+		val_3 = cam_io_r_mb(camif_priv->mem_base + i + 0xc);
+		CAM_INFO(CAM_ISP, "offset 0x%04x=0x%08x 0x%08x 0x%08x 0x%08x",
+			i, val_0, val_1, val_2, val_3);
+	}
+
+	/* Dump the BAF LUT table address */
+	/* auto increment and select baf */
+	val_0 = 0x100 | 0x40;
+	cam_io_w_mb(val_0, camif_priv->mem_base + 0xC24);
+	cam_io_w_mb(0, camif_priv->mem_base + 0xC28);
+	for (i = 0 ; i < 180 ; i++) {
+		val_0 = cam_io_r_mb(camif_priv->mem_base + 0xC30);
+		val_1 = cam_io_r_mb(camif_priv->mem_base + 0xC2C);
+		CAM_INFO(CAM_ISP, "BAF RGN_IND_LUT_BANK0:0x%x LO: 0x%x HI:0x%x",
+			i, val_0, val_1);
+	}
+
+	val_0 = 0x100 | 0x41;
+	cam_io_w_mb(val_0, camif_priv->mem_base + 0xC24);
+	cam_io_w_mb(0, camif_priv->mem_base + 0xC28);
+	for (i = 0 ; i < 180 ; i++) {
+		val_0 = cam_io_r_mb(camif_priv->mem_base + 0xC30);
+		val_1 = cam_io_r_mb(camif_priv->mem_base + 0xC2C);
+		CAM_INFO(CAM_ISP, "BAF RGN_IND_LUT_BANK1:0x%x LO: 0x%x HI:0x%x",
+			i, val_0, val_1);
+	}
+
+	/* No mem selected */
+	cam_io_w_mb(0, camif_priv->mem_base + 0xC24);
+	cam_io_w_mb(0, camif_priv->mem_base + 0xC28);
+
+	for (i = 0x2000; (i + 0xc) <= 0x20B8; i += 0x10) {
+		val_0 = cam_io_r_mb(camif_priv->mem_base + i);
+		val_1 = cam_io_r_mb(camif_priv->mem_base + i + 4);
+		val_2 = cam_io_r_mb(camif_priv->mem_base + i + 0x8);
+		val_3 = cam_io_r_mb(camif_priv->mem_base + i + 0xc);
+		CAM_INFO(CAM_ISP, "offset 0x%04x=0x%08x 0x%08x 0x%08x 0x%08x",
+			i, val_0, val_1, val_2, val_3);
+	}
+
+	wm_offset = 0x2200;
+	for (j = 0; j < 20; j++) {
+		for (i = 0x0; (i + 0xc) <= 0x100; i += 0x10) {
+			val_0 = cam_io_r_mb(camif_priv->mem_base + wm_offset + i);
+			val_1 = cam_io_r_mb(camif_priv->mem_base + wm_offset + i + 4);
+			val_2 = cam_io_r_mb(camif_priv->mem_base + wm_offset + i + 0x8);
+			val_3 = cam_io_r_mb(camif_priv->mem_base + wm_offset + i + 0xc);
+			CAM_INFO(CAM_ISP, "offset 0x%04x=0x%08x 0x%08x 0x%08x 0x%08x",
+				(wm_offset + i), val_0, val_1, val_2, val_3);
+		}
+		wm_offset += 0x100;
+	}
+
+	return rc;
+}
+
 static int cam_vfe_camif_process_cmd(struct cam_isp_resource_node *rsrc_node,
 	uint32_t cmd_type, void *cmd_args, uint32_t arg_size)
 {
@@ -310,6 +394,9 @@ static int cam_vfe_camif_process_cmd(struct cam_isp_resource_node *rsrc_node,
 	case CAM_ISP_HW_CMD_GET_REG_UPDATE:
 		rc = cam_vfe_camif_get_reg_update(rsrc_node, cmd_args,
 			arg_size);
+		break;
+	case CAM_ISP_HW_CMD_GET_REG_DUMP:
+		rc = cam_vfe_camif_reg_dump(rsrc_node);
 		break;
 	default:
 		CAM_ERR(CAM_ISP,
@@ -335,6 +422,7 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 	struct cam_vfe_top_irq_evt_payload   *payload;
 	uint32_t                              irq_status0;
 	uint32_t                              irq_status1;
+	/* uint32_t                              reg_value; */
 
 	if (!handler_priv || !evt_payload_priv) {
 		CAM_ERR(CAM_ISP, "Invalid params");
@@ -353,7 +441,7 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 	switch (payload->evt_id) {
 	case CAM_ISP_HW_EVENT_SOF:
 		if (irq_status0 & camif_priv->reg_data->sof_irq_mask) {
-			CAM_DBG(CAM_ISP, "Received SOF");
+			CAM_DBG(CAM_ISP, "VFE:%d Received SOF", camif_priv->hw_intf->hw_idx);
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 			payload->irq_reg_val[CAM_IFE_IRQ_CAMIF_REG_STATUS0] &=
 				~(camif_priv->reg_data->sof_irq_mask);
@@ -362,16 +450,35 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 		break;
 	case CAM_ISP_HW_EVENT_EPOCH:
 		if (irq_status0 & camif_priv->reg_data->epoch0_irq_mask) {
-			CAM_DBG(CAM_ISP, "Received EPOCH");
+			CAM_DBG(CAM_ISP, "VFE:%d Received EPOCH", camif_priv->hw_intf->hw_idx);
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 			payload->irq_reg_val[CAM_IFE_IRQ_CAMIF_REG_STATUS0] &=
 				~(camif_priv->reg_data->epoch0_irq_mask);
 			cam_vfe_put_evt_payload(payload->core_info, &payload);
+			/* BluesMan: disable useless register access
+			reg_value = cam_io_r_mb(camif_priv->camnoc_base + 0x420);
+			CAM_DBG(CAM_ISP, "IFE02_MAIN_SPECIFICTONTTPTR_MAXWR_LOW value:0x%x",
+			reg_value);
+			
+			reg_value = cam_io_r_mb(camif_priv->camnoc_base + 0x820);
+			CAM_DBG(CAM_ISP, "IFE13_MAIN_SPECIFICTONTTPTR_MAXWR_LOW value:0x%x",
+			reg_value);
+			if (camif_priv->hw_intf->hw_idx == 0) {
+				reg_value = cam_io_r_mb(camif_priv->csid0_base + 0x20);
+				CAM_DBG(CAM_ISP, "csid :0 offset:0x20 value:0x%x",
+				reg_value);
+
+			} else if (camif_priv->hw_intf->hw_idx == 1) {
+				reg_value = cam_io_r_mb(camif_priv->csid1_base + 0x20);
+				CAM_DBG(CAM_ISP, "csid :1 offset: 0x20 value:0x%x",
+				reg_value);
+			}
+			*/
 		}
 		break;
 	case CAM_ISP_HW_EVENT_REG_UPDATE:
 		if (irq_status0 & camif_priv->reg_data->reg_update_irq_mask) {
-			CAM_DBG(CAM_ISP, "Received REG_UPDATE_ACK");
+			CAM_DBG(CAM_ISP, "VFE:%d Received REG_UPDATE_ACK", camif_priv->hw_intf->hw_idx);
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 			payload->irq_reg_val[CAM_IFE_IRQ_CAMIF_REG_STATUS0] &=
 				~(camif_priv->reg_data->reg_update_irq_mask);
@@ -380,7 +487,7 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 		break;
 	case CAM_ISP_HW_EVENT_EOF:
 		if (irq_status0 & camif_priv->reg_data->eof_irq_mask) {
-			CAM_DBG(CAM_ISP, "Received EOF\n");
+			CAM_DBG(CAM_ISP, "VFE:%d Received EOF", camif_priv->hw_intf->hw_idx);
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 			payload->irq_reg_val[CAM_IFE_IRQ_CAMIF_REG_STATUS0] &=
 				~(camif_priv->reg_data->eof_irq_mask);
@@ -405,6 +512,10 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 			payload->irq_reg_val[CAM_IFE_IRQ_CAMIF_REG_STATUS1] &=
 				~(camif_priv->reg_data->error_irq_mask1);
 			cam_vfe_put_evt_payload(payload->core_info, &payload);
+		}
+		else {
+			/* BluesMan: QC bug fix, avoid black screen in IFE register dump patch */
+			return CAM_ISP_HW_ERROR_NONE;
 		}
 
 		break;
@@ -449,6 +560,26 @@ int cam_vfe_camif_ver2_init(
 	camif_node->top_half_handler = cam_vfe_camif_handle_irq_top_half;
 	camif_node->bottom_half_handler = cam_vfe_camif_handle_irq_bottom_half;
 
+	camif_priv->camnoc_base = ioremap_nocache(0xac42000, 0x5000);
+		if (!camif_priv->camnoc_base) {
+			CAM_ERR(CAM_ISP, "%s: Error remapping address 0x%zx",
+				__func__, (size_t)0xac42000);
+			return -ENOMEM;
+		}
+
+	camif_priv->csid0_base = ioremap_nocache(0xacb3000, 0x1000);
+		if (!camif_priv->csid0_base) {
+			CAM_ERR(CAM_ISP, "%s: Error remapping address csid0 0x%zx",
+				__func__, (size_t)0xacb3000);
+			return -ENOMEM;
+		}
+
+	camif_priv->csid1_base = ioremap_nocache(0xacba000, 0x1000);
+		if (!camif_priv->csid1_base) {
+			CAM_ERR(CAM_ISP, "%s: Error remapping address csid1 0x%zx",
+				__func__, (size_t)0xacba000);
+			return -ENOMEM;
+		}
 	return 0;
 }
 

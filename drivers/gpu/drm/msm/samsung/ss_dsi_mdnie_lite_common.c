@@ -137,11 +137,6 @@ int update_dsi_tcon_mdnie_register(struct samsung_display_driver_data *vdd)
 	if (vdd == NULL || !vdd->support_mdnie_lite)
 		return 0;
 
-	if (!ss_is_ready_to_send_cmd(vdd)) {
-		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
-		return 0;
-	}
-
 	if (ss_is_seamless_mode(vdd) ||
 			ss_is_panel_off(vdd)) {
 		LCD_ERR("do not send mdnie data (%d) (%d)\n",
@@ -322,6 +317,11 @@ static ssize_t mode_store(struct device *dev,
 
 	DPRINT("%s mode : %d\n", __func__, tune->mdnie_mode);
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
 	update_dsi_tcon_mdnie_register(vdd);
 
 	return size;
@@ -401,6 +401,11 @@ static ssize_t scenario_store(struct device *dev,
 	tune->mdnie_app = value;
 	DPRINT("%s APP : %d\n", __func__, tune->mdnie_app);
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
 	update_dsi_tcon_mdnie_register(vdd);
 
 	return size;
@@ -452,6 +457,11 @@ static ssize_t outdoor_store(struct device *dev,
 	tune->outdoor = value;
 	DPRINT("outdoor value = %d, APP = %d\n", value, tune->mdnie_app);
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
 	update_dsi_tcon_mdnie_register(vdd);
 
 	return size;
@@ -502,6 +512,11 @@ static ssize_t bypass_store(struct device *dev,
 	DPRINT("%s bypass : %s value : %d\n", __func__,
 			tune->mdnie_bypass ? "ENABLE" : "DISABLE",
 			value);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	update_dsi_tcon_mdnie_register(vdd);
 
@@ -607,6 +622,10 @@ static ssize_t accessibility_store(struct device *dev,
 #else
 	DPRINT("%s cmd_value : %d size : %u", __func__, cmd_value, size);
 #endif
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	update_dsi_tcon_mdnie_register(vdd);
 	return size;
@@ -682,6 +701,11 @@ static ssize_t sensorRGB_store(struct device *dev,
 		}
 	}
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+	
 	send_dsi_tcon_mdnie_register(vdd, tune_data_dsi, tune);
 
 	return size;
@@ -763,6 +787,11 @@ static ssize_t whiteRGB_store(struct device *dev,
 		white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_b + white_blue);
 	}
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+	
 	update_dsi_tcon_mdnie_register(vdd);
 	return size;
 }
@@ -837,6 +866,11 @@ static ssize_t mdnie_ldu_store(struct device *dev,
 		}
 	}
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
 	update_dsi_tcon_mdnie_register(vdd);
 	return size;
 }
@@ -892,6 +926,11 @@ static ssize_t night_mode_store(struct device *dev,
 				tune->night_mode_index = idx;
 			}
 		}
+	}
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
 	}
 
 	update_dsi_tcon_mdnie_register(vdd);
@@ -953,6 +992,11 @@ static ssize_t color_lens_store(struct device *dev,
 		}
 	}
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
 	update_dsi_tcon_mdnie_register(vdd);
 	return size;
 }
@@ -1002,6 +1046,11 @@ static ssize_t hdr_store(struct device *dev,
 
 	DPRINT("%s : (%d) -> (%d)\n", __func__, tune->hdr, value);
 	tune->hdr = value;
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	update_dsi_tcon_mdnie_register(vdd);
 
@@ -1054,6 +1103,11 @@ static ssize_t light_notification_store(struct device *dev,
 	DPRINT("%s : (%d) -> (%d)\n", __func__,
 			tune->light_notification, value);
 	tune->light_notification = value;
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	update_dsi_tcon_mdnie_register(vdd);
 
@@ -1127,6 +1181,11 @@ static ssize_t afc_store(struct device *dev,
 		memcpy(mdnie_data->DSI_AFC, mdnie_data->DSI_AFC_OFF, mdnie_data->dsi_afc_size);
 	}
 
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
 	update_dsi_tcon_mdnie_register(vdd);
 
 	return size;
@@ -1176,6 +1235,11 @@ static ssize_t cabc_store(struct device *dev,
 		tune->cabc_bypass = BYPASS_ENABLE;
 
 	DPRINT("%s bypass : %s value : %d\n", __func__, tune->cabc_bypass ? "ENABLE" : "DISABLE", value);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	config_cabc(vdd, value);
 
@@ -1230,6 +1294,11 @@ static ssize_t hmt_color_temperature_store(struct device *dev,
 
 	DPRINT("%s : (%d) -> (%d)\n", __func__, tune->hmt_color_temperature, value);
 	tune->hmt_color_temperature = value;
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	update_dsi_tcon_mdnie_register(vdd);
 

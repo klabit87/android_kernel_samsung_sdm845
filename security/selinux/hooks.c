@@ -4204,7 +4204,13 @@ static int selinux_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 static void selinux_cred_free(struct cred *cred)
 {
 	struct task_security_struct *tsec = cred->security;
-
+#ifdef CONFIG_RKP_KDP
+	if ((unsigned long) cred->security == 0x7) {
+		printk(KERN_ERR"CRED SECURITY is already freed  %s -> %p sec %p SHOULD BE 7\n",
+					__func__, cred, cred->security);
+		return;
+	}
+#endif /*CONFIG_RKP_KDP*/
 	/*
 	 * cred->security == NULL if security_cred_alloc_blank() or
 	 * security_prepare_creds() returned an error.
@@ -4213,12 +4219,6 @@ static void selinux_cred_free(struct cred *cred)
 #ifdef CONFIG_RKP_KDP
 	if ((security_integrity_current()))
 		return;
-
-	if ((unsigned long) cred->security == 0x7) {
-		printk(KERN_ERR"CRED SECURITY is already freed  %s -> %p sec %p SHOULD BE 7\n",
-					__func__, cred, cred->security);
-		return;
-	}
 
 	if (rkp_ro_page((unsigned long)cred)) {
 		uh_call(UH_APP_RKP, 0x45,(u64) &cred->security, 7,0,0);

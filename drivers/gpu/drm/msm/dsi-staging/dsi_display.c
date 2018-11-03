@@ -1231,7 +1231,7 @@ static ssize_t debugfs_alter_esd_check_mode(struct file *file,
 	if (!buf)
 		return -ENOMEM;
 
-	if (copy_from_user(buf, user_buf, user_len)) {
+	if (copy_from_user(buf, user_buf, len)) {
 		rc = -EINVAL;
 		goto error;
 	}
@@ -1263,7 +1263,7 @@ static ssize_t debugfs_alter_esd_check_mode(struct file *file,
 		if (rc) {
 			pr_err("failed to alter esd check mode,rc=%d\n",
 						rc);
-			rc = user_len;
+			rc = len;
 			goto error;
 		}
 		esd_config->status_mode = ESD_MODE_REG_READ;
