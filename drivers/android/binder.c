@@ -547,6 +547,7 @@ struct binder_proc {
 	struct list_head waiting_threads;
 	int pid;
 	struct task_struct *tsk;
+	struct mutex files_lock;
 	struct hlist_node deferred_work_node;
 	int deferred_work;
 	bool is_dead;
@@ -954,9 +955,11 @@ static int task_get_unused_fd_flags(struct binder_proc *proc, int flags)
 	int ret;
 
 	files = binder_get_files_struct(proc);
-	if (files == NULL)
-		return -ESRCH;
-
+	mutex_lock(&proc->files_lock);
+	if (files == NULL) {
+		ret = -ESRCH;
+		goto err;
+	}
 	if (!lock_task_sighand(proc->tsk, &irqs)) {
 		ret = -EMFILE;
 		goto err;
@@ -968,6 +971,7 @@ static int task_get_unused_fd_flags(struct binder_proc *proc, int flags)
 	ret = __alloc_fd(files, 0, rlim_cur, flags);
 err:
 	put_files_struct(files);
+	mutex_unlock(&proc->files_lock);
 	return ret;
 }
 
@@ -978,10 +982,11 @@ static void task_fd_install(
 	struct binder_proc *proc, unsigned int fd, struct file *file)
 {
 	struct files_struct *files = binder_get_files_struct(proc);
-
+	mutex_lock(&proc->files_lock);
 	if (files) {
 		__fd_install(files, fd, file);
 		put_files_struct(files);
+	mutex_unlock(&proc->files_lock);
 	}
 }
 
@@ -993,9 +998,11 @@ static long task_close_fd(struct binder_proc *proc, unsigned int fd)
 	struct files_struct *files = binder_get_files_struct(proc);
 	int retval;
 
-	if (files == NULL)
-		return -ESRCH;
-
+	mutex_lock(&proc->files_lock);
+	if (files == NULL) {
+		retval = -ESRCH;
+		goto err;
+	}
 	retval = __close_fd(files, fd);
 	/* can't restart close syscall because file table entry was cleared */
 	if (unlikely(retval == -ERESTARTSYS ||
@@ -1004,7 +1011,8 @@ static long task_close_fd(struct binder_proc *proc, unsigned int fd)
 		     retval == -ERESTART_RESTARTBLOCK))
 		retval = -EINTR;
 	put_files_struct(files);
-
+err:
+	mutex_unlock(&proc->files_lock);
 	return retval;
 }
 
@@ -4933,6 +4941,7 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	spin_lock_init(&proc->outer_lock);
 	get_task_struct(current->group_leader);
 	proc->tsk = current->group_leader;
+	mutex_init(&proc->files_lock);
 	INIT_LIST_HEAD(&proc->todo);
 	if (binder_supported_policy(current->policy)) {
 		proc->default_priority.sched_policy = current->policy;
