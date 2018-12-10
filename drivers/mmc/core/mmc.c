@@ -29,6 +29,7 @@
 #include "sd_ops.h"
 
 #define DEFAULT_CMD6_TIMEOUT_MS	500
+#define MIN_CACHE_EN_TIMEOUT_MS 1600
 
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
