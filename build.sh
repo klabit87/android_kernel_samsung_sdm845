@@ -7,20 +7,20 @@ BUILD_ROOT_DIR=$BUILD_KERNEL_DIR/..
 BUILD_KERNEL_OUT_DIR=$BUILD_ROOT_DIR/kernel_out/KERNEL_OBJ
 PRODUCT_OUT=$BUILD_ROOT_DIR/kernel_out
 
-DEVICE=starlte_chn
-KERNEL_TOOLCHAIN=/home/vaughnn/android/toolchain/aarch64-linux-android/bin/aarch64-linux-android-
-
+DEVICE=star2qlte_hk
+#KERNEL_TOOLCHAIN=/home/klabit/toolchain/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+KERNEL_TOOLCHAIN=$BUILD_WHERE/prebuilt/aarch64-linux-android-4.9/bin/aarch64-linux-android-
 case ${DEVICE} in
-	"starlte_chn")
+	"starqlte_chn")
             KERNEL_DEFCONFIG=starqlte_chn_open_defconfig;;
 
-        "star2lte_chn")
+        "star2qlte_chn")
             KERNEL_DEFCONFIG=star2qlte_chn_open_defconfig;;
 
-        "starlte_hk")
+        "starqlte_hk")
             KERNEL_DEFCONFIG=starqlte_chn_hk_defconfig;;
 
-	"star2lte_hk")
+	"star2qlte_hk")
 	    KERNEL_DEFCONFIG=star2qlte_chn_hk_defconfig;;
 
 	*)
@@ -131,7 +131,7 @@ FUNC_GENERATE_DTIMG()
     else
         FUNC_BUILD_KERNEL
     fi
-    FUNC_GENERATE_DTIMG
+#    FUNC_GENERATE_DTIMG
 
     END_TIME=`date +%s`
 
