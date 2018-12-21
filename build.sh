@@ -120,6 +120,23 @@ FUNC_GENERATE_DTIMG()
 	echo ""
 }
 
+FUNC_PACKAGE_ZIP()
+{
+	echo ""
+	echo "================================="
+	echo "START   : FUNC_PACKAGE_ZIP"
+	echo "================================="
+	rm ../anykernel/Image.gz-dtb
+	cp $KERNEL_IMG ../anykernel/Image.gz-dtb
+	cd ../anykernel
+	zip -r9 UPDATE-AnyKernel2.zip * -x .git README.md *placeholder
+	mv UPDATE-AnyKernel2.zip ../latest-AnyKernel2.zip
+	echo "================================="
+	echo "END   : FUNC_PACKAGE_ZIP"
+	echo "================================="
+	echo ""
+}
+
 # MAIN FUNCTION
 (
     START_TIME=`date +%s`
@@ -132,6 +149,7 @@ FUNC_GENERATE_DTIMG()
         FUNC_BUILD_KERNEL
     fi
 #    FUNC_GENERATE_DTIMG
+	FUNC_PACKAGE_ZIP
 
     END_TIME=`date +%s`
 
