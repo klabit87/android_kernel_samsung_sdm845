@@ -26,6 +26,7 @@
 #include <linux/uhid.h>
 #include <linux/wait.h>
 #include <linux/uaccess.h>
+#include <linux/msm_drm_notify.h>
 
 #define UHID_NAME	"uhid"
 #define UHID_BUFSIZE	32
