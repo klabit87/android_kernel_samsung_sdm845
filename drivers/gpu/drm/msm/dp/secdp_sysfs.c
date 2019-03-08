@@ -11,7 +11,6 @@
  * GNU General Public License for more details.
  *
  */
-
 #define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
 
 #include <linux/module.h>
@@ -27,8 +26,6 @@
 #include "sde_edid_parser.h"
 #include "secdp_unit_test.h"
 
-
-
 enum secdp_unit_test_cmd {
 	SECDP_UTCMD_EDID_PARSE = 0,
 };
@@ -41,9 +38,6 @@ struct secdp_sysfs_private {
 };
 
 struct secdp_sysfs_private *g_secdp_sysfs;
-
-
-
 
 static inline char *secdp_utcmd_to_str(u32 cmd_type)
 {
@@ -152,6 +146,7 @@ static ssize_t secdp_dex_store(struct class *class,
 	dex->setting_ui = setting_ui;
 	dex->curr = run;
 
+	mutex_lock(&sec->notifier_lock);
 	if (!sec->ccic_noti_registered) {
 		int rc;
 
@@ -167,8 +162,10 @@ static ssize_t secdp_dex_store(struct class *class,
 		if (rc)
 			pr_err("noti register fail, rc(%d)\n", rc);
 
+		mutex_unlock(&sec->notifier_lock);
 		goto exit;
 	}
+	mutex_unlock(&sec->notifier_lock);
 
 	if (!secdp_get_cable_status() || !secdp_get_hpd_status()) {
 		pr_info("cable is out\n");
@@ -187,8 +184,7 @@ static ssize_t secdp_dex_store(struct class *class,
 		secdp_bigdata_save_item(BD_DP_MODE, "MIRROR");
 #endif
 
-
-	if (!sec->dex.support) {
+	if (sec->dex.res == DEX_RES_NOT_SUPPORT) {
 		pr_debug("this dongle does not support dex\n");
 		goto exit;
 	}
@@ -297,6 +293,54 @@ static ssize_t secdp_unit_test_store(struct class *dev,
 	return size;
 }
 
+#ifdef SECDP_CALIBRATE_VXPX
+static ssize_t secdp_voltage_level_show(struct class *class,
+				struct class_attribute *attr, char *buf)
+{
+	pr_debug("+++\n");
+	secdp_catalog_vx_show();
+	return 0;
+}
+
+static ssize_t secdp_voltage_level_store(struct class *dev,
+				struct class_attribute *attr, const char *buf, size_t size)
+{
+	int i, val[30] = {0, };
+
+	pr_debug("+++, size(%d)\n", (int)size);
+
+	get_options(buf, 20, val);
+	for (i = 0; i < 16; i=i+4)
+		pr_debug("%02x,%02x,%02x,%02x\n", val[i+1],val[i+2],val[i+3],val[i+4]);
+
+	secdp_catalog_vx_store(&val[1], 16);
+	return size;
+}
+
+static ssize_t secdp_preemphasis_level_show(struct class *class,
+				struct class_attribute *attr, char *buf)
+{
+	pr_debug("+++\n");
+	secdp_catalog_px_show();
+	return 0;
+}
+
+static ssize_t secdp_preemphasis_level_store(struct class *dev,
+				struct class_attribute *attr, const char *buf, size_t size)
+{
+	int i, val[30] = {0, };
+
+	pr_debug("+++, size(%d)\n", (int)size);
+
+	get_options(buf, 20, val);
+	for (i = 0; i < 16; i=i+4)
+		pr_debug("%02x,%02x,%02x,%02x\n", val[i+1],val[i+2],val[i+3],val[i+4]);
+
+	secdp_catalog_px_store(&val[1], 16);
+	return size;
+}
+#endif
+
 static CLASS_ATTR(dp_sbu_sw_sel, 0664, NULL, secdp_sbu_sw_sel_store);
 static CLASS_ATTR(forced_resolution, 0664,
 		secdp_forced_resolution_show, secdp_forced_resolution_store);
@@ -304,6 +348,10 @@ static CLASS_ATTR(dex, 0664, secdp_dex_show, secdp_dex_store);
 static CLASS_ATTR(dex_ver, 0444, secdp_dex_version_show, NULL);
 static CLASS_ATTR(monitor_info, 0444, secdp_monitor_info_show, NULL);
 static CLASS_ATTR(unit_test, 0664, secdp_unit_test_show, secdp_unit_test_store);
+#ifdef SECDP_CALIBRATE_VXPX
+static CLASS_ATTR(vx_lvl, 0664, secdp_voltage_level_show, secdp_voltage_level_store);
+static CLASS_ATTR(px_lvl, 0664, secdp_preemphasis_level_show, secdp_preemphasis_level_store);
+#endif
 
 int secdp_sysfs_init(void)
 {
@@ -311,7 +359,7 @@ int secdp_sysfs_init(void)
 	int rc = -1;
 
 	dp_class = class_create(THIS_MODULE, "dp_sec");
-	if (IS_ERR(&dp_class)) {
+	if (IS_ERR(dp_class)) {
 		pr_err("failed to create dp_sec_class\n");
 		goto exit;
 	}
@@ -339,6 +387,16 @@ int secdp_sysfs_init(void)
 	rc = class_create_file(dp_class, &class_attr_unit_test);
 	if (rc)
 		pr_err("failed to create attr_dp_test(%d)\n", rc);
+
+#ifdef SECDP_CALIBRATE_VXPX
+	rc = class_create_file(dp_class, &class_attr_vx_lvl);
+	if (rc)
+		pr_err("failed to create attr_voltage_level(%d)\n", rc);
+
+	rc = class_create_file(dp_class, &class_attr_px_lvl);
+	if (rc)
+		pr_err("failed to create attr_preemphasis_level(%d)\n", rc);
+#endif
 
 #ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
 	secdp_bigdata_init(dp_class);
@@ -377,8 +435,8 @@ struct secdp_sysfs *secdp_sysfs_get(struct device *dev, struct secdp_misc *sec)
 	dp_sysfs = &sysfs->dp_sysfs;
 
 	g_secdp_sysfs = sysfs;
-
 	return dp_sysfs;
+
 error:
 	return ERR_PTR(rc);
 }

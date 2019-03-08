@@ -243,6 +243,40 @@ static const char *proc_arch[] = {
 	"?(17)",
 };
 
+#ifdef CONFIG_HARDEN_BRANCH_PREDICTOR
+struct arm_btbinv {
+	void (*apply_bp_hardening)(void);
+};
+static DEFINE_PER_CPU_READ_MOSTLY(struct arm_btbinv, arm_btbinv);
+
+static void arm_a73_apply_bp_hardening(void)
+{
+	asm("mov        r2, #0");
+	asm("mcr        p15, 0, r2, c7, c5, 6");
+}
+
+void arm_apply_bp_hardening(void)
+{
+	if (this_cpu_ptr(&arm_btbinv)->apply_bp_hardening)
+		this_cpu_ptr(&arm_btbinv)->apply_bp_hardening();
+}
+
+void arm_init_bp_hardening(void)
+{
+	switch (read_cpuid_part()) {
+	case ARM_CPU_PART_CORTEX_A73:
+	case ARM_CPU_PART_KRYO2XX_GOLD:
+		per_cpu(arm_btbinv.apply_bp_hardening, raw_smp_processor_id())
+			  = arm_a73_apply_bp_hardening;
+		break;
+	default:
+		per_cpu(arm_btbinv.apply_bp_hardening, raw_smp_processor_id())
+			  = NULL;
+		break;
+	}
+}
+#endif
+
 #ifdef CONFIG_CPU_V7M
 static int __get_cpu_architecture(void)
 {
@@ -685,6 +719,7 @@ static void __init setup_processor(void)
 	 * types.  The linker builds this table for us from the
 	 * entries in arch/arm/mm/proc-*.S
 	 */
+	arm_init_bp_hardening();
 	list = lookup_processor_type(read_cpuid_id());
 	if (!list) {
 		pr_err("CPU configuration botched (ID %08x), unable to continue.\n",
@@ -1099,7 +1134,9 @@ void __init setup_arch(char **cmdline_p)
 	parse_early_param();
 
 #ifdef CONFIG_MMU
+	set_memsize_kernel_type(MEMSIZE_KERNEL_PAGING);
 	early_paging_init(mdesc);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 #endif
 	setup_dma_zone(mdesc);
 	xen_early_init();
@@ -1174,7 +1211,7 @@ static int __init topology_init(void)
 
 	return 0;
 }
-subsys_initcall(topology_init);
+postcore_initcall(topology_init);
 
 #ifdef CONFIG_HAVE_PROC_CPU
 static int __init proc_cpu_init(void)

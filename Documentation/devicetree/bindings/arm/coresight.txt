@@ -78,6 +78,7 @@ its hardware characteristcs.
 		- "qcom,coresight-remote-etm"
 		- "qcom,coresight-hwevent"
 		- "qcom,coresight-dummy"
+		- "qcom,coresight-dbgui"
 
 	* port or ports: same as above.
 
@@ -108,6 +109,9 @@ its hardware characteristcs.
 
 	* cpu: the cpu phandle this ETM/PTM is affined to. When omitted the
 	  source is considered to belong to CPU0.
+
+	* qcom,tupwr-disable: For ETM, don't keep trace unit powered across power
+	  collapse.
 
 * Optional property for TMC:
 
@@ -153,6 +157,7 @@ its hardware characteristcs.
 	* qcom,msr-fix-req: boolean, indicating if MSRs need to be programmed
 	  after enabling the subunit.
 
+	* qcom,dump-enable: boolean, specifies to dump MCMB data.
 * Optional properties for CTI:
 
 	* qcom,cti-gpio-trigin: cti trigger input driven by gpio.
@@ -187,6 +192,20 @@ its hardware characteristcs.
 
 	* reg-names: funnel-base-real: actual register space for the
 	  duplicate funnel.
+
+* Optional properties for CSRs:
+
+	* qcom,usb-bam-support: boolean, indicates CSR has the ability to operate on
+	  usb bam, include enable,disable and flush.
+
+	* qcom,hwctrl-set-support: boolean, indicates CSR has the ability to operate on
+	  to "HWCTRL" register.
+
+	* qcom,set-byte-cntr-support:boolean, indicates CSR has the ability to operate on
+	  to "BYTECNT" register.
+
+	* qcom,timestamp-support:boolean, indicates CSR support sys interface to read
+	  timestamp value.
 
 Example:
 

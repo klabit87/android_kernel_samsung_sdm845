@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -42,9 +42,10 @@ struct dp_display {
 	int (*unprepare)(struct dp_display *dp_display);
 	int (*request_irq)(struct dp_display *dp_display);
 	struct dp_debug *(*get_debug)(struct dp_display *dp_display);
-	void (*send_hpd_event)(struct dp_display *dp_display);
-	int (*pre_kickoff)(struct dp_display *dp_display,
+	void (*post_open)(struct dp_display *dp_display);
+	int (*config_hdr)(struct dp_display *dp_display,
 				struct drm_msm_ext_hdr_metadata *hdr_meta);
+	void (*post_init)(struct dp_display *dp_display);
 };
 
 int dp_display_get_num_of_displays(void);

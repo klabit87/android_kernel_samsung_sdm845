@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -92,8 +92,15 @@
  * the GMU will start shutting down before we try again.
  */
 #define GMU_WAKEUP_DELAY_US 10
-/* Max amount of tries to wake up the GMU. */
-#define GMU_WAKEUP_RETRY_MAX 60
+
+/* Max amount of tries to wake up the GMU. The short retry
+ * limit is half of the long retry limit. After the short
+ * number of retries, we print an informational message to say
+ * exiting IFPC is taking longer than expected. We continue
+ * to retry after this until the long retry limit.
+ */
+#define GMU_SHORT_WAKEUP_RETRY_LIMIT 100
+#define GMU_LONG_WAKEUP_RETRY_LIMIT 200
 
 /* Bits for the flags field in the gmu structure */
 enum gmu_flags {
@@ -102,6 +109,7 @@ enum gmu_flags {
 	GMU_HFI_ON = 2,
 	GMU_FAULT = 3,
 	GMU_DCVS_REPLAY = 4,
+	GMU_RSCC_SLEEP_SEQ_DONE = 5,
 };
 
 /**
@@ -139,13 +147,11 @@ struct rpmh_votes_t {
 
 /*
  * These are the different ways the GMU can boot. GMU_WARM_BOOT is waking up
- * from slumber. GMU_COLD_BOOT is booting for the first time. GMU_RESET
- * is a soft reset of the GMU.
+ * from slumber. GMU_COLD_BOOT is booting for the first time.
  */
 enum gmu_boot {
 	GMU_WARM_BOOT = 0,
 	GMU_COLD_BOOT = 1,
-	GMU_RESET = 2
 };
 
 enum gmu_load_mode {
@@ -213,6 +219,7 @@ enum gpu_idle_level {
  * @ccl: CNOC BW scaling client
  * @idle_level: Minimal GPU idle power level
  * @fault_count: GMU fault count
+ * @unrecovered: Indicates whether GMU recovery failed or not
  */
 struct gmu_device {
 	unsigned int ver;
@@ -247,6 +254,7 @@ struct gmu_device {
 	unsigned int ccl;
 	unsigned int idle_level;
 	unsigned int fault_count;
+	bool unrecovered;
 };
 
 void gmu_snapshot(struct kgsl_device *device);
@@ -256,6 +264,7 @@ void gmu_remove(struct kgsl_device *device);
 int allocate_gmu_image(struct gmu_device *gmu, unsigned int size);
 int gmu_start(struct kgsl_device *device);
 void gmu_stop(struct kgsl_device *device);
+int gmu_suspend(struct kgsl_device *device);
 int gmu_dcvs_set(struct gmu_device *gmu, unsigned int gpu_pwrlevel,
 		unsigned int bus_level);
 #endif /* __KGSL_GMU_H */

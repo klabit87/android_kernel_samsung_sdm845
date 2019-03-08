@@ -534,6 +534,8 @@ int rtc6213n_stop(struct rtc6213n_device *radio)
 
 	/* sysconfig */
 	radio->registers[SYSCFG] &= ~SYSCFG_CSR0_RDS_EN;
+	radio->registers[SYSCFG] &= ~SYSCFG_CSR0_RDSIRQEN;
+	radio->registers[SYSCFG] &= ~SYSCFG_CSR0_STDIRQEN;
 	retval = rtc6213n_set_register(radio, SYSCFG);
 	if (retval < 0)
 		goto done;
@@ -571,6 +573,21 @@ static int rtc6213n_rds_on(struct rtc6213n_device *radio)
 
 	return retval;
 }
+
+#ifdef CONFIG_RDS
+int rtc6213n_reset_rds_data(struct rtc6213n_device *radio)
+{
+	int retval = 0;
+
+	dev_info(&radio->videodev->dev, "======= rtc6213n_reset_rds_data ======\n");
+
+	radio->wr_index = 0;
+	radio->rd_index = 0;
+	memset(radio->buffer, 0, radio->buf_size);
+
+	return retval;
+}
+#endif
 
 /**************************************************************************
  * File Operations Interface
@@ -1036,7 +1053,10 @@ static int rtc6213n_vidioc_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_PRIVATE_CSR0_RDS_EN:
 		dev_info(&radio->videodev->dev, "V4L2_CID_PRIVATE_CSR0_RDS_EN : CHANNEL=0x%4.4hx SYSCFG=0x%4.4hx\n",
 			radio->registers[CHANNEL], radio->registers[SYSCFG]);
+		rtc6213n_reset_rds_data(radio);
 		radio->registers[SYSCFG] &= ~SYSCFG_CSR0_RDS_EN;
+		radio->registers[SYSCFG] &= ~SYSCFG_CSR0_RDSIRQEN;
+		radio->registers[SYSCFG] |= (ctrl->value << 15);
 		radio->registers[SYSCFG] |= (ctrl->value << 12);
 		dev_info(&radio->videodev->dev, "V4L2_CID_PRIVATE_CSR0_RDS_EN : CHANNEL=0x%4.4hx SYSCFG=0x%4.4hx\n",
 			radio->registers[CHANNEL], radio->registers[SYSCFG]);

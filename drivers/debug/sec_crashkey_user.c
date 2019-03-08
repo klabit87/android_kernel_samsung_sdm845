@@ -79,7 +79,7 @@ static void cb_keycrash(void)
 	dump_stack();
 	dump_all_task_info();
 	dump_cpu_stat();
-	panic("User Crash Key");
+	panic(UPLOAD_MSG_USER_CRASH_KEY);
 }
 
 static int is_hold_key(unsigned int code)

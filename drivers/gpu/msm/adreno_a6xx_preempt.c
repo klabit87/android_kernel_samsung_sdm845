@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -49,8 +49,13 @@ static void _update_wptr(struct adreno_device *adreno_dev, bool reset_timer)
 				OOB_PREEMPTION_SET_MASK,
 				OOB_PREEMPTION_CHECK_MASK,
 				OOB_PREEMPTION_CLEAR_MASK);
-			if (status)
+			if (status) {
+				adreno_set_gpu_fault(adreno_dev,
+					ADRENO_GMU_FAULT);
+				adreno_dispatcher_schedule(
+					KGSL_DEVICE(adreno_dev));
 				return;
+			}
 		}
 	}
 
@@ -121,7 +126,10 @@ static void _a6xx_preemption_done(struct adreno_device *adreno_dev)
 
 	del_timer_sync(&adreno_dev->preempt.timer);
 
-	trace_adreno_preempt_done(adreno_dev->cur_rb, adreno_dev->next_rb);
+	adreno_readreg(adreno_dev, ADRENO_REG_CP_PREEMPT_LEVEL_STATUS, &status);
+
+	trace_adreno_preempt_done(adreno_dev->cur_rb, adreno_dev->next_rb,
+		status);
 
 	/* Clean up all the bits */
 	adreno_dev->prev_rb = adreno_dev->cur_rb;
@@ -224,20 +232,51 @@ static struct adreno_ringbuffer *a6xx_next_ringbuffer(
 	return NULL;
 }
 
+#define GMU_ACTIVE_STATE_RETRY_MAX 100
+
+static int adreno_gmu_wait_for_active(struct adreno_device *adreno_dev)
+{
+	unsigned int reg, num_retries = 0;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
+
+	if (!kgsl_gmu_isenabled(device))
+		return 0;
+
+	kgsl_gmu_regread(device,
+		A6XX_GPU_GMU_CX_GMU_RPMH_POWER_STATE, &reg);
+
+	while (reg != GPU_HW_ACTIVE) {
+		/* Wait for small time before trying again */
+		udelay(5);
+		kgsl_gmu_regread(device,
+			A6XX_GPU_GMU_CX_GMU_RPMH_POWER_STATE, &reg);
+
+		if (num_retries == GMU_ACTIVE_STATE_RETRY_MAX &&
+			reg != GPU_HW_ACTIVE) {
+			dev_err(adreno_dev->dev.dev,
+				"GMU failed to move to ACTIVE state: 0x%x\n",
+				reg);
+			return -ETIMEDOUT;
+		}
+		num_retries++;
+	}
+
+	return 0;
+}
+
 void a6xx_preemption_trigger(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct kgsl_iommu *iommu = KGSL_IOMMU_PRIV(device);
 	struct adreno_ringbuffer *next;
 	uint64_t ttbr0, gpuaddr;
-	unsigned int contextidr;
+	unsigned int contextidr, cntl;
 	unsigned long flags;
-	uint32_t preempt_level, usesgmem, skipsaverestore;
 	struct adreno_preemption *preempt = &adreno_dev->preempt;
 
-	preempt_level = preempt->preempt_level;
-	usesgmem = preempt->usesgmem;
-	skipsaverestore = preempt->skipsaverestore;
+	cntl = (((preempt->preempt_level << 6) & 0xC0) |
+		((preempt->skipsaverestore << 9) & 0x200) |
+		((preempt->usesgmem << 8) & 0x100) | 0x1);
 
 	/* Put ourselves into a possible trigger state */
 	if (!adreno_move_preempt_state(adreno_dev,
@@ -354,31 +393,37 @@ void a6xx_preemption_trigger(struct adreno_device *adreno_dev)
 		upper_32_bits(gpuaddr),
 		FENCE_STATUS_WRITEDROPPED1_MASK);
 
+	/*
+	 * Above fence writes will make sure GMU comes out of
+	 * IFPC state if its was in IFPC state but it doesn't
+	 * guarantee that GMU FW actually moved to ACTIVE state
+	 * i.e. wake-up from IFPC is complete.
+	 * Wait for GMU to move to ACTIVE state before triggering
+	 * preemption. This is require to make sure CP doesn't
+	 * interrupt GMU during wake-up from IFPC.
+	 */
+	if (adreno_gmu_wait_for_active(adreno_dev)) {
+		adreno_set_preempt_state(adreno_dev, ADRENO_PREEMPT_NONE);
+
+		adreno_set_gpu_fault(adreno_dev, ADRENO_GMU_FAULT);
+		adreno_dispatcher_schedule(device);
+		return;
+	}
+
 	adreno_dev->next_rb = next;
 
 	/* Start the timer to detect a stuck preemption */
 	mod_timer(&adreno_dev->preempt.timer,
 		jiffies + msecs_to_jiffies(ADRENO_PREEMPT_TIMEOUT));
 
-	trace_adreno_preempt_trigger(adreno_dev->cur_rb, adreno_dev->next_rb);
+	trace_adreno_preempt_trigger(adreno_dev->cur_rb, adreno_dev->next_rb,
+		cntl);
 
 	adreno_set_preempt_state(adreno_dev, ADRENO_PREEMPT_TRIGGERED);
 
 	/* Trigger the preemption */
-	adreno_gmu_fenced_write(adreno_dev,
-		ADRENO_REG_CP_PREEMPT,
-		(((preempt_level << 6) & 0xC0) |
-		((skipsaverestore << 9) & 0x200) |
-		((usesgmem << 8) & 0x100) | 0x1),
+	adreno_gmu_fenced_write(adreno_dev, ADRENO_REG_CP_PREEMPT, cntl,
 		FENCE_STATUS_WRITEDROPPED1_MASK);
-
-	/*
-	 * Once preemption has been requested with the final register write,
-	 * the preemption process starts and the GPU is considered busy.
-	 * We can now safely clear the preemption keepalive bit, allowing
-	 * power collapse to resume its regular activity.
-	 */
-	kgsl_gmu_regrmw(device, A6XX_GMU_AO_SPARE_CNTL, 0x2, 0x0);
 }
 
 void a6xx_preemption_callback(struct adreno_device *adreno_dev, int bit)
@@ -406,10 +451,19 @@ void a6xx_preemption_callback(struct adreno_device *adreno_dev, int bit)
 		return;
 	}
 
+	/*
+	 * We can now safely clear the preemption keepalive bit, allowing
+	 * power collapse to resume its regular activity.
+	 */
+	kgsl_gmu_regrmw(KGSL_DEVICE(adreno_dev), A6XX_GMU_AO_SPARE_CNTL, 0x2,
+			0x0);
+
 	del_timer(&adreno_dev->preempt.timer);
 
-	trace_adreno_preempt_done(adreno_dev->cur_rb,
-		adreno_dev->next_rb);
+	adreno_readreg(adreno_dev, ADRENO_REG_CP_PREEMPT_LEVEL_STATUS, &status);
+
+	trace_adreno_preempt_done(adreno_dev->cur_rb, adreno_dev->next_rb,
+		status);
 
 	adreno_dev->prev_rb = adreno_dev->cur_rb;
 	adreno_dev->cur_rb = adreno_dev->next_rb;
@@ -431,7 +485,7 @@ void a6xx_preemption_schedule(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 
-	if (!adreno_is_preemption_execution_enabled(adreno_dev))
+	if (!adreno_is_preemption_enabled(adreno_dev))
 		return;
 
 	mutex_lock(&device->mutex);
@@ -536,7 +590,7 @@ void a6xx_preemption_start(struct adreno_device *adreno_dev)
 	struct adreno_ringbuffer *rb;
 	unsigned int i;
 
-	if (!adreno_is_preemption_execution_enabled(adreno_dev))
+	if (!adreno_is_preemption_enabled(adreno_dev))
 		return;
 
 	/* Force the state to be clear */
@@ -728,7 +782,7 @@ void a6xx_preemption_context_destroy(struct kgsl_context *context)
 	struct kgsl_device *device = context->device;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
-	if (!adreno_is_preemption_setup_enabled(adreno_dev))
+	if (!adreno_is_preemption_enabled(adreno_dev))
 		return;
 
 	gpumem_free_entry(context->user_ctxt_record);
@@ -743,11 +797,14 @@ int a6xx_preemption_context_init(struct kgsl_context *context)
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	uint64_t flags = 0;
 
-	if (!adreno_is_preemption_setup_enabled(adreno_dev))
+	if (!adreno_is_preemption_enabled(adreno_dev))
 		return 0;
 
 	if (context->flags & KGSL_CONTEXT_SECURE)
 		flags |= KGSL_MEMFLAGS_SECURE;
+
+	if (kgsl_is_compat_task())
+		flags |= KGSL_MEMFLAGS_FORCE_32BIT;
 
 	/*
 	 * gpumem_alloc_entry takes an extra refcount. Put it only when

@@ -1132,11 +1132,10 @@ static int cam_vfe_bus_stop_wm(struct cam_isp_resource_node *wm_res)
 
 	/* Disble WM */
 	/* Disable all register access, reply on global reset */
-	/*
+	
 	cam_io_w_mb(0x0,
 		common_data->mem_base + rsrc_data->hw_regs->cfg);
-	*/
-
+	
 	CAM_DBG(CAM_ISP, "irq_disabled %d", rsrc_data->irq_enabled);
 	/* Unsubscribe IRQ */
 	if (rsrc_data->irq_enabled)
@@ -2279,7 +2278,7 @@ static int cam_vfe_bus_deinit_vfe_out_resource(
 		 * This is not error. It can happen if the resource is
 		 * never supported in the HW.
 		 */
-		CAM_DBG(CAM_ISP, "HW%d Res %d already deinitialized");
+		CAM_DBG(CAM_ISP, "HW Res already deinitialized");
 		return 0;
 	}
 

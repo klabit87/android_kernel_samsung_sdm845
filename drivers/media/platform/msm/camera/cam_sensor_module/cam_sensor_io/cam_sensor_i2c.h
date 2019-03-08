@@ -186,9 +186,23 @@ int32_t cam_qup_i2c_write(struct camera_io_master *client,
 	enum camera_sensor_i2c_type data_type);
 
 #if 1 //TEMP_845
-int32_t cam_qup_i2c_write_seq(struct camera_io_master *client,
+int32_t cam_qup_i2c_write_seq_ss(struct camera_io_master *client,
 	uint32_t addr, uint8_t *data,
 	enum camera_sensor_i2c_type addr_type,
 	uint32_t num_byte);
 #endif
+
+/**
+ * cam_qup_i2c_write_continuous_write: QUP based I2C write continuous(Burst/Seq)
+ * @client: QUP I2C client structure
+ * @write_setting: I2C register setting
+ * @cam_sensor_i2c_write_flag: burst or seq write
+ *
+ * This API handles QUP continuous write
+ */
+int32_t cam_qup_i2c_write_continuous_table(
+	struct camera_io_master *client,
+	struct cam_sensor_i2c_reg_setting *write_setting,
+	uint8_t cam_sensor_i2c_write_flag);
+
 #endif /*_CAM_SENSOR_I2C_H*/

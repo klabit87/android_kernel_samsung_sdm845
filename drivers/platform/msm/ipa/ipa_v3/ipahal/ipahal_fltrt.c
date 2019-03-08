@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,9 +10,11 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/errno.h>
 #include <linux/ipc_logging.h>
 #include <linux/debugfs.h>
 #include <linux/ipa.h>
+#include <linux/delay.h>
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
 #include "ipahal_fltrt_i.h"
@@ -1233,6 +1235,39 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		ihl_ofst_meq32 += 2;
 	}
 
+	if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
+			ihl_ofst_meq32)) {
+			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
+			goto err;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+		/* 22  => offset of IP type after v6 header */
+		extra = ipa_write_8(22, extra);
+		rest = ipa_write_32(0xF0000000, rest);
+		if (attrib->type == 0x40)
+			rest = ipa_write_32(0x40000000, rest);
+		else
+			rest = ipa_write_32(0x60000000, rest);
+		ihl_ofst_meq32++;
+	}
+
+	if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
+			ihl_ofst_meq32)) {
+			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
+			goto err;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+		/* 38  => offset of inner IPv4 addr */
+		extra = ipa_write_8(38, extra);
+		rest = ipa_write_32(attrib->u.v4.dst_addr_mask, rest);
+		rest = ipa_write_32(attrib->u.v4.dst_addr, rest);
+		ihl_ofst_meq32++;
+	}
+
 	if (attrib->attrib_mask & IPA_FLT_META_DATA) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_METADATA_COMPARE);
 		rest = ipa_write_32(attrib->meta_data_mask, rest);
@@ -2269,6 +2304,40 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 		ihl_ofst_meq32 += 2;
 	}
 
+	if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
+			ihl_ofst_meq32)) {
+			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
+			return -EPERM;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+		/* 22  => offset of inner IP type after v6 header */
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 22;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
+			0xF0000000;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
+			(u32)attrib->type << 24;
+		ihl_ofst_meq32++;
+	}
+
+	if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
+			ihl_ofst_meq32)) {
+			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
+			return -EPERM;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+		/* 38  => offset of inner IPv4 addr */
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 38;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
+			attrib->u.v4.dst_addr_mask;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
+			attrib->u.v4.dst_addr;
+		ihl_ofst_meq32++;
+	}
+
 	if (attrib->attrib_mask & IPA_FLT_MAC_ETHER_TYPE) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
 			IPAHAL_ERR_RL("ran out of meq32 eq\n");
@@ -3121,6 +3190,7 @@ int ipahal_rt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
  * @mem: mem object that points to DMA mem representing the hdr structure
  * @atomic: should DMA allocation be executed with atomic flag
  */
+#define BUFALLOC_RETRY_CNT 10
 int ipahal_flt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
 	u32 nhash_hdr_size, u64 ep_bitmap, struct ipa_mem_buffer *mem,
 	bool atomic)
@@ -3174,13 +3244,24 @@ int ipahal_flt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
 	mem->size = tbls_num * obj->tbl_hdr_width;
 	if (ep_bitmap)
 		mem->size += obj->tbl_hdr_width;
-	mem->base = dma_alloc_coherent(ipahal_ctx->ipa_pdev, mem->size,
-		&mem->phys_base, flag);
+	
+	i = 0;
+	do {
+		mem->base = dma_alloc_coherent(ipahal_ctx->ipa_pdev, mem->size,
+			&mem->phys_base, flag);
+		if (!mem->base) {
+			if (atomic)
+				mdelay(10);
+			else
+				msleep(20);
+		}
+	} while(!mem->base && i++ < BUFALLOC_RETRY_CNT);
+	
 	if (!mem->base) {
 		IPAHAL_ERR("fail to alloc DMA buff of size %d\n", mem->size);
 		return -ENOMEM;
 	}
-
+	
 	if (ep_bitmap) {
 		flt_bitmap = obj->create_flt_bitmap(ep_bitmap);
 		IPAHAL_DBG("flt bitmap 0x%llx\n", flt_bitmap);

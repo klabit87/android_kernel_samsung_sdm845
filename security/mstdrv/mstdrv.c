@@ -25,7 +25,6 @@
 #include <linux/wakelock.h>
 #include <linux/delay.h>
 #include <linux/qseecom.h>
-#include <linux/regulator/machine.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/err.h>
 #include "mstdrv.h"
@@ -37,9 +36,13 @@
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
 #include <linux/cpufreq.h>
-#include <../../kernel/sched/sched.h>
+#include <linux/sched.h>
+#include <linux/sched/core_ctl.h>
 #include <linux/workqueue.h>
-#include <linux/msm-bus.h> 
+#include <linux/msm-bus.h>
+#if defined(CONFIG_MST_LPM_DISABLE)
+#include <linux/pm_qos.h>
+#endif
 
 /* defines */
 #define	ON				1	// On state
@@ -54,14 +57,14 @@
 #define CMD_HW_RELIABILITY_TEST_STOP	'5'	// stop HW reliability test
 #define ERROR_VALUE			-1	// Error value
 #define TEST_RESULT_LEN			256	// result array length
-#define MST_LDO_3P0				"VDD_MST"	// MST LDO regulator
-#define MST_MODE_ON			1	// ON Message to MFC ic
-#define MST_MODE_OFF		0	// OFF Message to MFC ic
 #define SVC_MST_ID			0x000A0000	// need to check ID
 #define MST_CREATE_CMD(x)		(SVC_MST_ID | x)	// Create MST commands
 #define MST_TA				"mst"
-#define MAX_CLUSTERS 2
 
+
+#if defined(CONFIG_MFC_CHARGER)
+#define MST_MODE_ON			1	// ON Message to MFC ic
+#define MST_MODE_OFF		0	// OFF Message to MFC ic
 #define psy_do_property(name, function, property, value) \
 {    \
 	struct power_supply *psy;    \
@@ -82,6 +85,7 @@
 		}    \
 	}    \
 }
+#endif
 
 /* enum definitions */
 typedef enum {
@@ -138,6 +142,11 @@ static struct msm_bus_scale_pdata ss_mst_bus_client_pdata = {
     .name = "ss_mst", 
 }; 
 
+#if defined(CONFIG_MST_LPM_DISABLE)
+static struct pm_qos_request mst_pm_qos_request;
+uint32_t mst_lpm_tag;
+#endif
+
 uint32_t ss_mst_bus_hdl;
 
 /* extern function declarations */
@@ -174,15 +183,13 @@ static struct class *mst_drv_class;	// mst_drv class
 struct device *mst_drv_dev;	// mst_drv driver handle
 static struct wake_lock mst_wakelock;	// wake_lock used for HW reliability test
 static DEVICE_ATTR(transmit, 0770, show_mst_drv, store_mst_drv);	// define device attribute
-static bool mst_power_on;	// to track current level of mst signal
 static struct qseecom_handle *qhandle;
 static int nfc_state;
+#if defined(CONFIG_MFC_CHARGER)
 static int wpc_det;
+#endif
 
 /* cpu freq control variables */
-extern int num_clusters;
-extern struct sched_cluster *sched_cluster[NR_CPUS];
-unsigned int cluster_freq[MAX_CLUSTERS];
 struct workqueue_struct *cluster_freq_ctrl_wq;
 struct delayed_work dwork;
 
@@ -196,16 +203,17 @@ static struct of_device_id mst_match_ldo_table[] = {
 
 static int mst_ldo_device_suspend(struct platform_device *dev, pm_message_t state)
 {
-	int ret = 0;
-	/* Boost Disable */
-	printk("%s : boost disable to back to Normal", __func__);
-	ret = boost_disable();
-	if (ret)
-	    printk("%s : boost disable is failed, ret = %d\n"
-		, __func__, ret);
-	/* PCIe LPM Enable */
-	sec_pcie_l1ss_enable(L1SS_MST);
-	
+	uint8_t is_mst_pwr_on;
+
+	is_mst_pwr_on = gpio_get_value(mst_pwr_en);
+	if (is_mst_pwr_on == 1) {
+		pr_info("%s: mst power is on, is_mst_pwr_on = %d\n", __func__, is_mst_pwr_on);
+		pr_info("%s: mst power off\n", __func__);
+		of_mst_hw_onoff(OFF);
+	} else {
+		pr_info("%s: mst power is off, is_mst_pwr_on = %d\n", __func__, is_mst_pwr_on);
+	}
+
 	return 0;
 }
 
@@ -227,8 +235,18 @@ EXPORT_SYMBOL_GPL(mst_drv_dev);
  */
 static void mst_cluster_freq_ctrl_worker(struct work_struct *work)
 {
-	//struct delayed_work *dwork = to_delayed_work(work);
-	of_mst_hw_onoff(OFF);
+
+	uint8_t is_mst_pwr_on;
+
+	is_mst_pwr_on = gpio_get_value(mst_pwr_en);
+	if (is_mst_pwr_on == 1) {
+		pr_info("%s: mst power is on, is_mst_pwr_on = %d\n", __func__, is_mst_pwr_on);
+		pr_info("%s: mst power off\n", __func__);
+		of_mst_hw_onoff(OFF);
+	} else {
+		pr_info("%s: mst power is off, is_mst_pwr_on = %d\n", __func__, is_mst_pwr_on);
+	}
+
 	return;
 }
 
@@ -276,21 +294,12 @@ static int boost_disable(void)
  */
 extern void mst_ctrl_of_mst_hw_onoff(bool on)
 {
+#if defined(CONFIG_MFC_CHARGER)
 	union power_supply_propval value;	/* power_supply prop */
-	struct regulator *regulator3_0;
+#endif
 	int ret = 0;
 
-	regulator3_0 = regulator_get(NULL, MST_LDO_3P0);
-	if (IS_ERR(regulator3_0)) {
-		printk("[MST] %s : regulator 3.0 is not available\n", __func__);
-		return;
-	}
-
-	if (regulator3_0 == NULL) {
-		printk(KERN_ERR "[MST] %s: regulator3_0 is invalid(NULL)\n",
-		       __func__);
-		return;
-	}
+	printk("[MST] mst-drv : mst_ctrl : mst_power_onoff : %d\n", on);
 
 	if (on) {
 		printk("[MST] %s : nfc_status gets back to 0(unlock)\n",
@@ -303,32 +312,40 @@ extern void mst_ctrl_of_mst_hw_onoff(bool on)
 		usleep_range(800, 1000);
 		printk("%s : msleep(1)\n", __func__);
 
+#if defined(CONFIG_MFC_CHARGER)
 		value.intval = MST_MODE_OFF;
 		psy_do_property("mfc-charger", set,
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		printk("%s : MST_MODE_OFF notify : %d\n", __func__,
 		       value.intval);
-
+#endif
 		/* Boost Disable */
 		printk("%s : boost disable to back to Normal", __func__);
+		mutex_lock(&mst_mutex);
 		ret = boost_disable();
 		if (ret)
 		    printk("%s : boost disable is failed, ret = %d\n"
 			, __func__, ret);
+
 		/* PCIe LPM Enable */
 		sec_pcie_l1ss_enable(L1SS_MST);
 
-		ret = regulator_disable(regulator3_0);
-		if (ret < 0) {
-			printk("%s : regulator 3.0 is not disabled\n",
-			       __func__);
+#if defined(CONFIG_MST_LPM_DISABLE)
+		/* CPU LPM Enable*/
+		if (mst_lpm_tag) {
+			printk("%s : pm_qos remove\n", __func__);
+			pm_qos_remove_request(&mst_pm_qos_request);
+			printk("%s : core online lock disable\n", __func__);
+			core_ctl_set_boost(false);
+			mst_lpm_tag = 0;
 		}
-		printk("%s : regulator 3.0 is disabled\n", __func__);
+#endif
+
+		mutex_unlock(&mst_mutex);
+
 		printk("%s : nfc_status gets 1(lock)\n", __func__);
 		nfc_state = 1;
-		mst_power_on = on;
 	}
-	regulator_put(regulator3_0);
 }
 
 /**
@@ -337,40 +354,21 @@ extern void mst_ctrl_of_mst_hw_onoff(bool on)
  */
 static void of_mst_hw_onoff(bool on)
 {
+#if defined(CONFIG_MFC_CHARGER)
 	union power_supply_propval value;	/* power_supply prop */
-	struct regulator *regulator3_0;
-	int ret;
 	int retry_cnt = 8;
+#endif
+	int ret;
+
+	printk("[MST] mst-drv : mst_power_onoff : %d\n", on);
 
 	if (nfc_state == 1) {
 		printk("[MST] %s : nfc_state is on!!!\n", __func__);
 		return;
 	}
 
-	regulator3_0 = regulator_get(NULL, MST_LDO_3P0);
-	if (IS_ERR(regulator3_0)) {
-		printk("[MST] %s : regulator 3.0 is not available\n", __func__);
-		return;
-	}
-	if (mst_power_on == on) {
-		printk("[MST] mst-drv : mst_power_onoff : already %d\n", on);
-		regulator_put(regulator3_0);
-		return;
-	}
-	mst_power_on = on;
-	if (regulator3_0 == NULL) {
-		printk(KERN_ERR "[MST] %s: regulator3_0 is invalid(NULL)\n",
-		       __func__);
-		return;
-	}
 	if (on) {
-		ret = regulator_enable(regulator3_0);
-		if (ret < 0) {
-			printk("[MST] %s : regulator 3.0 is not enable\n",
-			       __func__);
-		}
-		printk("%s : regulator 3.0 is enabled\n", __func__);
-
+#if defined(CONFIG_MFC_CHARGER)
 		printk("%s : MST_MODE_ON notify start\n", __func__);
 		value.intval = MST_MODE_ON;
 
@@ -378,6 +376,7 @@ static void of_mst_hw_onoff(bool on)
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		printk("%s : MST_MODE_ON notified : %d\n", __func__,
 		       value.intval);
+#endif
 
 		gpio_set_value(mst_pwr_en, 1);
 		usleep_range(3600, 4000);
@@ -390,17 +389,35 @@ static void of_mst_hw_onoff(bool on)
 		/* Boost Enable */
 		cancel_delayed_work_sync(&dwork);
 		printk("%s : boost enable for performacne", __func__);
+		mutex_lock(&mst_mutex);
 		ret = boost_enable();
 		if (!ret)
 		    printk("%s : boost enable is failed, ret = %d\n",
 			    __func__, ret);
+
 		queue_delayed_work(cluster_freq_ctrl_wq, &dwork, 90 * HZ);
 
 		/* PCIe LPM Disable */
 		sec_pcie_l1ss_disable(L1SS_MST);
 
+#if defined(CONFIG_MST_LPM_DISABLE)
+		/* CPU LPM Disable */
+		if (mst_lpm_tag == 0) {
+			printk("%s : pm_qos add\n", __func__);
+			pm_qos_add_request(&mst_pm_qos_request,
+				PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
+			pm_qos_update_request(&mst_pm_qos_request, 1);
+			printk("%s : core online lock enable\n", __func__);
+			core_ctl_set_boost(true);
+			mst_lpm_tag = 1;
+		}
+#endif
+
+		mutex_unlock(&mst_mutex);
+
 		mdelay(40);
 
+#if defined(CONFIG_MFC_CHARGER)
 		while (--retry_cnt) {
 			psy_do_property("mfc-charger", get,
 					POWER_SUPPLY_PROP_TECHNOLOGY, value);
@@ -418,6 +435,7 @@ static void of_mst_hw_onoff(bool on)
 			printk("%s : timeout !!! : %d\n", __func__,
 			       value.intval);
 		}
+#endif
 
 	} else {
 		gpio_set_value(mst_pwr_en, 0);
@@ -426,29 +444,37 @@ static void of_mst_hw_onoff(bool on)
 		usleep_range(800, 1000);
 		printk("%s : msleep(1)\n", __func__);
 
+#if defined(CONFIG_MFC_CHARGER)
 		value.intval = MST_MODE_OFF;
 		psy_do_property("mfc-charger", set,
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		printk("%s : MST_MODE_OFF notify : %d\n", __func__,
 		       value.intval);
+#endif
 
 		/* Boost Disable */
 		printk("%s : boost disable to back to Normal", __func__);
+		mutex_lock(&mst_mutex);
 		ret = boost_disable();
 		if (ret)
 		    printk("%s : boost disable is failed, ret = %d\n"
 			, __func__, ret);
+
 		/* PCIe LPM Enable */
 		sec_pcie_l1ss_enable(L1SS_MST);
 
-		ret = regulator_disable(regulator3_0);
-		if (ret < 0) {
-			printk("%s : regulator 3.0 is not disabled\n",
-			       __func__);
+#if defined(CONFIG_MST_LPM_DISABLE)
+		/* CPU LPM Enable*/
+		if (mst_lpm_tag) {
+			printk("%s : pm_qos remove\n", __func__);
+			pm_qos_remove_request(&mst_pm_qos_request);
+			printk("%s : core online lock disable\n", __func__);
+			core_ctl_set_boost(false);
+			mst_lpm_tag = 0;
 		}
-		printk("%s : regulator 3.0 is disabled\n", __func__);
+#endif
+		mutex_unlock(&mst_mutex);
 	}
-	regulator_put(regulator3_0);
 }
 
 /**
@@ -502,21 +528,14 @@ static int transmit_mst_data(int track)
 	printk("[MST] cmd_id = %x, req_len = %d, rsp_len = %d\n", kreq->cmd_id,
 	       req_len, rsp_len);
 
-	//of_mst_hw_onoff(ON);
+	trace_printk("tracing mark write: MST transmission Start\n");
 	qsee_ret = qseecom_send_command(qhandle, kreq, req_len, krsp, rsp_len);
-	//of_mst_hw_onoff(OFF);
+	trace_printk("tracing mark write: MST transmission End\n");
 
 	if (qsee_ret) {
 		ret = ERROR_VALUE;
 		printk("[MST] failed to send cmd to qseecom; qsee_ret = %d.\n",
 		       qsee_ret);
-		printk("[MST] shutting down the tzapp.\n");
-		qsee_ret = qseecom_shutdown_app(&qhandle);
-		if (qsee_ret) {
-			printk("[MST] failed to shut down the tzapp.\n");
-		} else {
-			qhandle = NULL;
-		}
 	}
 
 	if (krsp->status) {
@@ -524,6 +543,14 @@ static int transmit_mst_data(int track)
 		printk
 		    ("[MST] generate sample track data from TZ -- failed. %d\n",
 		     krsp->status);
+	}
+
+	printk("[MST] shutting down the tzapp.\n");
+	qsee_ret = qseecom_shutdown_app(&qhandle);
+	if (qsee_ret) {
+		printk("[MST] failed to shut down the tzapp.\n");
+	} else {
+		qhandle = NULL;
 	}
 exit:
 	mutex_unlock(&mst_mutex);
@@ -558,10 +585,12 @@ static ssize_t store_mst_drv(struct device *dev,
 
 	sscanf(buf, "%20s\n", test_result);
 
+#if defined(CONFIG_MFC_CHARGER)
 	if (wpc_det && (gpio_get_value(wpc_det) == 1)) {
 		printk("[MST] Wireless charging is ongoing, do not proceed MST work\n");
 		return count;
 	}
+#endif
 
 	switch (test_result[0]) {
 
@@ -574,17 +603,29 @@ static ssize_t store_mst_drv(struct device *dev,
 		break;
 
 	case CMD_SEND_TRACK1_DATA:
+#if !defined(CONFIG_MFC_CHARGER)
+		of_mst_hw_onoff(ON);
+#endif
 		if (transmit_mst_data(TRACK1))
 			printk("[MST] Send track1 data --> failed\n");
 		else
 			printk("[MST] Send track1 data --> successful\n");
+#if !defined(CONFIG_MFC_CHARGER)
+		of_mst_hw_onoff(OFF);
+#endif
 		break;
 
 	case CMD_SEND_TRACK2_DATA:
+#if !defined(CONFIG_MFC_CHARGER)
+		of_mst_hw_onoff(ON);
+#endif
 		if (transmit_mst_data(TRACK2))
 			printk("[MST] Send track2 data --> failed\n");
 		else
 			printk("[MST] Send track2 data --> successful\n");
+#if !defined(CONFIG_MFC_CHARGER)
+		of_mst_hw_onoff(OFF);
+#endif
 		break;
 
 	case CMD_HW_RELIABILITY_TEST_START:
@@ -597,12 +638,18 @@ static ssize_t store_mst_drv(struct device *dev,
 		while (1) {
 			if (escape_loop == 1)
 				break;
+#if !defined(CONFIG_MFC_CHARGER)
+			of_mst_hw_onoff(ON);
+#endif
 			mdelay(10);
 			if (transmit_mst_data(TRACK2)) {
 				printk("[MST] Send track2 data --> failed\n");
 				break;
 			}
 			printk("[MST] Send track2 data --> successful\n");
+#if !defined(CONFIG_MFC_CHARGER)
+			of_mst_hw_onoff(OFF);
+#endif
 			mdelay(1000);
 		}
 		break;
@@ -628,6 +675,7 @@ static ssize_t store_mst_drv(struct device *dev,
 static int sec_mst_gpio_init(struct device *dev)
 {
 	int ret = 0;
+#if defined(CONFIG_MFC_CHARGER)
 	struct device_node *np;
 	enum of_gpio_flags irq_gpio_flags;
 
@@ -643,7 +691,7 @@ static int sec_mst_gpio_init(struct device *dev)
 			dev_err(dev, "%s : can't get wpc_det\r\n", __FUNCTION__);
 		}
 	}
-
+#endif
 	mst_pwr_en =
 	    of_get_named_gpio(dev->of_node, "sec-mst,mst-pwr-gpio", OFF);
 

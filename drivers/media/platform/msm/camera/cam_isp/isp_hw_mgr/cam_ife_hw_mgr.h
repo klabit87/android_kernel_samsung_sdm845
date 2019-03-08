@@ -153,6 +153,13 @@ struct cam_ife_hw_mgr_ctx {
 	uint32_t                        eof_cnt[CAM_IFE_HW_NUM_MAX];
 	atomic_t                        overflow_pending;
 	uint32_t                        is_rdi_only_context;
+	uint32_t                        dual_ife_usage;
+};
+
+struct cam_ife_mgr_pf_handler_ctx {
+	void (*handler_cb)(struct iommu_domain *domain,
+		struct device *dev, unsigned long iova, int flags, void *token);
+	void *handler_arg;
 };
 
 /**
@@ -189,6 +196,8 @@ struct cam_ife_hw_mgr {
 	struct cam_vfe_hw_get_hw_cap   ife_dev_caps[CAM_IFE_HW_NUM_MAX];
 	struct cam_req_mgr_core_workq *workq;
 	struct cam_ife_hw_mgr_debug    debug_cfg;
+
+	struct cam_ife_mgr_pf_handler_ctx pf_handler_ctx;
 };
 
 /**

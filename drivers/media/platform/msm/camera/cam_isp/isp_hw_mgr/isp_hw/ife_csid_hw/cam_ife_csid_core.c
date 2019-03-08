@@ -45,6 +45,9 @@
 #define CAM_IFE_CSID_QTIMER_MUL_FACTOR                 10000
 #define CAM_IFE_CSID_QTIMER_DIV_FACTOR                 192
 
+/* Max CSI Rx irq error count threshold value */
+#define CAM_IFE_CSID_MAX_IRQ_ERROR_COUNT               100
+
 static int cam_ife_csid_is_ipp_format_supported(
 	uint32_t in_format)
 {
@@ -445,6 +448,7 @@ static int cam_ife_csid_global_reset(struct cam_ife_csid_hw *csid_hw)
 	if (val != 0)
 		CAM_ERR(CAM_ISP, "CSID:%d IRQ value after reset rc = %d",
 			csid_hw->hw_intf->hw_idx, val);
+	csid_hw->error_irq_count = 0;
 
 	return rc;
 }
@@ -729,7 +733,8 @@ static int cam_ife_csid_cid_reserve(struct cam_ife_csid_hw *csid_hw,
 					CAM_ISP_RESOURCE_STATE_RESERVED) &&
 					cid_data->pixel_count > 0) {
 					CAM_DBG(CAM_ISP,
-						"CSID:%d IPP resource is full");
+						"CSID:%d IPP resource is full",
+						csid_hw->hw_intf->hw_idx);
 					rc = -EINVAL;
 					goto end;
 				}
@@ -746,7 +751,7 @@ static int cam_ife_csid_cid_reserve(struct cam_ife_csid_hw *csid_hw,
 		if (!rc) {
 			if (csid_hw->csi2_reserve_cnt == UINT_MAX) {
 				CAM_ERR(CAM_ISP,
-					"CSID%d reserve cnt reached max",
+					"CSID:%d reserve cnt reached max",
 					csid_hw->hw_intf->hw_idx);
 				rc = -EINVAL;
 			} else {
@@ -911,7 +916,7 @@ static int cam_ife_csid_enable_hw(struct cam_ife_csid_hw  *csid_hw)
 		return -EINVAL;
 	}
 
-	CAM_INFO(CAM_ISP, "%s:Enter RefCnt: %d, csid_hw: 0x%p\n", __func__, csid_hw->hw_info->open_count, csid_hw->hw_info);
+	CAM_INFO(CAM_ISP, "%s:Enter RefCnt: %d, csid_hw: 0x%pK\n", __func__, csid_hw->hw_info->open_count, csid_hw->hw_info);
 	/* Increment ref Count */
 	csid_hw->hw_info->open_count++;
 	if (csid_hw->hw_info->open_count > 1) {
@@ -1042,6 +1047,7 @@ static int cam_ife_csid_disable_hw(struct cam_ife_csid_hw *csid_hw)
 
 	csid_hw->hw_info->hw_state = CAM_HW_STATE_POWER_DOWN;
 	CAM_INFO(CAM_ISP, "Done Disable CSID\n");
+	csid_hw->error_irq_count = 0;
 	return rc;
 }
 
@@ -1992,7 +1998,7 @@ static int cam_ife_csid_set_csid_debug(struct cam_ife_csid_hw   *csid_hw,
 
 	csid_debug = (uint32_t  *) cmd_args;
 	csid_hw->csid_debug = *csid_debug;
-	CAM_DBG(CAM_ISP, "CSID:%d set csid debug value:%d",
+	CAM_DBG(CAM_ISP, "CSID:%d set csid debug value:%lld",
 		csid_hw->hw_intf->hw_idx, csid_hw->csid_debug);
 
 	return 0;
@@ -2684,18 +2690,22 @@ irqreturn_t cam_ife_csid_irq(int irq_num, void *data)
 	if (irq_status_rx & CSID_CSI2_RX_ERROR_LANE0_FIFO_OVERFLOW) {
 		CAM_ERR_RATE_LIMIT(CAM_ISP, "CSID:%d lane 0 over flow",
 			 csid_hw->hw_intf->hw_idx);
+		csid_hw->error_irq_count++;
 	}
 	if (irq_status_rx & CSID_CSI2_RX_ERROR_LANE1_FIFO_OVERFLOW) {
 		CAM_ERR_RATE_LIMIT(CAM_ISP, "CSID:%d lane 1 over flow",
 			 csid_hw->hw_intf->hw_idx);
+		csid_hw->error_irq_count++;
 	}
 	if (irq_status_rx & CSID_CSI2_RX_ERROR_LANE2_FIFO_OVERFLOW) {
 		CAM_ERR_RATE_LIMIT(CAM_ISP, "CSID:%d lane 2 over flow",
 			 csid_hw->hw_intf->hw_idx);
+		csid_hw->error_irq_count++;
 	}
 	if (irq_status_rx & CSID_CSI2_RX_ERROR_LANE3_FIFO_OVERFLOW) {
 		CAM_ERR_RATE_LIMIT(CAM_ISP, "CSID:%d lane 3 over flow",
 			 csid_hw->hw_intf->hw_idx);
+		csid_hw->error_irq_count++;
 	}
 	if (irq_status_rx & CSID_CSI2_RX_ERROR_TG_FIFO_OVERFLOW) {
 		CAM_ERR_RATE_LIMIT(CAM_ISP, "CSID:%d TG OVER  FLOW",
@@ -3012,6 +3022,23 @@ irqreturn_t cam_ife_csid_irq(int irq_num, void *data)
 	}
 #endif
 
+	if (csid_hw->error_irq_count >
+		CAM_IFE_CSID_MAX_IRQ_ERROR_COUNT) {
+		/* Mask line overflow, underflow, unbound interrupts */
+		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
+			csid_reg->csi2_reg->csid_csi2_rx_irq_mask_addr);
+
+		val &=  ~(CSID_CSI2_RX_ERROR_LANE0_FIFO_OVERFLOW |
+			CSID_CSI2_RX_ERROR_LANE1_FIFO_OVERFLOW |
+			CSID_CSI2_RX_ERROR_LANE2_FIFO_OVERFLOW |
+			CSID_CSI2_RX_ERROR_LANE3_FIFO_OVERFLOW);
+
+		cam_io_w_mb(val, soc_info->reg_map[0].mem_base +
+			csid_reg->csi2_reg->csid_csi2_rx_irq_mask_addr);
+		CAM_WARN(CAM_ISP, "Masked csi rx error interrupts");
+	}
+
+
 	CAM_DBG(CAM_ISP, "IRQ Handling exit");
 	return IRQ_HANDLED;
 }
@@ -3126,6 +3153,7 @@ int cam_ife_csid_hw_probe_init(struct cam_hw_intf  *csid_hw_intf,
 	}
 
 	ife_csid_hw->csid_debug = 0;
+	ife_csid_hw->error_irq_count = 0;
 	return 0;
 err:
 	if (rc) {

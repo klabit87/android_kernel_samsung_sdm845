@@ -9,40 +9,6 @@
 #include <linux/freezer.h>
 #include <asm/errno.h>
 
-enum suspend_stat_ex_type {
-	FAILED_FS_SYNC,
-	FAILED_FREEZE_TIMEOUT,
-	FAILED_NOTIFIER_CALL,
-	FAILED_PLATFORM_BEGIN,
-	FAILED_PLATFORM_PREPARE,
-	FAILED_PLATFORM_PREPARE_LATE,
-	FAILED_PLATFORM_PREPARE_NOIRQ,
-	FAILED_DISABLE_NONBOOT_CPUS,
-	FAILED_SYSCORE_SUSPEND,
-	FAILED_ENTER,
-	FAILED_DEV,
-	FAILED_WAKELOCK
-};
-
-#ifdef CONFIG_SEC_PM_SUSPEND_STATS_EX
-#include <linux/rbtree.h>
-#define SUSPEND_STATS_EX_POOL_MAX_NUM 100
-
-struct suspend_stat_ex_node {
-	struct rb_node __rb_node;
-	const char *name;
-	unsigned int type;
-	unsigned int count;
-};
-
-extern void suspend_stats_ex_save_failed(unsigned int type, void *obj);
-extern void suspend_stats_ex_print_failed(struct seq_file *s);
-#else
-static inline void suspend_stats_ex_save_failed(unsigned int type, void *obj)
-{
-}
-#endif
-
 #ifdef CONFIG_VT
 extern void pm_set_vt_switch(int);
 #else
@@ -412,6 +378,8 @@ extern int swsusp_page_is_forbidden(struct page *);
 extern void swsusp_set_page_free(struct page *);
 extern void swsusp_unset_page_free(struct page *);
 extern unsigned long get_safe_page(gfp_t gfp_mask);
+extern asmlinkage int swsusp_arch_suspend(void);
+extern asmlinkage int swsusp_arch_resume(void);
 
 extern void hibernation_set_ops(const struct platform_hibernation_ops *ops);
 extern int hibernate(void);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -31,7 +31,7 @@ struct adreno_sysfs_attribute adreno_attr_##_name = { \
 
 #define _ADRENO_SYSFS_ATTR_RO(_name, __show) \
 struct adreno_sysfs_attribute adreno_attr_##_name = { \
-	.attr = __ATTR(_name, 0644, __show, NULL), \
+	.attr = __ATTR(_name, 0444, __show, NULL), \
 	.show = _ ## _name ## _show, \
 	.store = NULL, \
 }
@@ -223,14 +223,17 @@ static int _preemption_store(struct adreno_device *adreno_dev,
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 
-	if (test_bit(ADRENO_DEVICE_PREEMPTION_EXECUTION,
-		&adreno_dev->priv) == val)
-		return 0;
-
 	mutex_lock(&device->mutex);
 
+	if (!(ADRENO_FEATURE(adreno_dev, ADRENO_PREEMPTION)) ||
+		(test_bit(ADRENO_DEVICE_PREEMPTION,
+		&adreno_dev->priv) == val)) {
+		mutex_unlock(&device->mutex);
+		return 0;
+	}
+
 	kgsl_pwrctrl_change_state(device, KGSL_STATE_SUSPEND);
-	change_bit(ADRENO_DEVICE_PREEMPTION_EXECUTION, &adreno_dev->priv);
+	change_bit(ADRENO_DEVICE_PREEMPTION, &adreno_dev->priv);
 	adreno_dev->cur_rb = &(adreno_dev->ringbuffers[0]);
 	kgsl_pwrctrl_change_state(device, KGSL_STATE_SLUMBER);
 
@@ -258,7 +261,7 @@ static int _gmu_idle_level_store(struct adreno_device *adreno_dev,
 
 static unsigned int _preemption_show(struct adreno_device *adreno_dev)
 {
-	return adreno_is_preemption_execution_enabled(adreno_dev);
+	return adreno_is_preemption_enabled(adreno_dev);
 }
 
 static int _hwcg_store(struct adreno_device *adreno_dev,

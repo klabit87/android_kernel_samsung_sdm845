@@ -685,8 +685,13 @@ void process_cc_attach(void * data,u8 *plug_attach_done)
 				}
 			}
 #endif
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			if(usbpd_data->is_host > HOST_OFF || usbpd_data->power_role == DUAL_ROLE_PROP_PR_SRC)
 				vbus_turn_on_ctrl(0);
+#else
+			if(usbpd_data->is_host > HOST_OFF)
+				vbus_turn_on_ctrl(0);
+#endif
 			/* usb or otg */
 			dev_info(&i2c->dev, "%s %d: pd_state:%02d, is_host = %d, is_client = %d\n",
 					__func__, __LINE__, usbpd_data->pd_state, usbpd_data->is_host, usbpd_data->is_client);
@@ -715,7 +720,9 @@ void process_cc_attach(void * data,u8 *plug_attach_done)
 void process_cc_detach(void * data)
 {
 	struct s2mm005_data *usbpd_data = data;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	struct otg_notify *o_notify = get_otg_notify();
+#endif
 	if (usbpd_data->pd_state) {
 		usbpd_data->pd_state = State_PE_Initial_detach;
 #if defined(CONFIG_CCIC_NOTIFIER)
@@ -850,7 +857,9 @@ void process_cc_rid(void *data)
 	struct i2c_client *i2c = usbpd_data->i2c;
 	static int prev_rid = RID_OPEN;
 	u8 rid;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	struct otg_notify *o_notify = get_otg_notify();
+#endif
 
 	pr_info("%s\n",__func__);
 	s2mm005_read_byte_16(i2c, 0x50, &rid);	// fundtion read , 0x20 , 0x0:detach , not 0x0 attach :  source 3,6,7 / sink 16:17:21:29(decimanl)

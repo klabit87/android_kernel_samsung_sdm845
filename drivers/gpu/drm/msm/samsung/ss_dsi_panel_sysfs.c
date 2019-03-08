@@ -30,6 +30,11 @@ extern struct kset *devices_kset;
 #define TUNING_FILE_PATH "/sdcard/"
 static char tuning_file[MAX_FILE_NAME];
 
+#if 0
+/*
+ * Do not use below code but only for Image Quality Debug in Developing Precess.
+ * Do not comment in this code Because there are contained vulnerability.
+ */
 static char char_to_dec(char data1, char data2)
 {
 	char dec;
@@ -298,6 +303,7 @@ static void load_tuning_file(struct device *dev, char *filename)
 err:
 	set_fs(fs);
 }
+#endif
 
 static ssize_t tuning_show(struct device *dev,
 			   struct device_attribute *attr, char *buf)
@@ -312,8 +318,12 @@ static ssize_t tuning_store(struct device *dev,
 			    struct device_attribute *attr, const char *buf,
 			    size_t size)
 {
+/*
+ * Do not use below code but only for Image Quality Debug in Developing Precess.
+ * Do not comment in this code Because there are contained vulnerability.
+ */
+/*
 	char *pt;
-	struct dsi_display *display = NULL;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 
@@ -322,16 +332,13 @@ static ssize_t tuning_store(struct device *dev,
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
 
 	if (buf == NULL || strchr(buf, '.') || strchr(buf, '/'))
 		return size;
-
-	mutex_lock(&display->display_lock);
 
 	memset(tuning_file, 0, sizeof(tuning_file));
 	snprintf(tuning_file, MAX_FILE_NAME, "%s%s", TUNING_FILE_PATH, buf);
@@ -349,8 +356,7 @@ static ssize_t tuning_store(struct device *dev,
 	LCD_INFO("%s\n", tuning_file);
 
 	load_tuning_file(dev, tuning_file);
-	mutex_unlock(&display->display_lock);
-
+*/
 	return size;
 }
 
@@ -360,16 +366,48 @@ static ssize_t ss_disp_cell_id_show(struct device *dev,
 	static int string_size = 50;
 	char temp[string_size];
 	int *cell_id;
-	struct samsung_display_driver_data *vdd =
-		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	struct samsung_display_driver_data *vdd;
 
-	if (IS_ERR_OR_NULL(vdd)) {
-		LCD_ERR("no vdd");
-		return strnlen(buf, string_size);
-	}
+	vdd = &vdd_data[PRIMARY_DISPLAY_NDX];
+	cell_id = vdd->cell_id_dsi;
 
-	vdd = ss_check_hall_ic_get_vdd(vdd);
+	/*
+	*	STANDARD FORMAT (Total is 11Byte)
+	*	MAX_CELL_ID : 11Byte
+	*	7byte(cell_id) + 2byte(Mdnie x_postion) + 2byte(Mdnie y_postion)
+	*/
 
+	snprintf((char *)temp, sizeof(temp),
+			"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+		cell_id[0], cell_id[1], cell_id[2], cell_id[3], cell_id[4],
+		cell_id[5], cell_id[6],
+		(vdd->mdnie_x & 0xFF00) >> 8,
+		vdd->mdnie_x & 0xFF,
+		(vdd->mdnie_y & 0xFF00) >> 8,
+		vdd->mdnie_y & 0xFF);
+
+	strlcat(buf, temp, string_size);
+
+	LCD_INFO("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+		cell_id[0], cell_id[1], cell_id[2], cell_id[3], cell_id[4],
+		cell_id[5], cell_id[6],
+		(vdd->mdnie_x & 0xFF00) >> 8,
+		vdd->mdnie_x & 0xFF,
+		(vdd->mdnie_y & 0xFF00) >> 8,
+		vdd->mdnie_y & 0xFF);
+
+	return strnlen(buf, string_size);
+}
+
+static ssize_t ss_disp_cell_id2_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	static int string_size = 50;
+	char temp[string_size];
+	int *cell_id;
+	struct samsung_display_driver_data *vdd;
+
+	vdd = &vdd_data[SECONDARY_DISPLAY_NDX];
 	cell_id = vdd->cell_id_dsi;
 
 	/*
@@ -407,16 +445,73 @@ static ssize_t ss_disp_octa_id_show(struct device *dev,
 	char temp[string_size];
 	u8 *octa_id;
 	int site, rework, poc, max_brightness;
-	struct samsung_display_driver_data *vdd =
-		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	struct samsung_display_driver_data *vdd;
 
-	if (IS_ERR_OR_NULL(vdd)) {
-		LCD_ERR("no vdd");
-		return strnlen(buf, string_size);
-	}
+	vdd = &vdd_data[PRIMARY_DISPLAY_NDX];
+	octa_id = vdd->octa_id_dsi;
 
-	vdd = ss_check_hall_ic_get_vdd(vdd);
+	site = octa_id[0] & 0xf0;
+	site >>= 4;
+	rework = octa_id[0] & 0x0f;
+	poc = octa_id[1] & 0x0f;
+	max_brightness = octa_id[2] * 256 + octa_id[3];
 
+	snprintf((char *)temp, sizeof(temp),
+			"%d%d%d%02x%02x%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\n",
+		site, rework, poc, octa_id[2], octa_id[3],
+		octa_id[4] != 0 ? octa_id[4] : '0',
+		octa_id[5] != 0 ? octa_id[5] : '0',
+		octa_id[6] != 0 ? octa_id[6] : '0',
+		octa_id[7] != 0 ? octa_id[7] : '0',
+		octa_id[8] != 0 ? octa_id[8] : '0',
+		octa_id[9] != 0 ? octa_id[9] : '0',
+		octa_id[10] != 0 ? octa_id[10] : '0',
+		octa_id[11] != 0 ? octa_id[11] : '0',
+		octa_id[12] != 0 ? octa_id[12] : '0',
+		octa_id[13] != 0 ? octa_id[13] : '0',
+		octa_id[14] != 0 ? octa_id[14] : '0',
+		octa_id[15] != 0 ? octa_id[15] : '0',
+		octa_id[16] != 0 ? octa_id[16] : '0',
+		octa_id[17] != 0 ? octa_id[17] : '0',
+		octa_id[18] != 0 ? octa_id[18] : '0',
+		octa_id[19] != 0 ? octa_id[19] : '0');
+
+	strlcat(buf, temp, string_size);
+
+	LCD_INFO("poc(%d)\n", poc);
+
+	LCD_DEBUG("%d%d%d%02x%02x%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\n",
+		site, rework, poc, octa_id[2], octa_id[3],
+		octa_id[4] != 0 ? octa_id[4] : '0',
+		octa_id[5] != 0 ? octa_id[5] : '0',
+		octa_id[6] != 0 ? octa_id[6] : '0',
+		octa_id[7] != 0 ? octa_id[7] : '0',
+		octa_id[8] != 0 ? octa_id[8] : '0',
+		octa_id[9] != 0 ? octa_id[9] : '0',
+		octa_id[10] != 0 ? octa_id[10] : '0',
+		octa_id[11] != 0 ? octa_id[11] : '0',
+		octa_id[12] != 0 ? octa_id[12] : '0',
+		octa_id[13] != 0 ? octa_id[13] : '0',
+		octa_id[14] != 0 ? octa_id[14] : '0',
+		octa_id[15] != 0 ? octa_id[15] : '0',
+		octa_id[16] != 0 ? octa_id[16] : '0',
+		octa_id[17] != 0 ? octa_id[17] : '0',
+		octa_id[18] != 0 ? octa_id[18] : '0',
+		octa_id[19] != 0 ? octa_id[19] : '0');
+
+	return strnlen(buf, string_size);
+}
+
+static ssize_t ss_disp_octa_id2_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	static int string_size = 50;
+	char temp[string_size];
+	u8 *octa_id;
+	int site, rework, poc, max_brightness;
+	struct samsung_display_driver_data *vdd;
+
+	vdd = &vdd_data[SECONDARY_DISPLAY_NDX];
 	octa_id = vdd->octa_id_dsi;
 
 	site = octa_id[0] & 0xf0;
@@ -476,15 +571,38 @@ static ssize_t ss_disp_lcdtype_show(struct device *dev,
 {
 	static int string_size = 100;
 	char temp[string_size];
-	struct samsung_display_driver_data *vdd =
-		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	struct samsung_display_driver_data *vdd;
 
-	if (IS_ERR_OR_NULL(vdd)) {
-		LCD_ERR("no vdd");
-		return strnlen(buf, string_size);
+	vdd = &vdd_data[PRIMARY_DISPLAY_NDX];
+
+	if (vdd->dtsi_data.tft_common_support && vdd->dtsi_data.tft_module_name) {
+		if (vdd->dtsi_data.panel_vendor)
+			snprintf(temp, 20, "%s_%s\n", vdd->dtsi_data.panel_vendor, vdd->dtsi_data.tft_module_name);
+		else
+			snprintf(temp, 20, "SDC_%s\n", vdd->dtsi_data.tft_module_name);
+	} else if (ss_panel_attached(vdd->ndx)) {
+		if (vdd->dtsi_data.panel_vendor)
+			snprintf(temp, 20, "%s_%06x\n", vdd->dtsi_data.panel_vendor, vdd->manufacture_id_dsi);
+		else
+			snprintf(temp, 20, "SDC_%06x\n", vdd->manufacture_id_dsi);
+	} else {
+		LCD_INFO("no manufacture id\n");
+		snprintf(temp, 20, "SDC_000000\n");
 	}
 
-	vdd = ss_check_hall_ic_get_vdd(vdd);
+	strlcat(buf, temp, string_size);
+
+	return strnlen(buf, string_size);
+}
+
+static ssize_t ss_disp_lcdtype2_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	static int string_size = 100;
+	char temp[string_size];
+	struct samsung_display_driver_data *vdd;
+
+	vdd = &vdd_data[SECONDARY_DISPLAY_NDX];
 
 	if (vdd->dtsi_data.tft_common_support && vdd->dtsi_data.tft_module_name) {
 		if (vdd->dtsi_data.panel_vendor)
@@ -606,6 +724,8 @@ static ssize_t ss_disp_acl_show(struct device *dev,
 		return rc;
 	}
 
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
 	rc = snprintf((char *)buf, sizeof(vdd->acl_status), "%d\n", vdd->acl_status);
 
 	LCD_INFO("acl status: %d\n", *buf);
@@ -619,20 +739,18 @@ static ssize_t ss_disp_acl_store(struct device *dev,
 	int acl_set = 0;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	if (sysfs_streq(buf, "1"))
 		acl_set = true;
@@ -646,12 +764,11 @@ static ssize_t ss_disp_acl_store(struct device *dev,
 	if ((acl_set && !vdd->acl_status) ||
 			(!acl_set && vdd->acl_status)) {
 		vdd->acl_status = acl_set;
-		ss_brightness_dcs(vdd, vdd->bl_level, true);
+		ss_brightness_dcs(vdd, vdd->bl_level);
 	} else {
 		vdd->acl_status = acl_set;
 		LCD_INFO("skip acl update!! acl %d", vdd->acl_status);
 	}
-	mutex_unlock(&display->display_lock);
 
 	return size;
 }
@@ -668,6 +785,8 @@ static ssize_t ss_disp_siop_show(struct device *dev,
 		return rc;
 	}
 
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
 	rc = snprintf((char *)buf, sizeof(vdd->siop_status), "%d\n", vdd->siop_status);
 
 	LCD_INFO("siop status: %d\n", *buf);
@@ -681,20 +800,18 @@ static ssize_t ss_disp_siop_store(struct device *dev,
 	int siop_set = 0;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	if (sysfs_streq(buf, "1"))
 		siop_set = true;
@@ -707,15 +824,14 @@ static ssize_t ss_disp_siop_store(struct device *dev,
 
 	if (siop_set && !vdd->siop_status) {
 		vdd->siop_status = siop_set;
-		ss_brightness_dcs(vdd, vdd->bl_level, true);
+		ss_brightness_dcs(vdd, vdd->bl_level);
 	} else if (!siop_set && vdd->siop_status) {
 		vdd->siop_status = siop_set;
-		ss_brightness_dcs(vdd, vdd->bl_level, true);
+		ss_brightness_dcs(vdd, vdd->bl_level);
 	} else {
 		vdd->siop_status = siop_set;
 		LCD_INFO("skip siop update!! acl %d", vdd->acl_status);
 	}
-	mutex_unlock(&display->display_lock);
 
 	return size;
 }
@@ -795,20 +911,18 @@ static ssize_t ss_disp_color_weakness_store(struct device *dev,
 	u8 value = 0;
 	u8 *tx_buf;
 	struct dsi_panel_cmd_set *pcmds;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		goto end;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	sscanf(buf, "%x %x", &mode, &level);
 
@@ -827,6 +941,11 @@ static ssize_t ss_disp_color_weakness_store(struct device *dev,
 	LCD_ERR("level (%x) mode (%x) value (%x)\n", level, mode, value);
 
 	pcmds = ss_get_cmds(vdd, TX_COLOR_WEAKNESS_ENABLE);
+	if (SS_IS_CMDS_NULL(pcmds)) {
+		LCD_ERR("No cmds for TX_COLOR_WEAKNESS_ENABLE.. \n");
+		goto end;
+	}
+
 	tx_buf = pcmds->cmds[1].msg.tx_buf;
 	tx_buf[1] = value;
 
@@ -835,14 +954,14 @@ static ssize_t ss_disp_color_weakness_store(struct device *dev,
 	else
 		ss_send_cmd(vdd, TX_COLOR_WEAKNESS_DISABLE);
 
-	mutex_unlock(&display->display_lock);
 end:
 	return size;
 }
 
 #endif
 
-unsigned char readbuf[256] = {0x0, };
+#define read_buf_max (256)
+unsigned char readbuf[read_buf_max] = {0x0, };
 unsigned int readaddr, readlen, readpos;
 
 static ssize_t ss_read_mtp_show(struct device *dev,
@@ -857,10 +976,11 @@ static ssize_t ss_read_mtp_show(struct device *dev,
 		return -ENODEV;
 	}
 
-	if (readlen) {
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (readlen && (readlen < read_buf_max)) {
 		for (i = 0; i < readlen; i++)
-			len += snprintf(buf + len, 10, "%02x%s", readbuf[i],
-					((i + 1) % 16) == 0 || (i == readlen - 1) ? "\n" : " ");
+			len += snprintf(buf + len, 10, "%02x%s", readbuf[i], (i == readlen - 1) ? "\n" : " ");
 	} else {
 		len += snprintf(buf + len, 100, "No read data.. \n");
 		len += snprintf(buf + len, 100, "Please write (addr gpara len) to read_mtp store to read mtp\n");
@@ -877,29 +997,33 @@ static ssize_t ss_read_mtp_store(struct device *dev,
 	struct dsi_panel_cmd_set *rx_cmds;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return -ENODEV;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return -ENODEV;
-	}
+    vdd = ss_check_hall_ic_get_vdd(vdd);
 
-	mutex_lock(&display->display_lock);
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	sscanf(buf, "%x %d %d", &readaddr, &readpos, &readlen);
 
-	if (readaddr > 0xFF || readpos > 0xFF || readlen > 0xFF)
+	if (readaddr > 0xFF || readpos > 0xFF || readlen > 0xFF) {
+		readaddr = readpos = readlen = 0;
 		goto err;
+	}
 
 	LCD_INFO("addr 0x(%x) pos(%d) len (%d)\n", readaddr, readpos, readlen);
 
 	rx_cmds = ss_get_cmds(vdd, RX_MTP_READ_SYSFS);
+	if (SS_IS_CMDS_NULL(rx_cmds)) {
+		LCD_ERR("No cmds for RX_MTP_READ_SYSFS.. \n");
+		goto err;
+	}
 
 	rx_cmds->cmds[0].msg.tx_buf[0] =  readaddr;
 	rx_cmds->cmds[0].msg.tx_buf[1] =  readlen;
@@ -908,11 +1032,28 @@ static ssize_t ss_read_mtp_store(struct device *dev,
 	rx_cmds->cmds[0].msg.rx_len =  readlen;
 	rx_cmds->read_startoffset = readpos;
 
+	mutex_lock(&vdd->exclusive_tx.ex_tx_lock);
+	vdd->exclusive_tx.permit_frame_update = 1;
+	vdd->exclusive_tx.enable = 1;
+
+	ss_set_exclusive_tx_packet(vdd, RX_MTP_READ_SYSFS, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_ENABLE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_DISABLE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_REG_READ_POS, 1);
+
 	ss_panel_data_read(vdd, RX_MTP_READ_SYSFS, readbuf, LEVEL1_KEY);
 
-err:
-	mutex_unlock(&display->display_lock);
+	ss_set_exclusive_tx_packet(vdd, RX_MTP_READ_SYSFS, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_ENABLE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_DISABLE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_REG_READ_POS, 0);
 
+	vdd->exclusive_tx.permit_frame_update = 0;
+	vdd->exclusive_tx.enable = 0;
+	wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+	mutex_unlock(&vdd->exclusive_tx.ex_tx_lock);
+
+err:
 	return size;
 }
 
@@ -927,6 +1068,8 @@ static ssize_t ss_temperature_show(struct device *dev,
 		LCD_ERR("no vdd");
 		return rc;
 	}
+
+    vdd = ss_check_hall_ic_get_vdd(vdd);
 
 	if (vdd->elvss_interpolation_temperature == -15)
 		rc = snprintf((char *)buf, 40, "-15, -14, 0, 1, 30, 40\n");
@@ -944,20 +1087,18 @@ static ssize_t ss_temperature_store(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int pre_temp = 0;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	pre_temp = vdd->temperature;
 
@@ -967,10 +1108,9 @@ static ssize_t ss_temperature_store(struct device *dev,
 	if (pre_temp != vdd->temperature && vdd->display_status_dsi.hbm_mode == 1)
 		vdd->display_status_dsi.hbm_mode = 0;
 
-	ss_brightness_dcs(vdd, vdd->bl_level, true);
+	ss_brightness_dcs(vdd, vdd->bl_level);
 
 	LCD_INFO("temperature : %d", vdd->temperature);
-	mutex_unlock(&display->display_lock);
 
 	return size;
 }
@@ -987,6 +1127,8 @@ static ssize_t ss_lux_show(struct device *dev,
 		return rc;
 	}
 
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
 	rc = snprintf((char *)buf, 40, "%d\n", vdd->lux);
 
 	LCD_INFO("lux : %d\n", vdd->lux);
@@ -1000,20 +1142,18 @@ static ssize_t ss_lux_store(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int pre_lux = 0;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	pre_lux = vdd->lux;
 
@@ -1023,7 +1163,6 @@ static ssize_t ss_lux_store(struct device *dev,
 		update_dsi_tcon_mdnie_register(vdd);
 
 	LCD_INFO("lux : %d", vdd->lux);
-	mutex_unlock(&display->display_lock);
 
 	return size;
 }
@@ -1039,20 +1178,11 @@ static ssize_t ss_read_copr_show(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int ret = 0;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd\n");
 		return ret;
 	}
-
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return ret;
-	}
-
-	mutex_lock(&display->display_lock);
 
 	if (vdd->copr.copr_on) {
 		mutex_lock(&vdd->copr.copr_lock);
@@ -1066,7 +1196,6 @@ static ssize_t ss_read_copr_show(struct device *dev,
 	} else {
 		ret = snprintf((char *)buf, 20, "-1 -1\n");
 	}
-	mutex_unlock(&display->display_lock);
 
 	return ret;
 }
@@ -1083,7 +1212,6 @@ static ssize_t ss_copr_show(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int ret = 0;
-	struct dsi_display *display = NULL;
 	int idx = COPR_CD_INDEX_0;
 
 	if (IS_ERR_OR_NULL(vdd)) {
@@ -1091,15 +1219,7 @@ static ssize_t ss_copr_show(struct device *dev,
 		return ret;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return ret;
-	}
-
 	LCD_INFO("++ (%d)\n", vdd->copr.copr_on);
-
-	mutex_lock(&display->display_lock);
 
 	if (vdd->copr.copr_on) {
 		mutex_lock(&vdd->copr.copr_lock);
@@ -1130,8 +1250,6 @@ static ssize_t ss_copr_show(struct device *dev,
 		ret = snprintf((char *)buf, 20, "-1 -1\n");
 	}
 
-	mutex_unlock(&display->display_lock);
-
 	LCD_INFO("-- (%d)\n", vdd->copr.copr_on);
 	return ret;
 }
@@ -1150,13 +1268,6 @@ static ssize_t ss_copr_store(struct device *dev,
 	int copr_en, copr_gamma, copr_er, copr_eg, copr_eb;
 	int roi_on, roi_xs, roi_ys, roi_xe, roi_ye;
 	int rc = 0;
-	struct dsi_display *display = NULL;
-
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return size;
-	}
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
@@ -1176,7 +1287,6 @@ static ssize_t ss_copr_store(struct device *dev,
 	if (rc < 0)
 		return rc;
 
-	mutex_lock(&display->display_lock);
 	mutex_lock(&vdd->copr.copr_lock);
 
 	vdd->copr.cmd.COPR_EN = copr_en;
@@ -1206,7 +1316,6 @@ static ssize_t ss_copr_store(struct device *dev,
 	ss_send_cmd(vdd, TX_COPR_ENABLE);
 
 	mutex_unlock(&vdd->copr.copr_lock);
-	mutex_unlock(&display->display_lock);
 
 	LCD_INFO("--\n");
 	return size;
@@ -1236,6 +1345,11 @@ static ssize_t ss_copr_roi_show(struct device *dev,
 
 	if (!ss_is_panel_on(vdd)) {
 		LCD_ERR("panel stste (%d) \n", vdd->panel_state);
+		return ret;
+	}
+
+ 	if (ss_is_poc_open()) {
+		LCD_ERR("POC open.. \n");
 		return ret;
 	}
 
@@ -1282,16 +1396,9 @@ static ssize_t ss_copr_roi_store(struct device *dev,
 
 	struct COPR_ROI roi[4];
 	int i, rc = 0;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
-		return size;
-	}
-
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
 		return size;
 	}
 
@@ -1303,7 +1410,6 @@ static ssize_t ss_copr_roi_store(struct device *dev,
 		return size;
 	}
 
-	mutex_lock(&display->display_lock);
 	mutex_lock(&vdd->copr.copr_lock);
 
 	LCD_INFO("++\n");
@@ -1328,7 +1434,6 @@ static ssize_t ss_copr_roi_store(struct device *dev,
 
 err:
 	mutex_unlock(&vdd->copr.copr_lock);
-	mutex_unlock(&display->display_lock);
 
 	return size;
 }
@@ -1346,16 +1451,9 @@ static ssize_t ss_brt_avg_show(struct device *dev,
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int ret = 0;
 	int idx = COPR_CD_INDEX_1;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd\n");
-		return ret;
-	}
-
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
 		return ret;
 	}
 
@@ -1367,7 +1465,6 @@ static ssize_t ss_brt_avg_show(struct device *dev,
 	LCD_DEBUG("++ \n");
 
 	if (vdd->copr.copr_on) {
-		mutex_lock(&display->display_lock);
 		mutex_lock(&vdd->copr.copr_lock);
 
 		/* get cd avg */
@@ -1384,7 +1481,6 @@ static ssize_t ss_brt_avg_show(struct device *dev,
 		ret = snprintf((char *)buf, 10, "%d\n", vdd->copr.copr_cd[idx].cd_avr);
 
 		mutex_unlock(&vdd->copr.copr_lock);
-		mutex_unlock(&display->display_lock);
 	} else {
 		ret = snprintf((char *)buf, 10, "-1\n");
 	}
@@ -1398,7 +1494,6 @@ static ssize_t ss_self_mask_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	int enable = 0;
-	struct dsi_display *display = NULL;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 
@@ -1407,20 +1502,16 @@ static ssize_t ss_self_mask_store(struct device *dev,
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
 
-
-	mutex_lock(&display->display_lock);
 
 	sscanf(buf, "%d", &enable);
 
 	LCD_INFO("SELF MASK %s! (%d)\n", enable ? "enable" : "disable", enable);
 	self_mask_on(enable);
-	mutex_unlock(&display->display_lock);
 
 	return size;
 }
@@ -1429,7 +1520,6 @@ static ssize_t ss_self_display_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	int input[20];
-	struct dsi_display *display = NULL;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 
@@ -1438,15 +1528,12 @@ static ssize_t ss_self_display_store(struct device *dev,
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
 
 	vdd->debug_data->print_cmds = true;
-
-	mutex_lock(&display->display_lock);
 
 	sscanf(buf, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
 			&input[0], &input[1], &input[2], &input[3],
@@ -1515,6 +1602,55 @@ static ssize_t ss_self_display_store(struct device *dev,
 
 	vdd->debug_data->print_cmds = false;
 
+	return size;
+}
+
+static ssize_t ss_self_move_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	int pattern; /*pattern 0 => self move off, pattern 1 2 3 4 => self move on with each pattern*/
+	struct dsi_display *display = NULL;
+	struct samsung_display_driver_data *vdd =
+		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		return size;
+	}
+
+	display = GET_DSI_DISPLAY(vdd);
+	if (IS_ERR_OR_NULL(display)) {
+		LCD_ERR("no display");
+		return size;
+	}
+
+	if (!ss_is_panel_on(vdd)) {
+		LCD_ERR("Panel is not On state\n");
+		return size;
+	}
+
+	mutex_lock(&display->display_lock);
+
+	sscanf(buf, "%d", &pattern);
+
+	if (pattern < 0 || pattern > 4) {
+		LCD_ERR("invalid input");
+		goto end;
+	}
+
+	if (pattern) {
+		LCD_INFO("SELF MOVE ON pattern = %d\n", pattern);
+		ss_send_cmd(vdd, TX_SELF_IDLE_AOD_ENTER);
+		ss_send_cmd(vdd, TX_SELF_IDLE_TIMER_ON);
+		ss_send_cmd(vdd, TX_SELF_IDLE_MOVE_ON_PATTERN1 + pattern - 1);
+	}
+	else {
+		LCD_INFO("SELF MOVE OFF\n");
+		ss_send_cmd(vdd, TX_SELF_IDLE_TIMER_OFF);
+		ss_send_cmd(vdd, TX_SELF_IDLE_MOVE_OFF);
+		ss_send_cmd(vdd, TX_SELF_IDLE_AOD_EXIT);
+	}
+end:
 	mutex_unlock(&display->display_lock);
 	return size;
 }
@@ -1547,6 +1683,7 @@ static ssize_t ss_panel_lpm_mode_show(struct device *dev,
 	struct panel_func *pfunc;
 	u8 current_status = 0;
 
+	vdd = ss_check_hall_ic_get_vdd(vdd);
 	pfunc = &vdd->panel_func;
 
 	if (IS_ERR_OR_NULL(pfunc)) {
@@ -1637,14 +1774,21 @@ static void ss_panel_set_lpm_mode(
 			ss_panel_lpm_ctrl(vdd, false);
 		else
 			ss_panel_lpm_ctrl(vdd, true);
-	} else {
-		if (ss_is_panel_on_ready(vdd)) { //if (vdd->vdd_blank_mode[DISPLAY_1] == FB_BLANK_NORMAL) {
+	}
+
+	// DO not call lpm_ctrl from lpm sysfs.
+	// since sdm845, aod service only use HLPM mode. (P180508-04638)
+	// If we need to change lpm mode(alpm<->hlpm) while lpm status, consider it again.
+	/*
+	else {
+		if (ss_is_panel_on_ready(vdd)) {
 			if (vdd->panel_lpm.mode == LPM_MODE_OFF)
 				ss_panel_lpm_ctrl(vdd, false);
 			else
 				ss_panel_lpm_ctrl(vdd, true);
 		}
 	}
+	*/
 
 	LCD_INFO("[Panel LPM]: ver(%d) mode(%d)brightness(%d)\n",
 		vdd->panel_lpm.ver,
@@ -1658,7 +1802,6 @@ static ssize_t ss_panel_lpm_mode_store(struct device *dev,
 {
 	unsigned int mode = 0;
 	int chars;
-	struct dsi_display *display = NULL;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 
@@ -1666,22 +1809,14 @@ static ssize_t ss_panel_lpm_mode_store(struct device *dev,
 		LCD_ERR("no vdd");
 		return size;
 	}
+	vdd = ss_check_hall_ic_get_vdd(vdd);
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return size;
-	}
-
-	mutex_lock(&display->display_lock);
 	chars = sscanf(buf, "%d", &mode);
-	if (chars == 0) {
-		mutex_unlock(&display->display_lock);
+	if (chars == 0)
 		return size;
-	}
+
 	LCD_INFO("[Panel LPM] Mode : %d(%x)\n", mode, mode);
 	ss_panel_set_lpm_mode(vdd, mode);
-	mutex_unlock(&display->display_lock);
 
 	return size;
 }
@@ -1717,7 +1852,6 @@ static ssize_t mipi_samsung_hmt_bright_store(struct device *dev,
 
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
@@ -1729,14 +1863,6 @@ static ssize_t mipi_samsung_hmt_bright_store(struct device *dev,
 		return -ENODEV;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return size;
-	}
-
-	mutex_lock(&display->display_lock);
-
 	sscanf(buf, "%d", &input);
 	LCD_INFO("[HMT] input (%d) ++\n", input);
 
@@ -1745,8 +1871,8 @@ static ssize_t mipi_samsung_hmt_bright_store(struct device *dev,
 		goto end;
 	}
 
-	if (ss_is_panel_off(vdd)) {
-		LCD_ERR("[HMT] panel is off!\n");
+	if (!ss_is_panel_on(vdd)) {
+		LCD_ERR("[HMT] panel is not on state (%d) \n", vdd->panel_state);
 		vdd->hmt_stat.hmt_bl_level = input;
 		goto end;
 	}
@@ -1762,7 +1888,6 @@ static ssize_t mipi_samsung_hmt_bright_store(struct device *dev,
 	LCD_INFO("[HMT] input (%d) --\n", input);
 
 end:
-	mutex_unlock(&display->display_lock);
 	return size;
 }
 
@@ -1796,17 +1921,10 @@ static ssize_t mipi_samsung_hmt_on_store(struct device *dev,
 	int input;
 	struct samsung_display_driver_data *vdd =
 			(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return -ENODEV;
-	}
-
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return size;
 	}
 
 	if (!vdd->dtsi_data.hmt_enabled) {
@@ -1817,8 +1935,8 @@ static ssize_t mipi_samsung_hmt_on_store(struct device *dev,
 	sscanf(buf, "%d", &input);
 	LCD_INFO("[HMT] input (%d) ++\n", input);
 
-	if (ss_is_panel_off(vdd)) {
-		LCD_ERR("[HMT] panel is off!\n");
+	if (!ss_is_panel_on(vdd)) {
+		LCD_ERR("[HMT] panel is not on state (%d) \n", vdd->panel_state);
 		vdd->hmt_stat.hmt_on = input;
 		return size;
 	}
@@ -1827,8 +1945,6 @@ static ssize_t mipi_samsung_hmt_on_store(struct device *dev,
 		LCD_INFO("[HMT] hmt already %s !\n", vdd->hmt_stat.hmt_on?"ON":"OFF");
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	vdd->hmt_stat.hmt_on = input;
 
@@ -1840,22 +1956,18 @@ static ssize_t mipi_samsung_hmt_on_store(struct device *dev,
 	LCD_INFO("[HMT] input hmt (%d) --\n",
 		vdd->hmt_stat.hmt_on);
 
-	mutex_unlock(&display->display_lock);
 	return size;
 }
 
 void ss_cabc_update(struct samsung_display_driver_data *vdd)
 {
-	struct dsi_display *display = NULL;
-
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return;
 	}
 
@@ -1863,8 +1975,6 @@ void ss_cabc_update(struct samsung_display_driver_data *vdd)
 		LCD_INFO("auto brightness is on, cabc cmds are already sent--\n");
 		return;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	if (vdd->siop_status) {
 		if (vdd->panel_func.samsung_lvds_write_reg)
@@ -1884,21 +1994,17 @@ void ss_cabc_update(struct samsung_display_driver_data *vdd)
 			ss_send_cmd(vdd, TX_CABC_OFF);
 		}
 	}
-	mutex_unlock(&display->display_lock);
 }
 
 int config_cabc(struct samsung_display_driver_data *vdd, int value)
 {
-	struct dsi_display *display = NULL;
-
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return value;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return value;
 	}
 
@@ -1907,10 +2013,8 @@ int config_cabc(struct samsung_display_driver_data *vdd, int value)
 		return value;
 	}
 
-	mutex_lock(&display->display_lock);
 	vdd->siop_status = value;
 	ss_cabc_update(vdd);
-	mutex_unlock(&display->display_lock);
 
 	return 0;
 }
@@ -1921,20 +2025,17 @@ static ssize_t mipi_samsung_mcd_store(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int input;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		goto end;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
 
-	mutex_lock(&display->display_lock);
 	sscanf(buf, "%d", &input);
 
 	LCD_INFO("(%d)\n", input);
@@ -1943,13 +2044,132 @@ static ssize_t mipi_samsung_mcd_store(struct device *dev,
 		ss_send_cmd(vdd, TX_MCD_ON);
 	else
 		ss_send_cmd(vdd, TX_MCD_OFF);
-	mutex_unlock(&display->display_lock);
 end:
 	return size;
 }
 
-static ssize_t mipi_samsung_mst_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t size)
+
+#define MCD_MAX_RESISTANCE 0x7F
+enum {
+	MCD_1_RIGHT,
+	MCD_2_RIGHT,
+	MCD_1_LEFT,
+	MCD_2_LEFT,
+	MCD_CHECK_MAX
+};
+
+int mcd_resistance_value[MCD_CHECK_MAX] = {0x0, };
+
+static ssize_t ss_disp_mcd_resistance_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int rc = 0;
+	struct samsung_display_driver_data *vdd =
+		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+
+	rc = snprintf(buf, 256,
+		"SDC_MCD1_R:(0, %d) SDC_MCD1_L:(0, %d) SDC_MCD2_R:(0, %d) SDC_MCD2_L:(0, %d)\n"
+		"MCD1_R:(0, %d) MCD1_L:(0, %d) MCD2_R:(0, %d) MCD2_L:(0, %d)\n",
+		vdd->panel_br_info.flash_data.mcd.flash_MCD1_R,
+		vdd->panel_br_info.flash_data.mcd.flash_MCD1_L,
+		vdd->panel_br_info.flash_data.mcd.flash_MCD2_R,
+		vdd->panel_br_info.flash_data.mcd.flash_MCD2_L,
+		mcd_resistance_value[MCD_1_RIGHT],
+		mcd_resistance_value[MCD_1_LEFT],
+		mcd_resistance_value[MCD_2_RIGHT],
+		mcd_resistance_value[MCD_2_LEFT]);
+
+	return rc;
+}
+
+static void flash_mcd_data_read(struct samsung_display_driver_data *vdd)
+{
+	char read_buf = 0;
+
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_PRE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_POST, 1);
+	ss_set_exclusive_tx_packet(vdd, RX_FLASH_GAMMA, 1);
+
+	ss_send_cmd(vdd, TX_FLASH_GAMMA_PRE);
+
+	read_buf = flash_read_one_byte(vdd, vdd->dtsi_data.flash_MCD1_R_address);
+	vdd->panel_br_info.flash_data.mcd.flash_MCD1_R = read_buf;
+
+	read_buf = flash_read_one_byte(vdd, vdd->dtsi_data.flash_MCD2_R_address);
+	vdd->panel_br_info.flash_data.mcd.flash_MCD2_R = read_buf;
+
+	read_buf = flash_read_one_byte(vdd, vdd->dtsi_data.flash_MCD1_L_address);
+	vdd->panel_br_info.flash_data.mcd.flash_MCD1_L = read_buf;
+
+	read_buf = flash_read_one_byte(vdd, vdd->dtsi_data.flash_MCD2_L_address);
+	vdd->panel_br_info.flash_data.mcd.flash_MCD2_L = read_buf;
+
+	ss_send_cmd(vdd, TX_FLASH_GAMMA_POST);
+
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_PRE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_POST, 0);
+	ss_set_exclusive_tx_packet(vdd, RX_FLASH_GAMMA, 0);
+
+}
+
+static void ddi_regisger_mcd_data_read(struct samsung_display_driver_data *vdd)
+{
+	struct dsi_panel_cmd_set *mcd_cmds = ss_get_cmds(vdd, TX_MCD_READ_RESISTANCE);
+	int resistance;
+	char mcd_buf[3];
+
+	if (SS_IS_CMDS_NULL(mcd_cmds)) {
+		LCD_ERR("no mcd_cmds->cmds for TX_MCD_READ_RESISTANCE..\n");
+		return;
+	}
+
+	memset(mcd_resistance_value, 0x00, sizeof(mcd_resistance_value));
+
+	ss_set_exclusive_tx_packet(vdd, TX_MCD_READ_RESISTANCE_PRE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_MCD_READ_RESISTANCE, 1);
+	ss_set_exclusive_tx_packet(vdd, RX_MCD_READ_RESISTANCE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_MCD_READ_RESISTANCE_POST, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_REG_READ_POS, 1);
+
+	ss_send_cmd(vdd, TX_MCD_READ_RESISTANCE_PRE);
+
+	for (resistance = 0 ; resistance <= MCD_MAX_RESISTANCE ; resistance++) {
+		mcd_cmds->cmds[1].msg.tx_buf[1] = (char)resistance;
+		mcd_cmds->cmds[3].msg.tx_buf[1] = (char)resistance;
+		mcd_cmds->cmds[5].msg.tx_buf[1] = (char)resistance;
+		mcd_cmds->cmds[7].msg.tx_buf[1] = (char)resistance;
+
+		ss_send_cmd(vdd, TX_MCD_READ_RESISTANCE);
+
+		memset(mcd_buf, 0x00, sizeof(mcd_buf));
+		if (!ss_panel_data_read(vdd, RX_MCD_READ_RESISTANCE, mcd_buf, LEVEL_KEY_NONE)) {
+			/* update with last index when bit is set */
+			if (mcd_buf[2] & BIT(7))
+				mcd_resistance_value[MCD_1_RIGHT] = resistance;
+			if (mcd_buf[2] & BIT(6))
+				mcd_resistance_value[MCD_2_RIGHT] = resistance;
+			if (mcd_buf[2] & BIT(3))
+				mcd_resistance_value[MCD_1_LEFT] = resistance;
+			if (mcd_buf[2] & BIT(2))
+				mcd_resistance_value[MCD_2_LEFT] = resistance;
+		} else
+			LCD_INFO("read fail\n");
+	}
+
+	ss_send_cmd(vdd, TX_MCD_READ_RESISTANCE_POST);
+
+	ss_set_exclusive_tx_packet(vdd, TX_MCD_READ_RESISTANCE_PRE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_MCD_READ_RESISTANCE, 0);
+	ss_set_exclusive_tx_packet(vdd, RX_MCD_READ_RESISTANCE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_MCD_READ_RESISTANCE_POST, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_REG_READ_POS, 0);
+
+}
+
+static ssize_t ss_disp_mcd_resistance_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
@@ -1967,7 +2187,52 @@ static ssize_t mipi_samsung_mst_store(struct device *dev,
 		return size;
 	}
 
-	mutex_lock(&display->display_lock);
+	sscanf(buf, "%d", &input);
+
+	LCD_INFO("(%d)\n", input);
+
+	if (input) {
+		if (vdd->esd_recovery.esd_irq_enable)
+			vdd->esd_recovery.esd_irq_enable(false, true, (void *)vdd);
+
+		mutex_lock(&vdd->exclusive_tx.ex_tx_lock);
+		vdd->exclusive_tx.enable = 1;
+
+		/* 1st read flash mcd data */
+		flash_mcd_data_read(vdd);
+
+		/* 2st read ddi mcd register */
+		ddi_regisger_mcd_data_read(vdd);
+
+		vdd->exclusive_tx.enable = 0;
+		wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+		mutex_unlock(&vdd->exclusive_tx.ex_tx_lock);
+
+		if (vdd->esd_recovery.esd_irq_enable)
+			vdd->esd_recovery.esd_irq_enable(true, true, (void *)vdd);
+	}
+
+end:
+	return size;
+}
+
+static ssize_t mipi_samsung_mst_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct samsung_display_driver_data *vdd =
+		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	int input;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		goto end;
+	}
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
 	sscanf(buf, "%d", &input);
 
 	LCD_INFO("(%d)\n", input);
@@ -1976,12 +2241,41 @@ static ssize_t mipi_samsung_mst_store(struct device *dev,
 		ss_send_cmd(vdd, TX_MICRO_SHORT_TEST_ON);
 	else
 		ss_send_cmd(vdd, TX_MICRO_SHORT_TEST_OFF);
-	mutex_unlock(&display->display_lock);
 end:
 	return size;
 }
 
 static ssize_t mipi_samsung_grayspot_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct samsung_display_driver_data *vdd =
+		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+
+	int input;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		goto end;
+	}
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
+	sscanf(buf, "%d", &input);
+	LCD_INFO("(%d)\n", input);
+
+	if (input)
+		ss_send_cmd(vdd, TX_GRAY_SPOT_TEST_ON);
+	else
+		ss_send_cmd(vdd, TX_GRAY_SPOT_TEST_OFF);
+
+end:
+	return size;
+}
+
+static ssize_t mipi_samsung_isc_defect_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd =
@@ -2006,16 +2300,15 @@ static ssize_t mipi_samsung_grayspot_store(struct device *dev,
 	LCD_INFO("(%d)\n", input);
 
 	if (input) {
-		ss_send_cmd(vdd, TX_GRAY_SPOT_TEST_ON);
+		ss_send_cmd(vdd, TX_ISC_DEFECT_TEST_ON);
 	} else {
-		ss_send_cmd(vdd, TX_GRAY_SPOT_TEST_OFF);
+		ss_send_cmd(vdd, TX_ISC_DEFECT_TEST_OFF);
 	}
 	mutex_unlock(&display->display_lock);
 end:
 	return size;
 }
 
-#if defined(CONFIG_SUPPORT_POC_FLASH)
 #define MAX_POC_SHOW_WAIT 500
 static ssize_t mipi_samsung_poc_show(struct device *dev,
 			struct device_attribute *attr, char *buf)
@@ -2030,20 +2323,16 @@ static ssize_t mipi_samsung_poc_show(struct device *dev,
 	int poc;
 	u8 *octa_id;
 	int wait_cnt;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return -ENODEV;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return -EINVAL;
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return -EBUSY;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	// POC : From OCTA_ID
 	vdd = ss_check_hall_ic_get_vdd(vdd);
@@ -2086,14 +2375,10 @@ static ssize_t mipi_samsung_poc_show(struct device *dev,
 	snprintf((char *)temp, sizeof(temp), "%d %d %02x\n",
 			poc, check_sum[4], EB_value[3]);
 	strlcat(buf, temp, string_size);
-	mutex_unlock(&display->display_lock);
 
 	return strnlen(buf, string_size);
 }
 
-#define POC_IMG_SIZE			(532816)
-#define POC_IMG_ADDR			(0x000000)
-#define POC_TEST_PATTERN_SIZE	(1024)
 static ssize_t mipi_samsung_poc_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
@@ -2101,20 +2386,16 @@ static ssize_t mipi_samsung_poc_store(struct device *dev,
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int input;
 	int ret = 0;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return -ENODEV;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	sscanf(buf, "%d", &input);
 	LCD_INFO("INPUT : (%d)\n", input);
@@ -2131,14 +2412,46 @@ static ssize_t mipi_samsung_poc_store(struct device *dev,
 	} else if (input == 4) {
 		LCD_INFO("STOP\n");
 		atomic_set(&vdd->poc_driver.cancel, 1);
+	} else if (input == 7) {
+		LCD_INFO("ERASE_SECTOR \n");
+		if (vdd->panel_func.samsung_poc_ctrl) {
+			ret = vdd->panel_func.samsung_poc_ctrl(vdd, POC_OP_ERASE_SECTOR);
+		}
 	} else {
 		LCD_INFO("input check !! \n");
 	}
 
-	mutex_unlock(&display->display_lock);
 	return size;
 }
-#endif
+
+static ssize_t mipi_samsung_poc_mca_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct samsung_display_driver_data *vdd = (struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	int i, len = 0;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		return -ENODEV;
+	}
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return -EBUSY;
+	}
+
+	vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	ss_poc_read_mca(vdd);
+
+	if (vdd->poc_driver.mca_data) {
+		for (i = 0; i < vdd->poc_driver.mca_size; i++)
+			len += snprintf(buf + len, 60, "%02x ", vdd->poc_driver.mca_data[i]);
+
+		len += snprintf(buf + len, 60, "\n");
+	}
+
+	return strlen(buf);
+}
 
 static ssize_t xtalk_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
@@ -2147,20 +2460,16 @@ static ssize_t xtalk_store(struct device *dev,
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 
 	int input;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		goto end;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	sscanf(buf, "%d", &input);
 	LCD_INFO("(%d)\n", input);
@@ -2170,8 +2479,7 @@ static ssize_t xtalk_store(struct device *dev,
 	} else {
 		vdd->xtalk_mode = 0;
 	}
-	ss_brightness_dcs(vdd, vdd->bl_level, true);
-	mutex_unlock(&display->display_lock);
+	ss_brightness_dcs(vdd, vdd->bl_level);
 end:
 	return size;
 }
@@ -2183,7 +2491,6 @@ static ssize_t gct_show(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int res = -EINVAL;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
@@ -2191,10 +2498,9 @@ static ssize_t gct_show(struct device *dev,
 		goto end;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		goto end;
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return -EBUSY;
 	}
 
 	if (!vdd->gct.is_support || !vdd->panel_func.samsung_gct_read) {
@@ -2202,9 +2508,7 @@ static ssize_t gct_show(struct device *dev,
 		goto end;
 	}
 
-	mutex_lock(&display->display_lock);
 	res = vdd->panel_func.samsung_gct_read(vdd);
-	mutex_unlock(&display->display_lock);
 end:
 	snprintf(buf, MAX_GCT_RLT_LEN, "%d 0x%x%x%x%x", res,
 			vdd->gct.checksum[3], vdd->gct.checksum[2],
@@ -2219,7 +2523,6 @@ static ssize_t gct_store(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int ret;
-	struct dsi_display *display = NULL;
 
 	LCD_INFO("+\n");
 	if (IS_ERR_OR_NULL(vdd)) {
@@ -2227,20 +2530,14 @@ static ssize_t gct_store(struct device *dev,
 		return -ENODEV;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return size;
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return -EBUSY;
 	}
 
-	if (ss_is_panel_off(vdd)) {
-		LCD_ERR("panel is off");
-		return -EPERM;
-	}
-	mutex_lock(&display->display_lock);
 	if (vdd->gct.is_support && vdd->panel_func.samsung_gct_write)
 		ret = vdd->panel_func.samsung_gct_write(vdd);
-	mutex_unlock(&display->display_lock);
+
 	LCD_INFO("-\n");
 
 	return size;
@@ -2252,23 +2549,14 @@ static ssize_t ss_irc_mode_show(struct device *dev,
 	int rc = 0;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return rc;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		return rc;
-	}
-
-	mutex_lock(&display->display_lock);
 	rc = snprintf((char *)buf, 50, "%d\n", vdd->irc_mode);
 	LCD_INFO("irc_mode : %d\n", vdd->irc_mode);
-	mutex_unlock(&display->display_lock);
 
 	return rc;
 }
@@ -2278,7 +2566,6 @@ static ssize_t ss_irc_mode_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	struct dsi_display *display = NULL;
 	int input_mode;
 
 	if (IS_ERR_OR_NULL(vdd)) {
@@ -2286,10 +2573,9 @@ static ssize_t ss_irc_mode_store(struct device *dev,
 		goto end;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
-		goto end;
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
 	}
 
 	sscanf(buf, "%d", &input_mode);
@@ -2299,15 +2585,13 @@ static ssize_t ss_irc_mode_store(struct device *dev,
 		goto end;
 	}
 
-	mutex_lock(&display->display_lock);
 	if (vdd->irc_mode != input_mode) {
 		LCD_INFO("irc mode: %d -> %d\n", vdd->irc_mode, input_mode);
 		vdd->irc_mode = input_mode;
 
 		if (!vdd->dtsi_data.tft_common_support)
-			ss_brightness_dcs(vdd, vdd->bl_level, true);
+			ss_brightness_dcs(vdd, vdd->bl_level);
 	}
-	mutex_unlock(&display->display_lock);
 end:
 	return size;
 }
@@ -2345,20 +2629,17 @@ static ssize_t mipi_samsung_hw_cursor_store(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int input[10];
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		goto end;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
 
-	mutex_lock(&display->display_lock);
 	sscanf(buf, "%d %d %d %d %d %d %d %x %x %x", &input[0], &input[1],
 			&input[2], &input[3], &input[4], &input[5], &input[6],
 			&input[7], &input[8], &input[9]);
@@ -2367,7 +2648,6 @@ static ssize_t mipi_samsung_hw_cursor_store(struct device *dev,
 		vdd->panel_func.ddi_hw_cursor(vdd, input);
 	else
 		LCD_ERR("ddi_hw_cursor function is NULL\n");
-	mutex_unlock(&display->display_lock);
 
 end:
 	return size;
@@ -2379,20 +2659,19 @@ static ssize_t ss_adaptive_control_store(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int value;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
 
-	mutex_lock(&display->display_lock);
 	sscanf(buf, "%d", &value);
 
 	LCD_INFO("ACL value : %x\n", value);
@@ -2404,8 +2683,7 @@ static ssize_t ss_adaptive_control_store(struct device *dev,
 		vdd->acl_status = 1;
 
 	if (!vdd->dtsi_data.tft_common_support)
-		ss_brightness_dcs(vdd, vdd->bl_level, true);
-	mutex_unlock(&display->display_lock);
+		ss_brightness_dcs(vdd, vdd->bl_level);
 
 	return size;
 }
@@ -2428,20 +2706,16 @@ static ssize_t ss_cover_control_store(struct device *dev,
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 	int value;
-	struct dsi_display *display = NULL;
 
 	if (IS_ERR_OR_NULL(vdd)) {
 		LCD_ERR("no vdd");
 		return size;
 	}
 
-	display = GET_DSI_DISPLAY(vdd);
-	if (IS_ERR_OR_NULL(display)) {
-		LCD_ERR("no display");
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
-
-	mutex_lock(&display->display_lock);
 
 	sscanf(buf, "%d", &value);
 	vdd->cover_control = value;
@@ -2452,7 +2726,6 @@ static ssize_t ss_cover_control_store(struct device *dev,
 		LCD_ERR("No cover control function..\n");
 
 	LCD_INFO("Cover Control Status = %d\n", vdd->cover_control);
-	mutex_unlock(&display->display_lock);
 	return size;
 }
 
@@ -2677,6 +2950,7 @@ static int dpui_notifier_callback(struct notifier_block *self,
 	int size;
 	u8 *octa_id;
 	int site, rework, poc;
+	int flash_gamma_status;
 
 	if (dpui == NULL) {
 		LCD_ERR("err: dpui is null\n");
@@ -2689,11 +2963,6 @@ static int dpui_notifier_callback(struct notifier_block *self,
 	}
 
 	vdd = ss_check_hall_ic_get_vdd(vdd);
-
-	/* Vendor and DDI model name */
-	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%s_%s",
-			vdd->dtsi_data.panel_vendor, vdd->dtsi_data.disp_model);
-	set_dpui_field(DPUI_KEY_DISP_MODEL, tbuf, size);
 
 	/* manufacture date and time */
 	cell_id = vdd->cell_id_dsi;
@@ -2716,12 +2985,6 @@ static int dpui_notifier_callback(struct notifier_block *self,
 	set_dpui_field(DPUI_KEY_LCDID2, tbuf, size);
 	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%d", (lcd_id  & 0xFF));
 	set_dpui_field(DPUI_KEY_LCDID3, tbuf, size);
-
-	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "0x%02X%02X%02X%02X%02X",
-					vdd->ddi_id_dsi[0], vdd->ddi_id_dsi[1], vdd->ddi_id_dsi[2],
-					vdd->ddi_id_dsi[3], vdd->ddi_id_dsi[4]);
-
-	set_dpui_field(DPUI_KEY_CHIPID, tbuf, size);
 
 	/* cell id */
 	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
@@ -2762,6 +3025,11 @@ static int dpui_notifier_callback(struct notifier_block *self,
 		octa_id[19] != 0 ? octa_id[19] : '0');
 
 	set_dpui_field(DPUI_KEY_OCTAID, tbuf, size);
+
+	/*  Panel Gamma Flash Loading Result */
+	flash_gamma_status = flash_gamma_mode_check(vdd);
+	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%d", flash_gamma_status);
+	set_dpui_field(DPUI_KEY_PNGFLS, tbuf, size);
 
 	return 0;
 }
@@ -2945,9 +3213,243 @@ static ssize_t ss_force_flip_store(struct device *dev,
 }
 #endif
 
+#define MAX_FLASH_GAMMA_LEN	128
+enum FLASH_GAMMA_TEST {
+	CHECKSUM_0XC8_FAIL_NOT_LOADING = -4,
+	CHECKSUM_FLASH_FAIL_NOT_LOADING = -3,
+	WRITE_CHECK_NOT_SET_NOT_LOADING = -2,
+	READ_FAIL_NOT_LOADING = -1,
+	READING_OPERATION_PROGRESS = 0,
+	READING_OPERATION_DONE =1,
+};
+
+int flash_gamma_mode_check(struct samsung_display_driver_data *vdd)
+{
+	int res = READ_FAIL_NOT_LOADING;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		return res;
+	}
+
+	if (!vdd->dtsi_data.flash_gamma_support) {
+		LCD_ERR("not support flash_gamma");
+		return res;
+	}
+
+	if (vdd->panel_br_info.flash_data.init_done) {
+		if (vdd->panel_br_info.flash_data.write_check == FLASH_GAMMA_BURN_EMPTY)
+			res = WRITE_CHECK_NOT_SET_NOT_LOADING;
+		else if (vdd->panel_br_info.flash_data.check_sum_flash_data !=
+				vdd->panel_br_info.flash_data.check_sum_cal_data)
+			res = CHECKSUM_FLASH_FAIL_NOT_LOADING;
+		else if (vdd->panel_br_info.flash_data.c8_register.check_sum_flash_data !=
+				vdd->panel_br_info.flash_data.c8_register.check_sum_cal_data)
+			res = CHECKSUM_0XC8_FAIL_NOT_LOADING;
+		else if (vdd->panel_br_info.flash_data.c8_register.check_sum_flash_data !=
+				vdd->panel_br_info.flash_data.c8_register.check_sum_mtp_data)
+			res = CHECKSUM_0XC8_FAIL_NOT_LOADING;
+		else if (vdd->panel_br_info.flash_data.c8_register.check_sum_cal_data !=
+				vdd->panel_br_info.flash_data.c8_register.check_sum_mtp_data)
+			res = CHECKSUM_0XC8_FAIL_NOT_LOADING;
+		else
+			res = READING_OPERATION_DONE;
+	} else {
+		res = READING_OPERATION_PROGRESS;
+	}
+
+	LCD_INFO("flash_gamma_mode (%d)", res);
+	return res;
+}
+
+static ssize_t ss_disp_flash_gamma_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct samsung_display_driver_data *vdd =
+			(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	int res = READ_FAIL_NOT_LOADING;
+	int len = 0;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		goto end;
+	}
+
+	if (!vdd->dtsi_data.flash_gamma_support) {
+		LCD_ERR("not support flash_gamma");
+		goto end;
+	}
+
+	res = flash_gamma_mode_check(vdd);
+
+end:
+	len = snprintf(buf, MAX_FLASH_GAMMA_LEN, "%d %08x %08x %08x %08x %08x\n",
+			res,
+			vdd->panel_br_info.flash_data.check_sum_cal_data,
+			vdd->panel_br_info.flash_data.check_sum_flash_data,
+			vdd->panel_br_info.flash_data.c8_register.check_sum_mtp_data,
+			vdd->panel_br_info.flash_data.c8_register.check_sum_cal_data,
+			vdd->panel_br_info.flash_data.c8_register.check_sum_flash_data);
+
+	LCD_INFO("%s", buf);
+
+	return len;
+}
+
+static ssize_t ss_disp_flash_gamma_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct samsung_display_driver_data *vdd =
+		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	struct dsi_display *display = NULL;
+
+	int input;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		goto end;
+	}
+
+	display = GET_DSI_DISPLAY(vdd);
+	if (IS_ERR_OR_NULL(display)) {
+		LCD_ERR("no display");
+		return size;
+	}
+
+	if (!ss_is_panel_on(vdd)) {
+		LCD_ERR("panel stste (%d) \n", vdd->panel_state);
+		return size;
+	}
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
+
+	if (!vdd->dtsi_data.flash_gamma_support)
+		goto end;
+
+	sscanf(buf, "%d", &input);
+
+	LCD_INFO("(%d)\n", input);
+
+	if (input) {
+		vdd->panel_br_info.flash_data.force_update = true;
+		vdd->panel_br_info.flash_data.init_done = false;
+
+		vdd->panel_br_info.flash_data.check_sum_flash_data = MMC_CHECK_SUM_INIT;
+		vdd->panel_br_info.flash_data.check_sum_cal_data = MMC_CHECK_SUM_INIT;
+
+		set_bit(BOOST_DSI_CLK, vdd->panel_br_info.flash_br_boosting);
+		set_bit(BOOST_MNOC, vdd->panel_br_info.flash_br_boosting);
+		set_bit(BOOST_CPU, vdd->panel_br_info.flash_br_boosting);
+
+		/* execution flash gamma read operation */
+		queue_delayed_work(vdd->flash_br_workqueue, &vdd->flash_br_work, msecs_to_jiffies(0));
+	}
+
+end:
+	return size;
+}
+
+unsigned char flash_readbuf[SZ_256] = {0x0, };
+unsigned int flash_readaddr, flash_readlen;
+
+static ssize_t ss_read_flash_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int i, len = 0;
+	struct samsung_display_driver_data *vdd =
+		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		return -ENODEV;
+	}
+
+	if (flash_readlen && (flash_readlen < SZ_256)) {
+		for (i = 0; i < flash_readlen; i++)
+			len += snprintf(buf + len, 10, "%02x%s", flash_readbuf[i],
+					((i + 1) % 16) == 0 || (i == flash_readlen - 1) ? "\n" : " ");
+	} else {
+		len += snprintf(buf + len, 100, "No read data.. \n");
+		len += snprintf(buf + len, 100, "Please write (addr len) to read_flash store to read flash data\n");
+		len += snprintf(buf + len, 100, "MAX read size is 256byte at once\n");
+		len += snprintf(buf + len, 100, "ex) echo 0x0A0000 0x100 > read_flash \n");
+		len += snprintf(buf + len, 100, "- read 0x100(256) bytes from 0x0A000 flash address\n");
+	}
+
+	return strlen(buf);
+}
+
+static ssize_t ss_read_flash_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct samsung_display_driver_data *vdd =
+		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
+	struct dsi_display *display = NULL;
+	int addr, loop;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd");
+		return -ENODEV;
+	}
+
+	display = GET_DSI_DISPLAY(vdd);
+	if (IS_ERR_OR_NULL(display)) {
+		LCD_ERR("no display");
+		return -ENODEV;
+	}
+
+	mutex_lock(&display->display_lock);
+
+	sscanf(buf, "%x %x", &flash_readaddr, &flash_readlen);
+
+	if (flash_readaddr > SZ_1M || flash_readlen > SZ_256)
+		goto err;
+
+	LCD_INFO("addr 0x(%x) len 0x(%x)\n", flash_readaddr, flash_readlen);
+
+	mutex_lock(&vdd->exclusive_tx.ex_tx_lock);
+	vdd->exclusive_tx.permit_frame_update = 1;
+	vdd->exclusive_tx.enable = 1;
+
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_PRE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_POST, 1);
+	ss_set_exclusive_tx_packet(vdd, RX_FLASH_GAMMA, 1);
+
+	ss_send_cmd(vdd, TX_FLASH_GAMMA_PRE);
+
+	memset(flash_readbuf, 0x0, sizeof(flash_readbuf));
+
+	for (loop = 0, addr = flash_readaddr; addr < (flash_readaddr + flash_readlen);addr++, loop++)
+		flash_readbuf[loop] = flash_read_one_byte(vdd, addr);
+
+	ss_send_cmd(vdd, TX_FLASH_GAMMA_POST);
+
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_PRE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_FLASH_GAMMA_POST, 0);
+	ss_set_exclusive_tx_packet(vdd, RX_FLASH_GAMMA, 0);
+
+	vdd->exclusive_tx.permit_frame_update = 0;
+	vdd->exclusive_tx.enable = 0;
+	wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+	mutex_unlock(&vdd->exclusive_tx.ex_tx_lock);
+
+err:
+	mutex_unlock(&display->display_lock);
+
+	return size;
+}
+
 static DEVICE_ATTR(lcd_type, S_IRUGO, ss_disp_lcdtype_show, NULL);
+static DEVICE_ATTR(lcd_type2, S_IRUGO, ss_disp_lcdtype2_show, NULL);
 static DEVICE_ATTR(cell_id, S_IRUGO, ss_disp_cell_id_show, NULL);
+static DEVICE_ATTR(cell_id2, S_IRUGO, ss_disp_cell_id2_show, NULL);
 static DEVICE_ATTR(octa_id, S_IRUGO, ss_disp_octa_id_show, NULL);
+static DEVICE_ATTR(octa_id2, S_IRUGO, ss_disp_octa_id2_show, NULL);
 static DEVICE_ATTR(window_type, S_IRUGO, ss_disp_windowtype_show, NULL);
 static DEVICE_ATTR(manufacture_date, S_IRUGO, ss_disp_manufacture_date_show, NULL);
 static DEVICE_ATTR(manufacture_code, S_IRUGO, ss_disp_manufacture_code_show, NULL);
@@ -2961,6 +3463,7 @@ static DEVICE_ATTR(copr_roi, S_IRUGO | S_IWUSR | S_IWGRP, ss_copr_roi_show, ss_c
 static DEVICE_ATTR(brt_avg, S_IRUGO | S_IWUSR | S_IWGRP, ss_brt_avg_show, NULL);
 static DEVICE_ATTR(self_mask, S_IRUGO | S_IWUSR | S_IWGRP, NULL, ss_self_mask_store);
 static DEVICE_ATTR(self_display, S_IRUGO | S_IWUSR | S_IWGRP, NULL, ss_self_display_store);
+static DEVICE_ATTR(self_move, S_IRUGO | S_IWUSR | S_IWGRP, NULL, ss_self_move_store);
 static DEVICE_ATTR(read_copr, S_IRUGO | S_IWUSR | S_IWGRP, ss_read_copr_show, NULL);
 static DEVICE_ATTR(aid_log, S_IRUGO | S_IWUSR | S_IWGRP, ss_aid_log_show, NULL);
 static DEVICE_ATTR(partial_disp, S_IRUGO | S_IWUSR | S_IWGRP, ss_disp_partial_disp_show, ss_disp_partial_disp_store);
@@ -2968,10 +3471,10 @@ static DEVICE_ATTR(alpm, S_IRUSR | S_IRGRP | S_IWUSR | S_IWGRP, ss_panel_lpm_mod
 static DEVICE_ATTR(hmt_bright, S_IRUGO | S_IWUSR | S_IWGRP, mipi_samsung_hmt_bright_show, mipi_samsung_hmt_bright_store);
 static DEVICE_ATTR(hmt_on, S_IRUGO | S_IWUSR | S_IWGRP,	mipi_samsung_hmt_on_show, mipi_samsung_hmt_on_store);
 static DEVICE_ATTR(mcd_mode, S_IRUGO | S_IWUSR | S_IWGRP, NULL, mipi_samsung_mcd_store);
+static DEVICE_ATTR(mcd_resistance, S_IRUGO | S_IWUSR | S_IWGRP, ss_disp_mcd_resistance_show, ss_disp_mcd_resistance_store);
 static DEVICE_ATTR(mst, S_IRUGO | S_IWUSR | S_IWGRP, NULL, mipi_samsung_mst_store);
-#if defined(CONFIG_SUPPORT_POC_FLASH)
 static DEVICE_ATTR(poc, S_IRUGO | S_IWUSR | S_IWGRP, mipi_samsung_poc_show, mipi_samsung_poc_store);
-#endif
+static DEVICE_ATTR(poc_mca, S_IRUGO | S_IWUSR | S_IWGRP, mipi_samsung_poc_mca_show, NULL);
 static DEVICE_ATTR(irc_mode, S_IRUGO | S_IWUSR | S_IWGRP, ss_irc_mode_show, ss_irc_mode_store);
 static DEVICE_ATTR(ldu_correction, S_IRUGO | S_IWUSR | S_IWGRP, ss_ldu_correction_show, ss_ldu_correction_store);
 static DEVICE_ATTR(adaptive_control, S_IRUGO | S_IWUSR | S_IWGRP, NULL, ss_adaptive_control_store);
@@ -2988,6 +3491,7 @@ static DEVICE_ATTR(tuning, 0664, tuning_show, tuning_store);
 static DEVICE_ATTR(xtalk_mode, S_IRUGO | S_IWUSR | S_IWGRP, NULL, xtalk_store);
 static DEVICE_ATTR(gct, S_IRUGO | S_IWUSR | S_IWGRP, gct_show, gct_store);
 static DEVICE_ATTR(grayspot, S_IRUGO | S_IWUSR | S_IWGRP, NULL, mipi_samsung_grayspot_store);
+static DEVICE_ATTR(isc_defect, S_IRUGO | S_IWUSR | S_IWGRP, NULL, mipi_samsung_isc_defect_store);
 #ifdef CONFIG_DISPLAY_USE_INFO
 static DEVICE_ATTR(dpui, S_IRUSR|S_IRGRP|S_IWUSR|S_IWGRP, ss_dpui_show, ss_dpui_store);
 static DEVICE_ATTR(dpui_dbg, S_IRUSR|S_IRGRP|S_IWUSR|S_IWGRP, ss_dpui_dbg_show, ss_dpui_dbg_store);
@@ -2997,11 +3501,16 @@ static DEVICE_ATTR(dpci_dbg, S_IRUSR|S_IRGRP|S_IWUSR|S_IWGRP, ss_dpci_dbg_show, 
 #if defined(CONFIG_FOLDER_HALL)
 static DEVICE_ATTR(force_flip, S_IWUSR | S_IWGRP, NULL, ss_force_flip_store);
 #endif
+static DEVICE_ATTR(gamma_flash, S_IRUGO | S_IWUSR | S_IWGRP, ss_disp_flash_gamma_show, ss_disp_flash_gamma_store);
+static DEVICE_ATTR(read_flash, S_IRUGO | S_IWUSR | S_IWGRP, ss_read_flash_show, ss_read_flash_store);
 
 static struct attribute *panel_sysfs_attributes[] = {
 	&dev_attr_lcd_type.attr,
+	&dev_attr_lcd_type2.attr,
 	&dev_attr_cell_id.attr,
+	&dev_attr_cell_id2.attr,
 	&dev_attr_octa_id.attr,
+	&dev_attr_octa_id2.attr,
 	&dev_attr_window_type.attr,
 	&dev_attr_manufacture_date.attr,
 	&dev_attr_manufacture_code.attr,
@@ -3015,6 +3524,7 @@ static struct attribute *panel_sysfs_attributes[] = {
 	&dev_attr_brt_avg.attr,
 	&dev_attr_self_mask.attr,
 	&dev_attr_self_display.attr,
+	&dev_attr_self_move.attr,
 	&dev_attr_temperature.attr,
 	&dev_attr_lux.attr,
 	&dev_attr_partial_disp.attr,
@@ -3022,6 +3532,7 @@ static struct attribute *panel_sysfs_attributes[] = {
 	&dev_attr_hmt_bright.attr,
 	&dev_attr_hmt_on.attr,
 	&dev_attr_mcd_mode.attr,
+	&dev_attr_mcd_resistance.attr,
 	&dev_attr_irc_mode.attr,
 	&dev_attr_ldu_correction.attr,
 	&dev_attr_adaptive_control.attr,
@@ -3037,9 +3548,9 @@ static struct attribute *panel_sysfs_attributes[] = {
 	&dev_attr_gct.attr,
 	&dev_attr_mst.attr,
 	&dev_attr_grayspot.attr,
-#if defined(CONFIG_SUPPORT_POC_FLASH)
-	&dev_attr_poc.attr,
-#endif
+	&dev_attr_isc_defect.attr,
+ 	&dev_attr_poc.attr,
+	&dev_attr_poc_mca.attr,
 #ifdef CONFIG_DISPLAY_USE_INFO
 	&dev_attr_dpui.attr,
 	&dev_attr_dpui_dbg.attr,
@@ -3049,6 +3560,8 @@ static struct attribute *panel_sysfs_attributes[] = {
 #if defined(CONFIG_FOLDER_HALL)
 	&dev_attr_force_flip.attr,
 #endif
+	&dev_attr_gamma_flash.attr,
+	&dev_attr_read_flash.attr,
 	NULL
 };
 static const struct attribute_group panel_sysfs_group = {
@@ -3119,12 +3632,12 @@ int ss_create_sysfs(struct samsung_display_driver_data *vdd)
 		/* try to create SVC kobject */
 		SVC = kobject_create_and_add("svc", &devices_kset->kobj);
 		if (IS_ERR_OR_NULL(SVC))
-			LCD_ERR("Failed to create sys/devices/svc already exist svc : 0x%p\n", SVC);
+			LCD_ERR("Failed to create sys/devices/svc already exist\n");
 		else
-			LCD_INFO("Success to create sys/devices/svc svc : 0x%p\n", SVC);
+			LCD_INFO("Success to create sys/devices/svc\n");
 	} else {
 		SVC = (struct kobject *)SVC_sd->priv;
-		LCD_INFO("Success to find SVC_sd : 0x%p svc : 0x%p\n", SVC_sd, SVC);
+		LCD_INFO("Success to find SVC\n");
 	}
 
 	if (!IS_ERR_OR_NULL(SVC)) {

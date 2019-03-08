@@ -273,7 +273,7 @@ struct sde_hw_vbif *sde_hw_vbif_init(enum sde_vbif idx,
 
 void sde_hw_vbif_destroy(struct sde_hw_vbif *vbif)
 {
-	if(vbif)
+	if (vbif)
 		mutex_destroy(&vbif->mutex);
 	kfree(vbif);
 }

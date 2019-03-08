@@ -226,7 +226,7 @@ TRACE_EVENT(cam_req_mgr_add_req,
 		__entry->session   = link->parent;
 	),
 	TP_printk(
-		"ReqMgr AddRequest devname=%s devid=%d request=%lld slot=%d pd=%d readymap=%x devicemap=%d link=%pk session=%pK",
+		"ReqMgr AddRequest devname=%s devid=%d request=%lld slot=%d pd=%d readymap=%x devicemap=%d link=%pK session=%pK",
 			__get_str(name), __entry->dev_id, __entry->req_id,
 			__entry->slot_id, __entry->delay, __entry->readymap,
 			__entry->devicemap, __entry->link, __entry->session

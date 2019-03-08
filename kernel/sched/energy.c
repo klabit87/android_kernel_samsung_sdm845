@@ -25,8 +25,11 @@
 #include <linux/sched_energy.h>
 #include <linux/stddef.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/pm_opp.h>
 #include <linux/platform_device.h>
+
+#include "sched.h"
 
 struct sched_group_energy *sge_array[NR_CPUS][NR_SD_LEVELS];
 
@@ -45,6 +48,17 @@ static void free_resources(void)
 			}
 		}
 	}
+}
+
+static int update_topology;
+
+/*
+ * Ideally this should be arch specific implementation,
+ * let's define here to help rebuild sched_domain with new capacities.
+ */
+int arch_update_cpu_topology(void)
+{
+	return update_topology;
 }
 
 void init_sched_energy_costs(void)
@@ -148,6 +162,7 @@ static int sched_energy_probe(struct platform_device *pdev)
 	int cpu;
 	unsigned long *max_frequencies = NULL;
 	int ret;
+	bool is_sge_valid = false;
 
 	if (!sched_is_energy_aware())
 		return 0;
@@ -246,6 +261,7 @@ static int sched_energy_probe(struct platform_device *pdev)
 					sge_l0->cap_states[i].power);
 			}
 
+			is_sge_valid = true;
 			dev_info(&pdev->dev,
 				"cpu=%d eff=%d [freq=%ld cap=%ld power_d0=%ld] -> [freq=%ld cap=%ld power_d0=%ld]\n",
 				cpu, efficiency,
@@ -268,6 +284,22 @@ static int sched_energy_probe(struct platform_device *pdev)
 	}
 
 	kfree(max_frequencies);
+
+	if (is_sge_valid) {
+		/*
+		 * Sched_domains might have built with default cpu capacity
+		 * values on bootup.
+		 *
+		 * Let's rebuild them again with actual cpu capacities.
+		 * And partition_sched_domain() expects update in cpu topology
+		 * to rebuild the domains, so make it satisfied..
+		 */
+		update_topology = 1;
+		rebuild_sched_domains();
+		update_topology = 0;
+
+		walt_sched_energy_populated_callback();
+	}
 
 	dev_info(&pdev->dev, "Sched-energy-costs capacity updated\n");
 	return 0;

@@ -80,6 +80,9 @@ static struct page **get_pages(struct drm_gem_object *obj)
 {
 	struct msm_gem_object *msm_obj = to_msm_bo(obj);
 
+	if (obj->import_attach)
+		return msm_obj->pages;
+
 	if (!msm_obj->pages) {
 		struct drm_device *dev = obj->dev;
 		struct page **p;
@@ -96,20 +99,24 @@ static struct page **get_pages(struct drm_gem_object *obj)
 			return p;
 		}
 
-		msm_obj->sgt = drm_prime_pages_to_sg(p, npages);
-		if (IS_ERR(msm_obj->sgt)) {
-			dev_err(dev->dev, "failed to allocate sgt\n");
-			return ERR_CAST(msm_obj->sgt);
-		}
-
 		msm_obj->pages = p;
 
-		/* For non-cached buffers, ensure the new pages are clean
-		 * because display controller, GPU, etc. are not coherent:
+		msm_obj->sgt = drm_prime_pages_to_sg(p, npages);
+		if (IS_ERR(msm_obj->sgt)) {
+			void *ptr = ERR_CAST(msm_obj->sgt);
+
+			dev_err(dev->dev, "failed to allocate sgt\n");
+			msm_obj->sgt = NULL;
+			return ptr;
+		}
+
+		/*
+		 * Make sure to flush the CPU cache for newly allocated memory
+		 * so we don't get ourselves into trouble with a dirty cache
 		 */
 		if (msm_obj->flags & (MSM_BO_WC|MSM_BO_UNCACHED))
-			dma_map_sg(dev->dev, msm_obj->sgt->sgl,
-					msm_obj->sgt->nents, DMA_BIDIRECTIONAL);
+			dma_sync_sg_for_device(dev->dev, msm_obj->sgt->sgl,
+				msm_obj->sgt->nents, DMA_BIDIRECTIONAL);
 	}
 
 	return msm_obj->pages;
@@ -120,13 +127,9 @@ static void put_pages(struct drm_gem_object *obj)
 	struct msm_gem_object *msm_obj = to_msm_bo(obj);
 
 	if (msm_obj->pages) {
-		/* For non-cached buffers, ensure the new pages are clean
-		 * because display controller, GPU, etc. are not coherent:
-		 */
-		if (msm_obj->flags & (MSM_BO_WC|MSM_BO_UNCACHED))
-			dma_unmap_sg(obj->dev->dev, msm_obj->sgt->sgl,
-					msm_obj->sgt->nents, DMA_BIDIRECTIONAL);
-		sg_free_table(msm_obj->sgt);
+		if (msm_obj->sgt)
+			sg_free_table(msm_obj->sgt);
+
 		kfree(msm_obj->sgt);
 
 		if (use_pages(obj))
@@ -154,6 +157,24 @@ void msm_gem_put_pages(struct drm_gem_object *obj)
 {
 	/* when we start tracking the pin count, then do something here */
 }
+
+void msm_gem_sync(struct drm_gem_object *obj)
+{
+	struct msm_gem_object *msm_obj;
+
+	if (!obj)
+		return;
+
+	msm_obj = to_msm_bo(obj);
+
+	/*
+	 * dma_sync_sg_for_device synchronises a single contiguous or
+	 * scatter/gather mapping for the CPU and device.
+	 */
+	dma_sync_sg_for_device(obj->dev->dev, msm_obj->sgt->sgl,
+		       msm_obj->sgt->nents, DMA_BIDIRECTIONAL);
+}
+
 
 int msm_gem_mmap_obj(struct drm_gem_object *obj,
 		struct vm_area_struct *vma)
@@ -235,7 +256,7 @@ int msm_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 
 	pfn = page_to_pfn(pages[pgoff]);
 
-	VERB("Inserting %p pfn %lx, pa %lx", vmf->virtual_address,
+	VERB("Inserting %pK pfn %lx, pa %lx", vmf->virtual_address,
 			pfn, pfn << PAGE_SHIFT);
 
 	ret = vm_insert_mixed(vma, (unsigned long)vmf->virtual_address,
@@ -410,7 +431,7 @@ int msm_gem_get_iova_locked(struct drm_gem_object *obj,
 
 	if (!ret && domain) {
 		*iova = domain->iova;
-		if (aspace && aspace->domain_attached)
+		if (aspace && !msm_obj->in_active_list)
 			msm_gem_add_obj_to_aspace_active_list(aspace, obj);
 	} else {
 		obj_remove_domain(domain);
@@ -554,8 +575,13 @@ void *msm_gem_get_vaddr_locked(struct drm_gem_object *obj)
 		struct page **pages = get_pages(obj);
 		if (IS_ERR(pages))
 			return ERR_CAST(pages);
-		msm_obj->vaddr = vmap(pages, obj->size >> PAGE_SHIFT,
+		if (obj->import_attach)
+			msm_obj->vaddr = dma_buf_vmap(
+				      obj->import_attach->dmabuf);
+		else
+			msm_obj->vaddr = vmap(pages, obj->size >> PAGE_SHIFT,
 				VM_MAP, pgprot_writecombine(PAGE_KERNEL));
+
 		if (msm_obj->vaddr == NULL)
 			return ERR_PTR(-ENOMEM);
 	}
@@ -641,7 +667,11 @@ void msm_gem_vunmap(struct drm_gem_object *obj)
 	if (!msm_obj->vaddr || WARN_ON(!is_vunmapable(msm_obj)))
 		return;
 
-	vunmap(msm_obj->vaddr);
+	if (obj->import_attach)
+		dma_buf_vunmap(obj->import_attach->dmabuf, msm_obj->vaddr);
+	else
+		vunmap(msm_obj->vaddr);
+
 	msm_obj->vaddr = NULL;
 }
 
@@ -781,7 +811,7 @@ void msm_gem_describe(struct drm_gem_object *obj, struct seq_file *m)
 		break;
 	}
 
-	seq_printf(m, "%08x: %c %2d (%2d) %08llx %p %zu%s\n",
+	seq_printf(m, "%08x: %c %2d (%2d) %08llx %pK %zu%s\n",
 
 			msm_obj->flags, is_active(msm_obj) ? 'A' : 'I',
 			obj->name, obj->refcount.refcount.counter,
@@ -950,6 +980,7 @@ static int msm_gem_new_impl(struct drm_device *dev,
 	INIT_LIST_HEAD(&msm_obj->domains);
 	INIT_LIST_HEAD(&msm_obj->iova_list);
 	msm_obj->aspace = NULL;
+	msm_obj->in_active_list = false;
 
 	list_add_tail(&msm_obj->mm_list, &priv->inactive_list);
 
@@ -993,7 +1024,7 @@ struct drm_gem_object *msm_gem_import(struct drm_device *dev,
 	struct msm_gem_object *msm_obj;
 	struct drm_gem_object *obj = NULL;
 	uint32_t size;
-	int ret, npages;
+	int ret;
 
 	/* if we don't have IOMMU, don't bother pretending we can import: */
 	if (!iommu_present(&platform_bus_type)) {
@@ -1014,19 +1045,9 @@ struct drm_gem_object *msm_gem_import(struct drm_device *dev,
 
 	drm_gem_private_object_init(dev, obj, size);
 
-	npages = size / PAGE_SIZE;
-
 	msm_obj = to_msm_bo(obj);
 	msm_obj->sgt = sgt;
-	msm_obj->pages = drm_malloc_ab(npages, sizeof(struct page *));
-	if (!msm_obj->pages) {
-		ret = -ENOMEM;
-		goto fail;
-	}
-
-	ret = drm_prime_sg_to_page_addr_arrays(sgt, msm_obj->pages, NULL, npages);
-	if (ret)
-		goto fail;
+	msm_obj->pages = NULL;
 
 	return obj;
 

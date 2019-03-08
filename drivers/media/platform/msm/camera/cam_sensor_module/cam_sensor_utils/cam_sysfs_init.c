@@ -25,10 +25,19 @@
 #if defined(CONFIG_CAMERA_DYNAMIC_MIPI)
 #include "cam_sensor_mipi.h"
 #endif
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+#include "cam_ois_mcu_stm32g.h"
+#endif
 
 #if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
 #include "cam_sensor_cmn_header.h"
 #include "cam_debug_util.h"
+#endif
+
+#if defined(CONFIG_CAMERA_SSM_I2C_ENV)
+extern void cam_sensor_ssm_i2c_read(uint32_t addr, uint32_t *data,
+	enum camera_sensor_i2c_type addr_type,
+	enum camera_sensor_i2c_type data_type);
 #endif
 
 extern struct kset *devices_kset;
@@ -38,6 +47,155 @@ struct class *camera_class;
 #define SYSFS_MODULE_INFO_SIZE  96
 /* #define FORCE_CAL_LOAD */
 #define SYSFS_MAX_READ_SIZE     4096
+
+#if defined(CONFIG_CAMERA_SSM_I2C_ENV)
+static ssize_t back_camera_ssm_frame_id_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	uint32_t read_data = -1;
+
+	cam_sensor_ssm_i2c_read(0x304C, &read_data, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	return sprintf(buf, "%x\n", read_data);
+}
+
+static ssize_t back_camera_ssm_frame_id_store(struct device *dev,
+					  struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value = -1;
+
+	if (buf == NULL || kstrtouint(buf, 10, &value))
+		return -1;
+
+	return size;
+}
+
+static ssize_t back_camera_ssm_flicker_max_r_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	uint32_t read_data[2] = {-1, };
+	uint32_t flicker_max_r = 0;
+
+	cam_sensor_ssm_i2c_read(0x6318, &read_data[0], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX R
+	cam_sensor_ssm_i2c_read(0x6319, &read_data[1], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX R
+
+	flicker_max_r = read_data[0]*256 + read_data[1];
+
+	return sprintf(buf, "%d\n", flicker_max_r);
+}
+
+static ssize_t back_camera_ssm_flicker_max_r_store(struct device *dev,
+					  struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value = -1;
+
+	if (buf == NULL || kstrtouint(buf, 10, &value))
+		return -1;
+
+	return size;
+}
+
+static ssize_t back_camera_ssm_flicker_max_g_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	uint32_t read_data[2] = {-1, };
+	uint32_t flicker_max_g = 0;
+
+	cam_sensor_ssm_i2c_read(0x631A, &read_data[0], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX G
+	cam_sensor_ssm_i2c_read(0x631B, &read_data[1], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX G
+
+	flicker_max_g = read_data[0]*256 + read_data[1];
+
+	return sprintf(buf, "%d\n", flicker_max_g);
+}
+
+static ssize_t back_camera_ssm_flicker_max_g_store(struct device *dev,
+					  struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value = -1;
+
+	if (buf == NULL || kstrtouint(buf, 10, &value))
+		return -1;
+
+	return size;
+}
+
+static ssize_t back_camera_ssm_flicker_max_b_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	uint32_t read_data[2] = {-1, };
+	uint32_t flicker_max_b = 0;
+
+	cam_sensor_ssm_i2c_read(0x631C, &read_data[0], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX B
+	cam_sensor_ssm_i2c_read(0x631D, &read_data[1], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX B
+
+	flicker_max_b = read_data[0]*256 + read_data[1];
+
+	return sprintf(buf, "%d\n", flicker_max_b);
+}
+
+static ssize_t back_camera_ssm_flicker_max_b_store(struct device *dev,
+					  struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value = -1;
+
+	if (buf == NULL || kstrtouint(buf, 10, &value))
+		return -1;
+
+	return size;
+}
+
+static ssize_t back_camera_ssm_flicker_coeff_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	uint32_t read_data[2] = {-1, };
+	uint32_t flicker_coeff = 0;
+
+	cam_sensor_ssm_i2c_read(0x6278, &read_data[0], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX B
+	cam_sensor_ssm_i2c_read(0x6279, &read_data[1], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX B
+
+	flicker_coeff = read_data[0]*256 + read_data[1];
+
+	return sprintf(buf, "%d\n", flicker_coeff);
+
+}
+
+static ssize_t back_camera_ssm_flicker_coeff_store(struct device *dev,
+					  struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value = -1;
+
+	if (buf == NULL || kstrtouint(buf, 10, &value))
+		return -1;
+
+	return size;
+}
+
+static ssize_t back_camera_ssm_diff_max_g_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	uint32_t read_data[2] = {-1, };
+	uint32_t diff_max_g = 0;
+
+	cam_sensor_ssm_i2c_read(0x633E, &read_data[0], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX G
+	cam_sensor_ssm_i2c_read(0x633F, &read_data[1], CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);  // Fliker MAX G
+
+	diff_max_g = read_data[0]*256 + read_data[1];
+
+	return sprintf(buf, "%d\n", diff_max_g);
+}
+
+static ssize_t back_camera_ssm_diff_max_g_store(struct device *dev,
+					  struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value = -1;
+
+	if (buf == NULL || kstrtouint(buf, 10, &value))
+		return -1;
+
+	return size;
+}
+#endif
 
 char cam_fw_ver[SYSFS_FW_VER_SIZE] = "NULL NULL\n";//multi module
 static ssize_t back_camera_firmware_show(struct device *dev,
@@ -728,7 +886,7 @@ static ssize_t front_camera_moduleid_show(struct device *dev,
 	  front_module_id[5], front_module_id[6], front_module_id[7], front_module_id[8], front_module_id[9]);
 }
 
-#define SSRM_CAMERA_INFO_SIZE 64
+#define SSRM_CAMERA_INFO_SIZE 256
 char ssrm_camera_info[SSRM_CAMERA_INFO_SIZE + 1] = "\0";
 static ssize_t ssrm_camera_info_show(struct device *dev,
 					 struct device_attribute *attr, char *buf)
@@ -737,7 +895,7 @@ static ssize_t ssrm_camera_info_show(struct device *dev,
 
 	pr_info("ssrm_camera_info : %s\n", ssrm_camera_info);
 
-	rc = snprintf(buf, sizeof(ssrm_camera_info), ssrm_camera_info, strlen(ssrm_camera_info));
+	rc = scnprintf(buf, PAGE_SIZE, "%s", ssrm_camera_info);
 	if (rc)
 		return rc;
 	return 0;
@@ -747,7 +905,7 @@ static ssize_t ssrm_camera_info_store(struct device *dev,
 					  struct device_attribute *attr, const char *buf, size_t size)
 {
 	pr_info("ssrm_camera_info buf : %s\n", buf);
-	snprintf(ssrm_camera_info, sizeof(ssrm_camera_info), "%s", buf);
+	scnprintf(ssrm_camera_info, sizeof(ssrm_camera_info), "%s", buf);
 
 	return size;
 }
@@ -1318,6 +1476,27 @@ static ssize_t rear_camera_frs_test_shore(struct device *dev,
 }
 #endif
 
+#if defined(CONFIG_CAMERA_FAC_LN_TEST) // Factory Low Noise Test
+extern uint8_t factory_ln_test;
+static ssize_t cam_factory_ln_test_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	pr_info("[LN_TEST] factory_ln_test : %d\n", factory_ln_test);
+	return sprintf(buf, "%d\n", factory_ln_test);
+}
+static ssize_t cam_factory_ln_test_store(struct device *dev,
+					  struct device_attribute *attr, const char *buf, size_t size)
+{
+	pr_info("[LN_TEST] factory_ln_test : %c\n", buf[0]);
+	if (buf[0] == '1')
+		factory_ln_test = 1;
+	else
+		factory_ln_test = 0;
+
+	return size;
+}
+#endif
+
 #if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
 static int16_t is_hw_param_valid_module_id(char *moduleid)
 {
@@ -1599,6 +1778,21 @@ static ssize_t rear2_camera_hw_param_store(struct device *dev,
 #endif
 #endif
 
+#if defined(CONFIG_CAMERA_SSM_I2C_ENV)
+static DEVICE_ATTR(ssm_frame_id, S_IRUGO|S_IWUSR|S_IWGRP,
+	back_camera_ssm_frame_id_show, back_camera_ssm_frame_id_store);
+static DEVICE_ATTR(ssm_flicker_max_r, S_IRUGO|S_IWUSR|S_IWGRP,
+	back_camera_ssm_flicker_max_r_show, back_camera_ssm_flicker_max_r_store);
+static DEVICE_ATTR(ssm_flicker_max_g, S_IRUGO|S_IWUSR|S_IWGRP,
+	back_camera_ssm_flicker_max_g_show, back_camera_ssm_flicker_max_g_store);
+static DEVICE_ATTR(ssm_flicker_max_b, S_IRUGO|S_IWUSR|S_IWGRP,
+	back_camera_ssm_flicker_max_b_show, back_camera_ssm_flicker_max_b_store);
+static DEVICE_ATTR(ssm_flicker_coeff, S_IRUGO|S_IWUSR|S_IWGRP,
+	back_camera_ssm_flicker_coeff_show, back_camera_ssm_flicker_coeff_store);
+static DEVICE_ATTR(ssm_diff_max_g, S_IRUGO|S_IWUSR|S_IWGRP,
+	back_camera_ssm_diff_max_g_show, back_camera_ssm_diff_max_g_store);
+#endif
+
 static DEVICE_ATTR(rear_camtype, S_IRUGO, back_camera_type_show, NULL);
 static DEVICE_ATTR(rear_camfw, S_IRUGO|S_IWUSR|S_IWGRP,
 	back_camera_firmware_show, back_camera_firmware_store);
@@ -1730,6 +1924,11 @@ static DEVICE_ATTR(ois_exif, S_IRUGO|S_IWUSR|S_IWGRP, ois_exif_show, ois_exif_st
 static DEVICE_ATTR(rear_frs_test, S_IRUGO|S_IWUSR|S_IWGRP,
 		rear_camera_frs_test_show, rear_camera_frs_test_shore);
 #endif
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+static DEVICE_ATTR(cam_ln_test, S_IRUGO|S_IWUSR|S_IWGRP,
+		cam_factory_ln_test_show, cam_factory_ln_test_store);
+#endif
+
 
 int svc_cheating_prevent_device_file_create(struct kobject **obj)
 {
@@ -1743,19 +1942,19 @@ int svc_cheating_prevent_device_file_create(struct kobject **obj)
 		/* try to create SVC kobject */
 		data = kobject_create_and_add("SVC", &devices_kset->kobj);
 		if (IS_ERR_OR_NULL(data))
-			pr_info("Failed to create sys/devices/svc already exist svc : 0x%p\n", data);
+			pr_info("Failed to create sys/devices/svc already exist svc : 0x%pK\n", data);
 		else
-			pr_info("Success to create sys/devices/svc svc : 0x%p\n", data);
+			pr_info("Success to create sys/devices/svc svc : 0x%pK\n", data);
 	} else {
 		data = (struct kobject *)SVC_sd->priv;
-		pr_info("Success to find SVC_sd : 0x%p SVC : 0x%p\n", SVC_sd, data);
+		pr_info("Success to find SVC_sd : 0x%pK SVC : 0x%pK\n", SVC_sd, data);
 	}
 
 	Camera = kobject_create_and_add("Camera", data);
 	if (IS_ERR_OR_NULL(Camera))
-		pr_info("Failed to create sys/devices/svc/Camera : 0x%p\n", Camera);
+		pr_info("Failed to create sys/devices/svc/Camera : 0x%pK\n", Camera);
 	else
-		pr_info("Success to create sys/devices/svc/Camera : 0x%p\n", Camera);
+		pr_info("Success to create sys/devices/svc/Camera : 0x%pK\n", Camera);
 
 	*obj = Camera;
 	return 0;
@@ -1812,6 +2011,9 @@ static int __init cam_sysfs_init(void)
 	struct device		  *cam_dev_dual;
 #endif
 	struct device		  *cam_dev_ois;
+#if defined(CONFIG_CAMERA_SSM_I2C_ENV)
+	struct device		  *cam_dev_ssm;
+#endif
 	struct kobject *SVC = 0;
 	int ret = 0;
 
@@ -1820,6 +2022,42 @@ static int __init cam_sysfs_init(void)
 	camera_class = class_create(THIS_MODULE, "camera");
 	if (IS_ERR(camera_class))
 		pr_err("failed to create device cam_dev_rear!\n");
+
+#if defined(CONFIG_CAMERA_SSM_I2C_ENV)
+	cam_dev_ssm = device_create(camera_class, NULL,
+		0, NULL, "ssm");
+
+	if (device_create_file(cam_dev_ssm, &dev_attr_ssm_frame_id) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_ssm_frame_id.attr.name);
+		ret = -ENODEV;
+	}
+	if (device_create_file(cam_dev_ssm, &dev_attr_ssm_flicker_max_r) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_ssm_flicker_max_r.attr.name);
+		ret = -ENODEV;
+	}
+	if (device_create_file(cam_dev_ssm, &dev_attr_ssm_flicker_max_g) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_ssm_flicker_max_g.attr.name);
+		ret = -ENODEV;
+	}
+	if (device_create_file(cam_dev_ssm, &dev_attr_ssm_flicker_max_b) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_ssm_flicker_max_b.attr.name);
+		ret = -ENODEV;
+	}
+	if (device_create_file(cam_dev_ssm, &dev_attr_ssm_flicker_coeff) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_ssm_flicker_coeff.attr.name);
+		ret = -ENODEV;
+	}
+	if (device_create_file(cam_dev_ssm, &dev_attr_ssm_diff_max_g) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_ssm_diff_max_g.attr.name);
+		ret = -ENODEV;
+	}
+#endif
 
 	cam_dev_back = device_create(camera_class, NULL,
 		1, NULL, "rear");
@@ -2205,6 +2443,13 @@ static int __init cam_sysfs_init(void)
 	if (device_create_file(cam_dev_back, &dev_attr_rear_frs_test) < 0) {
 		pr_err("Failed to create device file!(%s)!\n",
 			dev_attr_rear_frs_test.attr.name);
+		ret = -ENODEV;
+	}
+#endif
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+	if (device_create_file(cam_dev_back, &dev_attr_cam_ln_test) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_cam_ln_test.attr.name);
 		ret = -ENODEV;
 	}
 #endif

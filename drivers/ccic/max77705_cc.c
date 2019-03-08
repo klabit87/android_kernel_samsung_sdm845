@@ -33,6 +33,8 @@
 #include <linux/ccic/ccic_core.h>
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 #include <linux/usb/class-dual-role.h>
+#elif defined(CONFIG_TYPEC)
+#include <linux/usb/typec.h>
 #endif
 #if defined(CONFIG_USB_HOST_NOTIFY)
 #include <linux/usb_notify.h>
@@ -86,6 +88,10 @@ void max77705_ccic_event_work(void *data, int dest, int id, int attach, int even
 {
 	struct max77705_usbc_platform_data *usbpd_data = data;
 	struct ccic_state_work *event_work;
+#if defined(CONFIG_TYPEC)
+	struct typec_partner_desc desc;
+	enum typec_pwr_opmode mode = TYPEC_PWR_MODE_USB;
+#endif
 
 	msg_maxim("usb: DIAES %d-%d-%d-%d-%d", dest, id, attach, event, sub);
 	event_work = kmalloc(sizeof(struct ccic_state_work), GFP_ATOMIC);
@@ -118,6 +124,46 @@ void max77705_ccic_event_work(void *data, int dest, int id, int attach, int even
 	} else if (id == CCIC_NOTIFY_ID_ROLE_SWAP) {
 		if (usbpd_data->dual_role != NULL)
 			dual_role_instance_changed(usbpd_data->dual_role);
+	}
+#elif defined(CONFIG_TYPEC)
+	if (id == CCIC_NOTIFY_ID_USB) {
+		if (usbpd_data->partner == NULL) {
+			msg_maxim("typec_register_partner, typec_power_role=%d typec_data_role=%d event=%d",
+				usbpd_data->typec_power_role,usbpd_data->typec_data_role, event);
+			if (event == USB_STATUS_NOTIFY_ATTACH_UFP) {
+				mode = max77705_get_pd_support(usbpd_data);
+				typec_set_pwr_opmode(usbpd_data->port, mode);
+				desc.usb_pd = mode == TYPEC_PWR_MODE_PD;
+				desc.accessory = TYPEC_ACCESSORY_NONE; /* XXX: handle accessories */
+				desc.identity = NULL;
+				usbpd_data->typec_data_role = TYPEC_DEVICE;
+				typec_set_pwr_role(usbpd_data->port, usbpd_data->typec_power_role);
+				typec_set_data_role(usbpd_data->port, usbpd_data->typec_data_role);
+				usbpd_data->partner = typec_register_partner(usbpd_data->port, &desc);
+			} else if (event == USB_STATUS_NOTIFY_ATTACH_DFP) {
+				mode = max77705_get_pd_support(usbpd_data);
+				typec_set_pwr_opmode(usbpd_data->port, mode);
+				desc.usb_pd = mode == TYPEC_PWR_MODE_PD;
+				desc.accessory = TYPEC_ACCESSORY_NONE; /* XXX: handle accessories */
+				desc.identity = NULL;
+				usbpd_data->typec_data_role = TYPEC_HOST;
+				typec_set_pwr_role(usbpd_data->port, usbpd_data->typec_power_role);
+				typec_set_data_role(usbpd_data->port, usbpd_data->typec_data_role);
+				usbpd_data->partner = typec_register_partner(usbpd_data->port, &desc);
+			} else
+				msg_maxim("detach case");
+		} else {
+			msg_maxim("data_role changed, typec_power_role=%d typec_data_role=%d, event=%d",
+				usbpd_data->typec_power_role,usbpd_data->typec_data_role, event);
+			if (event == USB_STATUS_NOTIFY_ATTACH_UFP) {
+				usbpd_data->typec_data_role = TYPEC_DEVICE;
+				typec_set_data_role(usbpd_data->port, usbpd_data->typec_data_role);
+			} else if (event == USB_STATUS_NOTIFY_ATTACH_DFP) {
+				usbpd_data->typec_data_role = TYPEC_HOST;
+				typec_set_data_role(usbpd_data->port, usbpd_data->typec_data_role);
+			} else
+				msg_maxim("detach case");
+		}
 	}
 #endif
 	queue_work(usbpd_data->ccic_wq, &event_work->ccic_work);
@@ -161,10 +207,16 @@ void max77705_notify_dr_status(struct max77705_usbc_platform_data *usbpd_data, u
 						usbpd_data->pd_state);
 				if (usbpd_data->dp_is_connect == 1)
 					max77705_dp_detach(usbpd_data);
+				reinit_completion(&usbpd_data->suspend_wait);
 				max77705_ccic_event_work(usbpd_data,
 						CCIC_NOTIFY_DEV_USB, CCIC_NOTIFY_ID_USB,
 						0/*attach*/, USB_STATUS_NOTIFY_DETACH/*drp*/, 0);
 				usbpd_data->is_host = HOST_OFF;
+				if (!dwc3_msm_is_suspended()) {
+					timeleft = wait_for_completion_interruptible_timeout(&usbpd_data->suspend_wait,
+						msecs_to_jiffies(USB_PHY_SUSPEND_WAIT_MS));
+					msg_maxim("%s suspend_wait timeleft = %d\n", __func__, timeleft);
+				}
 			}
 			if (usbpd_data->is_client == CLIENT_OFF) {
 				usbpd_data->is_client = CLIENT_ON;
@@ -375,6 +427,9 @@ static irqreturn_t max77705_ccistat_irq(int irq, void *data)
 	struct max77705_usbc_platform_data *usbc_data = data;
 	struct max77705_cc_data *cc_data = usbc_data->cc_data;
 	u8 ccistat = 0;
+#if defined(CONFIG_TYPEC)
+	enum typec_pwr_opmode mode = TYPEC_PWR_MODE_USB;
+#endif
 
 	max77705_read_reg(usbc_data->muic, REG_CC_STATUS0, &cc_data->cc_status0);
 	pr_debug("%s: IRQ(%d)_IN\n", __func__, irq);
@@ -390,10 +445,16 @@ static irqreturn_t max77705_ccistat_irq(int irq, void *data)
 
 	case 2:
 		msg_maxim("Vbus Current is 1.5A!");
+#if defined(CONFIG_TYPEC)
+		mode = TYPEC_PWR_MODE_1_5A;
+#endif
 		break;
 
 	case 3:
 		msg_maxim("Vbus Current is 3.0A!");
+#if defined(CONFIG_TYPEC)
+		mode = TYPEC_PWR_MODE_3_0A;
+#endif
 		break;
 
 	default:
@@ -405,6 +466,13 @@ static irqreturn_t max77705_ccistat_irq(int irq, void *data)
 	pr_debug("%s: IRQ(%d)_OUT\n", __func__, irq);
 
 	max77705_notify_rp_current_level(usbc_data);
+
+#if defined(CONFIG_TYPEC)
+	if (!usbc_data->pd_support) {
+		usbc_data->pwr_opmode = mode;
+		typec_set_pwr_opmode(usbc_data->port, mode);
+	}
+#endif
 
 	return IRQ_HANDLED;
 }
@@ -457,7 +525,11 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 	struct max77705_usbc_platform_data *usbc_data = data;
 	struct max77705_cc_data *cc_data = usbc_data->cc_data;
 	u8 ccstat = 0;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	int prev_power_role = usbc_data->power_role;
+#elif defined(CONFIG_TYPEC)
+	int prev_power_role = usbc_data->typec_power_role;
+#endif
 #if defined(CONFIG_USB_HOST_NOTIFY)
 	struct otg_notify *o_notify = get_otg_notify();
 #endif
@@ -484,11 +556,31 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 	if (!ccstat) {
 		if (usbc_data->plug_attach_done) {
 			msg_maxim("PLUG_DETACHED ---");
+#if defined(CONFIG_TYPEC)
+			if (usbc_data->partner) {
+				msg_maxim("ccstat : typec_unregister_partner");
+				if (!IS_ERR(usbc_data->partner))
+					typec_unregister_partner(usbc_data->partner);
+				usbc_data->partner = NULL;
+				usbc_data->typec_power_role = TYPEC_SINK;
+				usbc_data->typec_data_role = TYPEC_DEVICE;
+				usbc_data->pwr_opmode = TYPEC_PWR_MODE_USB;
+			}
+			if (usbc_data->typec_try_state_change == TRY_ROLE_SWAP_PR ||
+				usbc_data->typec_try_state_change == TRY_ROLE_SWAP_DR) {
+				/* Role change try and new mode detected */
+				msg_maxim("typec_reverse_completion, detached while pd_swap");
+				usbc_data->typec_try_state_change = TRY_ROLE_SWAP_NONE;
+				complete(&usbc_data->typec_reverse_completion);
+			}
+#endif
+
 			max77705_notify_dr_status(usbc_data, 0);
 			usbc_data->plug_attach_done = 0;
 			usbc_data->cc_data->current_pr = 0xFF;
 			usbc_data->pd_data->current_dr = 0xFF;
 			usbc_data->cc_data->current_vcon = 0xFF;
+			usbc_data->detach_done_wait = 1;
 		}
 	} else {
 		if (!usbc_data->plug_attach_done) {
@@ -502,15 +594,21 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			msg_maxim("ccstat : cc_No_Connection");
 			usbc_data->pd_data->cc_status = CC_NO_CONN;
 			usbc_data->is_samsung_accessory_enter_mode = 0;
+			usbc_data->pd_support = false;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			if (!usbc_data->try_state_change)
+#elif defined(CONFIG_TYPEC)
+			if (!usbc_data->typec_try_state_change)
+#endif
 				max77705_usbc_clear_queue(usbc_data);
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			usbc_data->power_role = DUAL_ROLE_PROP_PR_NONE;
+#elif defined(CONFIG_TYPEC)
+			usbc_data->typec_power_role = TYPEC_SINK;
 #endif
 #if defined(CONFIG_USB_HOST_NOTIFY)
 			send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 0);
 #endif
-			usbc_data->send_vdm_identity = 0;
 			max77705_detach_pd(usbc_data);
 			usbc_data->pd_pr_swap = cc_No_Connection;
 			max77705_vbus_turn_on_ctrl(usbc_data, OFF, false);
@@ -523,6 +621,12 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			usbc_data->pd_data->cc_status = CC_SNK;
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			usbc_data->power_role = DUAL_ROLE_PROP_PR_SNK;
+			if (usbc_data->dual_role != NULL &&
+				usbc_data->data_role != USB_STATUS_NOTIFY_DETACH)
+				dual_role_instance_changed(usbc_data->dual_role);
+#elif defined(CONFIG_TYPEC)
+			usbc_data->typec_power_role = TYPEC_SINK;
+			typec_set_pwr_role(usbc_data->port, TYPEC_SINK);
 #endif
 #if defined(CONFIG_USB_HOST_NOTIFY)
 			send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 0);
@@ -530,7 +634,11 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			if (cc_data->current_pr != SNK) {
 				cc_data->previous_pr = cc_data->current_pr;
 				cc_data->current_pr = SNK;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 				if (prev_power_role == DUAL_ROLE_PROP_PR_SRC)
+#elif defined(CONFIG_TYPEC)
+				if (prev_power_role == TYPEC_SOURCE)
+#endif
 					max77705_vbus_turn_on_ctrl(usbc_data, OFF, true);
 			}
 			psy_charger = power_supply_get_by_name("max77705-charger");
@@ -551,6 +659,12 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			usbc_data->pd_data->cc_status = CC_SRC;
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			usbc_data->power_role = DUAL_ROLE_PROP_PR_SRC;
+			if (usbc_data->dual_role != NULL &&
+				usbc_data->data_role != USB_STATUS_NOTIFY_DETACH)
+				dual_role_instance_changed(usbc_data->dual_role);
+#elif defined(CONFIG_TYPEC)
+			usbc_data->typec_power_role = TYPEC_SOURCE;
+			typec_set_pwr_role(usbc_data->port, TYPEC_SOURCE);
 #endif
 #if defined(CONFIG_USB_HOST_NOTIFY)
 			send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 1);
@@ -558,10 +672,16 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			if (cc_data->current_pr != SRC) {
 				cc_data->previous_pr = cc_data->current_pr;
 				cc_data->current_pr = SRC;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 				if (prev_power_role == DUAL_ROLE_PROP_PR_NONE)
+#elif defined(CONFIG_TYPEC)
+				if (prev_power_role == TYPEC_SINK)
+#endif
 					max77705_vbus_turn_on_ctrl(usbc_data, ON, false);
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 				else if (prev_power_role == DUAL_ROLE_PROP_PR_SNK)
 					max77705_vbus_turn_on_ctrl(usbc_data, ON, true);
+#endif
 			}
 			break;
 	case cc_Audio_Accessory:

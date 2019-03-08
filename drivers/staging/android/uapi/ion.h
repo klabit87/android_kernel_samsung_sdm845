@@ -52,6 +52,9 @@ enum ion_heap_type {
 #define ION_HEAP_CARVEOUT_MASK		((1 << ION_HEAP_TYPE_CARVEOUT))
 #define ION_HEAP_TYPE_DMA_MASK		((1 << ION_HEAP_TYPE_DMA))
 
+/* Samsung specific ION heap types */
+#define ION_HEAP_TYPE_RBIN	ION_HEAP_TYPE_CUSTOM
+
 #define ION_NUM_HEAP_IDS		(sizeof(unsigned int) * 8)
 
 /**

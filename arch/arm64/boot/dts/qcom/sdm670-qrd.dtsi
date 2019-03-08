@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,12 +10,15 @@
  * GNU General Public License for more details.
  */
 
+#include <dt-bindings/clock/qcom,rpmh.h>
 #include <dt-bindings/gpio/gpio.h>
 #include "sdm670-camera-sensor-qrd.dtsi"
 #include "sdm670-pmic-overlay.dtsi"
-#include "sdm670-audio-overlay.dtsi"
-#include "smb1355.dtsi"
 #include "sdm670-sde-display.dtsi"
+
+&qupv3_se10_i2c {
+#include "smb1355.dtsi"
+};
 
 &qupv3_se9_2uart {
 	status = "disabled";
@@ -75,9 +78,12 @@
 &pm660_fg {
 	qcom,battery-data = <&qrd_batterydata>;
 	qcom,fg-bmd-en-delay-ms = <300>;
+	qcom,fg-jeita-thresholds = <0 15 45 55>;
 };
 
 &pm660_charger {
+	qcom,thermal-mitigation = <4200000 3500000 3000000 2500000
+				2000000 1500000 1000000 500000>;
 	qcom,battery-data = <&qrd_batterydata>;
 	qcom,sw-jeita-enable;
 };
@@ -158,9 +164,9 @@
 		    0x40 0x194 /* PLL_BIAS_CONTROL_1 */
 		    0x20 0x198 /* PLL_BIAS_CONTROL_2 */
 		    0x21 0x214 /* PWR_CTRL2 */
-		    0x07 0x220 /* IMP_CTRL1 */
-		    0x58 0x224 /* IMP_CTRL2 */
-		    0x77 0x240 /* TUNE1 */
+		    0x00 0x220 /* IMP_CTRL1 */
+		    0x1a 0x224 /* IMP_CTRL2 */
+		    0x47 0x240 /* TUNE1 */
 		    0x29 0x244 /* TUNE2 */
 		    0xca 0x248 /* TUNE3 */
 		    0x04 0x24c /* TUNE4 */
@@ -189,6 +195,8 @@
 		"AMIC1", "MIC BIAS External",
 		"MIC BIAS External", "Secondary Mic",
 		"AMIC3", "MIC BIAS External",
+		"MICBIAS_REGULATOR", "VDDA18_L10_REGULATOR",
+		"VDDA18_L10_REGULATOR", "VDD_L1_REGULATOR",
 		"SpkrLeft IN", "SPK1 OUT",
 		"PDM_IN_RX1", "PDM_OUT_RX1",
 		"PDM_IN_RX2", "PDM_OUT_RX2",
@@ -204,13 +212,13 @@
 &sdhc_1 {
 	vdd-supply = <&pm660l_l4>;
 	qcom,vdd-voltage-level = <2960000 2960000>;
-	qcom,vdd-current-level = <200 570000>;
+	qcom,vdd-current-level = <0 570000>;
 
 	vdd-io-supply = <&pm660_l8>;
 	qcom,vdd-io-always-on;
 	qcom,vdd-io-lpm-sup;
 	qcom,vdd-io-voltage-level = <1800000 1800000>;
-	qcom,vdd-io-current-level = <200 325000>;
+	qcom,vdd-io-current-level = <0 325000>;
 
 	pinctrl-names = "active", "sleep";
 	pinctrl-0 = <&sdc1_clk_on  &sdc1_cmd_on &sdc1_data_on &sdc1_rclk_on>;
@@ -222,11 +230,11 @@
 &sdhc_2 {
 	vdd-supply = <&pm660l_l5>;
 	qcom,vdd-voltage-level = <2960000 2960000>;
-	qcom,vdd-current-level = <200 800000>;
+	qcom,vdd-current-level = <0 800000>;
 
 	vdd-io-supply = <&pm660l_l2>;
 	qcom,vdd-io-voltage-level = <1800000 2960000>;
-	qcom,vdd-io-current-level = <200 22000>;
+	qcom,vdd-io-current-level = <0 22000>;
 
 	pinctrl-names = "active", "sleep";
 	pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
@@ -303,6 +311,12 @@
 
 &dsi_dual_nt36850_truly_cmd_display {
 	 qcom,dsi-display-active;
+};
+
+&dsi_panel_pwr_supply {
+	qcom,panel-supply-entry@2 {
+		qcom,supply-post-off-sleep = <5>;
+	};
 };
 
 &pm660l_wled {

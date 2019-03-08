@@ -55,14 +55,8 @@ int syscore_suspend(void)
 	pr_debug("Checking wakeup interrupts\n");
 
 	/* Return error code if there are any wakeup interrupts pending. */
-	if (pm_wakeup_pending()) {
-		char suspend_abort[MAX_SUSPEND_ABORT_LEN];
-
-		pm_get_active_wakeup_sources(suspend_abort,
-			MAX_SUSPEND_ABORT_LEN);
-		log_suspend_abort_reason(suspend_abort);
+	if (pm_wakeup_pending())
 		return -EBUSY;
-	}
 
 	WARN_ONCE(!irqs_disabled(),
 		"Interrupts enabled before system core suspend.\n");

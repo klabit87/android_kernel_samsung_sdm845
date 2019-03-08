@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -31,6 +31,7 @@
 #define WCD_PROCFS_ENTRY_MAX_LEN 16
 #define WCD_934X_RAMDUMP_START_ADDR 0x20100000
 #define WCD_934X_RAMDUMP_SIZE ((1024 * 1024) - 128)
+#define WCD_MISCDEV_CMD_MAX_LEN 11
 
 #define WCD_CNTL_MUTEX_LOCK(codec, lock)             \
 {                                                    \
@@ -76,6 +77,7 @@ static u8 mem_enable_values[] = {
 	0xE0, 0xC0, 0x80, 0x00,
 };
 
+#ifdef CONFIG_DEBUG_FS
 #define WCD_CNTL_SET_ERR_IRQ_FLAG(cntl)\
 	atomic_cmpxchg(&cntl->err_irq_flag, 0, 1)
 #define WCD_CNTL_CLR_ERR_IRQ_FLAG(cntl)\
@@ -99,6 +101,7 @@ static u16 wdsp_reg_for_debug_dump[] = {
 	WCD934X_CPE_SS_SOC_SW_COLLAPSE_CTL,
 	WCD934X_CPE_SS_MAD_CTL,
 	WCD934X_CPE_SS_CPAR_CTL,
+	WCD934X_CPE_SS_CPAR_CFG,
 	WCD934X_CPE_SS_WDOG_CFG,
 	WCD934X_CPE_SS_STATUS,
 	WCD934X_CPE_SS_SS_ERROR_INT_MASK_0A,
@@ -146,7 +149,6 @@ static void wcd_cntl_collect_debug_dumps(struct wcd_dsp_cntl *cntl,
 		arg.mem_dumps_enabled = cntl->ramdump_enable;
 		arg.remote_start_addr = WCD_934X_RAMDUMP_START_ADDR;
 		arg.dump_size = WCD_934X_RAMDUMP_SIZE;
-		arg.internal = internal;
 		signal = internal ? WDSP_DEBUG_DUMP_INTERNAL : WDSP_DEBUG_DUMP;
 		cntl->m_ops->signal_handler(cntl->m_dev, signal, &arg);
 	}
@@ -159,6 +161,14 @@ static void wcd_cntl_collect_debug_dumps(struct wcd_dsp_cntl *cntl,
 
 	WCD_CNTL_CLR_ERR_IRQ_FLAG(cntl);
 }
+#else
+#define WCD_CNTL_SET_ERR_IRQ_FLAG(cntl) 0
+#define WCD_CNTL_CLR_ERR_IRQ_FLAG(cntl) do {} while (0)
+static void wcd_cntl_collect_debug_dumps(struct wcd_dsp_cntl *cntl,
+					 bool internal)
+{
+}
+#endif
 
 static ssize_t wdsp_boot_show(struct wcd_dsp_cntl *cntl, char *buf)
 {
@@ -1005,11 +1015,13 @@ static ssize_t wcd_miscdev_write(struct file *filep, const char __user *ubuf,
 {
 	struct wcd_dsp_cntl *cntl = container_of(filep->private_data,
 						 struct wcd_dsp_cntl, miscdev);
-	char val[count];
+	char val[WCD_MISCDEV_CMD_MAX_LEN + 1];
 	bool vote;
 	int ret = 0;
 
-	if (count == 0 || count > 11) {
+	memset(val, 0, WCD_MISCDEV_CMD_MAX_LEN + 1);
+
+	if (count == 0 || count > WCD_MISCDEV_CMD_MAX_LEN) {
 		pr_err("%s: Invalid count = %zd\n", __func__, count);
 		ret = -EINVAL;
 		goto done;
@@ -1048,7 +1060,7 @@ static ssize_t wcd_miscdev_write(struct file *filep, const char __user *ubuf,
 		goto done;
 	}
 
-	dev_dbg(cntl->codec->dev,
+	dev_info(cntl->codec->dev,
 		"%s: booted = %s, ref_cnt = %d, vote = %s\n",
 		__func__, cntl->is_wdsp_booted ? "true" : "false",
 		cntl->boot_reqs, vote ? "true" : "false");

@@ -388,7 +388,7 @@ static int alarmtimer_suspend(struct device *dev)
 			continue;
 		delta = ktime_sub(next->expires, base->gettime());
 		palarm = container_of(next, struct alarm, node);
-		pr_info("[%s] cntvct : %lld, gettime : %lld, alarm : %p," \
+		pr_info("[%s] cntvct : %lld, gettime : %lld, alarm : %pK," \
 				"alarm->function : %pF, expires : %lld, delta : %lld\n",
 				__func__, arch_counter_get_cntvct(), ktime_to_ns(base->gettime()),
 				palarm, palarm->function, ktime_to_ns(next->expires), ktime_to_ns(delta));
@@ -484,6 +484,10 @@ void alarm_init(struct alarm *alarm, enum alarmtimer_type type,
 	alarm->timer.function = alarmtimer_fired;
 	alarm->function = function;
 	alarm->type = type;
+	if (type >= ALARM_NUMTYPE) {
+		/* use ALARM_BOOTTIME as the default */
+		alarm->type = ALARM_BOOTTIME;
+	}
 	alarm->state = ALARMTIMER_STATE_INACTIVE;
 }
 EXPORT_SYMBOL_GPL(alarm_init);

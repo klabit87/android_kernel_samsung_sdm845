@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -356,6 +356,7 @@ static rx_handler_result_t __rmnet_deliver_skb
 			napi = get_current_napi_context();
 
 			skb_size = skb->len;
+			skb_get_hash(skb);
 			gro_res = napi_gro_receive(napi, skb);
 			trace_rmnet_gro_downlink(gro_res);
 			rmnet_optional_gro_flush(napi, ep, skb_size);
@@ -453,6 +454,13 @@ static rx_handler_result_t _rmnet_map_ingress_handler
 	}
 
 	ep = &config->muxed_ep[mux_id];
+	if (!ep->refcount) {
+		LOGD("Packet on %s:%d; has no logical endpoint config",
+		     skb->dev->name, mux_id);
+
+		rmnet_kfree_skb(skb, RMNET_STATS_SKBFREE_MAPINGRESS_MUX_NO_EP);
+		return RX_HANDLER_CONSUMED;
+	}
 
 	skb->dev = ep->egress_dev;
 
@@ -734,6 +742,9 @@ void rmnet_egress_handler(struct sk_buff *skb,
 	LOGD("Packet going out on %s with egress format 0x%08X",
 	     skb->dev->name, config->egress_data_format);
 
+	if (ep->rmnet_mode == RMNET_EPMODE_VND)
+		rmnet_vnd_tx_fixup(skb, orig_dev);
+
 	if (config->egress_data_format & RMNET_EGRESS_FORMAT_MAP) {
 		switch (rmnet_map_egress_handler(skb, config, ep, orig_dev)) {
 		case RMNET_MAP_CONSUMED:
@@ -750,9 +761,6 @@ void rmnet_egress_handler(struct sk_buff *skb,
 			return;
 		}
 	}
-
-	if (ep->rmnet_mode == RMNET_EPMODE_VND)
-		rmnet_vnd_tx_fixup(skb, orig_dev);
 
 	rmnet_print_packet(skb, skb->dev->name, 't');
 	trace_rmnet_egress_handler(skb);

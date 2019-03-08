@@ -2655,7 +2655,7 @@ static int sm5720_fg_set_property(struct power_supply *psy,
         break;
     case POWER_SUPPLY_PROP_ONLINE:
         fuelgauge->cable_type = val->intval;
-        if (val->intval == SEC_BATTERY_CABLE_NONE) {
+        if (is_nocharge_type(fuelgauge->cable_type)) {
 			fuelgauge->ta_exist = false;
             fuelgauge->is_charging = false;
         } else {

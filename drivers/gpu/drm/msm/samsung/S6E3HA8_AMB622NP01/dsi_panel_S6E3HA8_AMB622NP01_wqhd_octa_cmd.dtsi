@@ -129,7 +129,7 @@
 		/*qcom,partial-update-roi-merge;*/
 		/*qcom,mdss-dsi-horizontal-line-idle*/
 
-		qcom,mdss-dsi-lp11-init;
+		/*qcom,mdss-dsi-lp11-init;*/
 		qcom,mdss-dsi-init-delay-us = <1000>;
 
 		qcom,mdss-dsi-rx-eot-ignore;
@@ -254,7 +254,6 @@
 		samsung,elvss_interpolation_temperature = <(-15)>;
 		samsung,support_factory_panel_swap;
 		samsung,support_gct;
-		/* samsung,support_poc_driver; */
 		samsung,support_pac;
 		/* samsung,support_dynamic_mipi_clk; */
 		samsung,esc-clk-128M;
@@ -270,98 +269,128 @@
 		 *  POC CONTROL
 		 * *************************************************************
 		 */
-		samsung,poc_erase_delay_ms = <4100>;
-		samsung,poc_write_delay_us = <800>;
 
-		samsung,poc_erase_tx_cmds_revA = [
-			29 01 00 00 00 00 03 F0 5A 5A
+		samsung,support_poc_driver;
+
+		samsung,poc_image_size = <536706>;		/* 536,706 bytes */
+
+		samsung,poc_enable_tx_cmds_revA = [
+			29 00 00 00 00 00 03 F0 5A 5A
 			29 01 00 00 00 00 03 F1 F1 A2
-			29 01 00 00 00 00 02 C0 02			/* PGM EN (START) */
-			29 01 00 00 00 00 02 B0 09
-			29 01 00 00 00 00 02 C1 01			/* FLASH_BIT_RATE */
-			29 01 00 00 00 00 0A C1 00 06 00 00 00 00 00 00 00		/* Write Enable */
-			29 01 00 00 01 00 02 C0 03			/* EXE_INST + 1ms */
-			29 01 00 00 00 00 06 C1 00 C7 00 10 00	/* INST_ADDR  : Chip Erase*/
-			29 01 00 00 00 00 02 C0 03			/* EXE_INST + 4100ms Delay*/
 		];
 
-		samsung,poc_erase1_tx_cmds_revA = [
-			29 01 00 00 00 00 02 C0 00			/* PGM  Disable (END) */
-			29 01 00 00 00 00 03 F0 A5 A5
+		samsung,poc_disable_tx_cmds_revA = [
+			29 00 00 00 00 00 03 F0 A5 A5
 			29 01 00 00 00 00 03 F1 A5 A5
 		];
 
+		/*
+		 * ERASE (SECTOR)
+		 * Because whole operation of earse is excueted in driver level,
+		 * do not use Exclusive Lock for frame update.
+		 * Add flash lock for each cmd set.
+		 */
+
+		samsung,poc_erase_delay_us = <400000>;	/* 400ms */
+		samsung,poc_erase_sector_addr_idx = <3 4 5>;
+
+		samsung,poc_pre_erase_sector_tx_cmds_revA = [
+			29 01 00 00 00 00 02 C0 02				/* PGM EN (START) */
+			29 01 00 00 00 00 0B C1 00 06 00 00 00 00 00 00 00 04
+			29 01 00 00 01 00 02 C0 03				/* EXE_INST + 1ms */
+			29 01 00 00 00 00 0B C1 00 01 00 02 00 00 00 00 10 04
+			29 01 00 00 0A 00 02 C0 03				/* EXE_INST + 10ms */
+		];
+
+		samsung,poc_erase_sector_tx_cmds_revA = [
+			29 01 00 00 00 00 0B C1 00 06 00 00 00 00 00 00 00 04
+			29 01 00 00 01 00 02 C0 03				/* EXE_INST + 1ms */
+			29 01 00 00 00 00 0B C1 00 20 00 00 00 00 00 00 18 04	/* Flash Sector Address : 0xXX*/
+			29 01 00 00 00 00 02 C0 03				/* EXE_INST + 400ms */
+		];
+
+		samsung,poc_post_erase_sector_tx_cmds_revA = [
+			29 01 00 00 00 00 02 C0 00				/* PGM  Disable (END) */
+		];
+
+		// WRITE
+
+		samsung,poc_write_delay_us = <10>;		/* 10us */
+		samsung,poc_write_loop_cnt = <256>;
+		samsung,poc_write_data_size = <1>;
+		samsung,poc_write_addr_idx = <6 7 8>;
+
 		samsung,poc_pre_write_tx_cmds_revA = [
-			29 00 00 00 00 00 03 F0 5A 5A
-			29 00 00 00 00 00 03 F1 F1 A2
-			29 00 00 00 00 00 02 C0 02				/* PGM EN (START) */
-			29 00 00 00 00 00 02 B0 09
-			29 00 00 00 00 00 02 C1 01
-			29 00 00 00 00 00 0A C1 00 06 00 00 00 00 00 00 00
-			29 01 00 00 01 00 02 C0 03				/* Exe + 2 us */
-			29 00 00 00 00 00 0A C1 00 01 00 02 00 00 00 00 10	/* STATUS_register WEL, QE */
-			29 01 00 00 0A 00 02 C0 03				/* Exe + 10 ms */
-			29 00 00 00 00 00 0A C1 00 06 00 00 00 00 00 00 00
-			29 01 00 00 01 00 02 C0 03				/* Exe + 1 ms */
-			29 01 00 00 00 00 0B C1 00 32 00 00 00 00 00 00 40 01	/* Quad_PGM/FLASH_CONT_WRITE/BIT_RATE */
+			29 00 00 00 00 00 02 C0 02								/* PGM Enable (START) */
+			29 00 00 00 00 00 0B C1 00 06 00 00 00 00 00 00 00 04
+			29 01 00 00 01 00 02 C0 03								/* Exe + 1 ms */
+			29 00 00 00 00 00 0B C1 00 01 00 02 00 00 00 00 10 04	/* STATUS_register WEL, QE */
+			29 01 00 00 1E 00 02 C0 03								/* Exe + 30 ms */
 		];
 
-		samsung,poc_write_1byte_tx_cmds_revA = [
-			29 00 00 00 00 00 02 C1 77			/* INST_ADDR */
-			29 01 00 00 00 00 02 C0 03			/* EXE_INST + 2us */
+		samsung,poc_write_loop_start_tx_cmds_revA = [
+			29 00 00 00 00 00 0B C1 00 06 00 00 00 00 00 00 00 04
+			29 01 00 00 00 00 02 C0 03
 		];
 
-		samsung,poc_write_continue_tx_cmds_revA = [
-			29 01 00 00 00 00 0B C1 00 32 00 00 00 00 00 00 80 01	/* write end code  + 800 us*/
+		samsung,poc_write_loop_data_add_tx_cmds_revA = [
+			29 01 00 00 00 00 0B C1 00 32 00 00 00 00 00 00 40 04	/* Quad_PGM/FLASH_CONT_WRITE/BIT_RATE */
 		];
 
-		samsung,poc_write_continue2_tx_cmds_revA = [
-			29 00 00 00 00 00 03 C1 00 06
-			29 01 00 00 00 00 02 C0 03		/* Exe + 2 us */
+		samsung,poc_write_loop_data_tx_cmds_revA = [
+			29 00 00 00 00 00 02 C1 77				/* INST_ADDR */
+			29 01 00 00 00 00 02 C0 03				/* EXE_INST   */
 		];
 
-		samsung,poc_write_continue3_tx_cmds_revA = [
-			29 01 00 00 00 00 0B C1 00 32 00 00 00 00 00 00 40 01	/* Quad_PGM/FLASH_CONT_WRITE/BIT_RATE */
+		samsung,poc_write_loop_end_tx_cmds_revA = [
+			29 01 00 00 04 00 0B C1 00 32 00 00 00 00 00 00 80 04	/* write loop end  + 4 ms*/
 		];
 
 		samsung,poc_post_write_tx_cmds_revA = [
 			29 00 00 00 00 00 02 C0 00
-			29 00 00 00 00 00 03 F0 A5 A5
-			29 01 00 00 00 00 03 F1 A5 A5
 		];
 
+		// READ
+
+		samsung,poc_read_delay_us = <250>;		/* 250us */
+		samsung,poc_read_addr_idx = <6 7 8>;
+
 		samsung,poc_pre_read_tx_cmds_revA = [
-			29 00 00 00 00 00 03 F0 5A 5A
-			29 00 00 00 00 00 03 F1 F1 A2
-			29 00 00 00 00 00 02 C0 02				/* PGM EN (START) */
-			29 00 00 00 00 00 02 B0 09
-			29 00 00 00 00 00 02 C1 01
-			29 00 00 00 00 00 0A C1 00 06 00 00 00 00 00 00 00	/* Flash Control  */
-			29 01 00 00 01 00 02 C0 03				/* EXE_INST + 2 us Delay */
-			29 00 00 00 00 00 0A C1 00 01 00 02 00 00 00 00 10	/* STATUS_register QE */
-			29 01 00 00 0A 00 02 C0 03				/* EXE_INST + 10ms */
+			39 01 00 00 00 00 02 C0 02				/* PGM EN (START) */
+			39 01 00 00 00 00 0B C1 00 06 00 00 00 00 00 00 00 01	/* Flash Control  */
+			39 01 00 00 01 00 02 C0 03				/* EXE_INST + 1 ms Delay */
+			39 01 00 00 00 00 0A C1 00 01 00 02 00 00 00 00 10	/* STATUS_register QE */
+			39 01 00 00 1E 00 02 C0 03				/* EXE_INST + 30ms */
 		];
 
 		samsung,poc_read_tx_cmds_revA = [
-			29 00 00 00 00 00 0C C1 00 6B 00 00 00 00 00 00 00 01 01	/* Read Address Setting */
-			29 00 00 00 00 00 02 C0 03		/* Flash Pgm Execution  + 200 us */
-			29 01 00 00 00 00 02 B0 12		/* B0 global para set to reduce rx time */
+			39 01 00 00 00 00 0C C1 00 6B 00 00 00 00 00 00 00 01 01	/* Read Address Setting */
+			39 01 00 00 00 00 02 C0 03					/* Flash Pgm Execution  + 250 us */
+			29 01 00 00 00 00 02 B0 0D 					/* read 14th 1-byte data */
 		];
+
+		samsung,poc_read_rx_cmds_revA = [06 01 00 00 00 00 01 EC 01 00];	/* read 1 byte */
 
 		samsung,poc_post_read_tx_cmds_revA = [
-			29 00 00 00 00 00 02 C0 00
-			29 00 00 00 00 00 03 F0 A5 A5
-			29 01 00 00 00 00 03 F1 A5 A5
+			39 01 00 00 00 00 02 C0 00
 		];
 
-		samsung,reg_poc_read_pos_tx_cmds_revA = [
-			/* B0 para is set with poc_read_tx_cmds_revA to reduce rx time */
-			15 01 00 00 00 00 02 B0 12
+		// MCA check
+
+		samsung,poc_mca_check_rx_cmds_revA	= [06 01 00 00 00 00 01 EC 0F 00];	/* MCA Check */
+
+		// POC compensation
+
+		samsung,poc_compensation_cmds_revA = [
+			29 00 00 00 00 00 03 F0 5A 5A
+			29 00 00 00 00 00 02 B0 06
+			29 00 00 00 00 00 0B B1 01 AF 54 68 CC 78 30 CC 64 FF /* Dimming Set */
+			29 00 00 00 00 00 02 B0 53
+			29 00 00 00 00 00 03 B8 0F FF	/* Dimming Step */
+			29 00 00 00 00 00 02 F7 01
+			29 01 00 00 00 00 03 F0 A5 A5
 		];
 
-		samsung,poc_status_rx_cmds_revA		= [06 01 00 00 00 00 01 EB 04 00];	/* EB Check  */
-		samsung,poc_read_rx_cmds_revA		= [06 01 00 00 00 00 01 EC 01 12];	/* read flash */
-		samsung,poc_checksum_rx_cmds_revA	= [06 01 00 00 00 00 01 EC 05 00];	/* CheckSum */
 		/* *************************************************************
 		 *  Tx
 		 * *************************************************************
@@ -472,6 +501,8 @@
 		samsung,ldi_debug3_rx_cmds_revA		= [06 01 00 00 00 00 01 0E 01 00];
 		samsung,ldi_debug4_rx_cmds_revA		= [06 01 00 00 00 00 01 05 01 00];
 		samsung,ldi_debug5_rx_cmds_revA		= [06 01 00 00 00 00 01 0F 01 00];
+		/* 255 bytes, its ddi max size is 512, and sw limit is 0xff = 255... */
+		samsung,ldi_debug_logbuf_rx_cmds_revA	= [06 01 00 00 00 00 01 9C FF 00];
 
 		samsung,mtp_read_sysfs_rx_cmds_revA	= [06 01 00 00 00 00 01 00 00 00];
 
@@ -1900,6 +1931,41 @@
 			29 00 00 00 00 00 07 F6 43 14 57 43 AA C1
 			29 00 00 00 00 00 03 BF 00 07
 			29 01 00 00 00 00 03 F0 A5 A5
+		];
+
+		/* ISC Defect Test */
+		samsung,isc_defect_test_on_tx_cmds_revA = [
+			29 01 00 00 01 00 03 F0 5A 5A
+			29 01 00 00 01 00 03 FC 5A 5A
+			29 01 00 00 01 00 02 F5 80
+			29 01 00 00 01 00 02 B7 40
+			29 01 00 00 01 00 02 B0 02
+			29 01 00 00 01 00 03 C2 FF FF
+			29 01 00 00 01 00 02 B8 20
+			29 01 00 00 01 00 03 EB 56 37
+			29 01 00 00 01 00 02 B0 37
+			29 01 00 00 01 00 02 EB E4
+			29 01 00 00 01 00 02 DD 00
+			29 01 00 00 01 00 02 B0 09
+			29 01 00 00 01 00 02 F4 10
+			29 01 00 00 01 00 02 FE B0
+			29 01 00 00 01 00 02 FE 30
+			29 01 00 00 01 00 02 B0 03
+			29 01 00 00 01 00 02 F6 43
+			29 01 00 00 01 00 03 F0 A5 A5
+			29 01 00 00 01 00 03 FC A5 A5
+		];
+
+		samsung,isc_defect_test_off_tx_cmds_revA = [
+			29 01 00 00 01 00 03 F0 5A 5A
+			29 01 00 00 01 00 03 FC 5A 5A
+			29 01 00 00 01 00 02 B0 09
+			29 01 00 00 01 00 02 F4 00
+			29 01 00 00 01 00 02 FE B0
+			29 01 00 00 01 00 02 FE 30
+			29 01 00 00 01 00 03 F0 A5 A5
+			29 01 00 00 01 00 03 FC A5 A5
+			05 01 00 00 00 00 01 11			/* Sleep out */
 		];
 
 		/* *************************************************************
@@ -4935,6 +5001,120 @@
 			];
 
 		/*
+		 *************************************************************************************************************************
+		 * Self idle-Display Operation (Enable/Disable)
+		 *************************************************************************************************************************
+		 */
+
+		samsung,self_idle_aod_enter = [
+			29 01 00 00 00 00 03 FC 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 02 B0 15
+			29 01 00 00 00 00 02 FE 00		/* Move Setting */
+			29 01 00 00 00 00 07 76 09 0F 85 A0 0B 90
+			29 01 00 00 00 00 03 FC A5 A5	/* TEST KEY Disable */
+		];
+
+		samsung,self_idle_aod_exit = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 04 76 09 0F 00
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+
+		/*
+		 *************************************************************************************************************************
+		 * Self idle-Display Operation (SELF TIME UPDATE)
+		 *************************************************************************************************************************
+		 */
+
+		samsung,self_idle_timer_on = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 0B 77
+								00 04 00 00 00
+								00 00 03 00 00
+			29 01 00 00 00 00 0B 7C
+								00 00 00 00 00
+								00 00 00 00 00
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+		samsung,self_idle_timer_off = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 03 77 00 00
+			29 01 00 00 11 00 03 F0 A5 A5	/* TEST KEY Disable + Delay 16.7 ms*/
+		];
+
+		/*
+		 *************************************************************************************************************************
+		 * Self idle-Display Operation (SELF MOVE)
+		 *************************************************************************************************************************
+		 */
+
+		samsung,self_idle_move_on_pattern1 = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 4C 7D
+								00 00 00 00 00 00 55
+								10 01 50 05 10 01 50 05
+								10 01 50 05 10 01 50 05
+								10 01 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 41 C3 41 C3 41
+								C3 41 C3 41
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+		samsung,self_idle_move_on_pattern2 = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 4C 7D
+								00 00 00 00 00 01 55
+								10 01 50 05 10 01 50 05
+								10 01 50 05 10 01 50 05
+								10 01 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 41 C3 41 C3 41
+								C3 41 C3 41
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+		samsung,self_idle_move_on_pattern3 = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 4C 7D
+								00 00 00 00 00 00 55
+								10 01 50 05 10 01 50 05
+								10 01 50 05 10 01 50 05
+								10 01 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 41 C3 41 C3 41
+								C3 41 C3 41
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+		samsung,self_idle_move_on_pattern4 = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 4C 7D
+								00 00 00 00 00 01 55
+								10 01 50 05 10 01 50 05
+								10 01 50 05 10 01 50 05
+								10 01 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 00 00 00 00 00
+								00 00 00 41 C3 41 C3 41
+								C3 41 C3 41
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+		samsung,self_idle_move_off = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 02 7D 01
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+
+		/*
 		* ************************************************************************************************************************
 		*  DMS (Dynamic Mode Switch)
 		* ************************************************************************************************************************
@@ -4980,8 +5160,16 @@
 
 					29 00 00 00 00 00 03 F0 A5 A5		/* level2_key Disable*/
 
+					29 00 00 00 00 00 03 F0 5A 5A
+					29 01 00 00 00 00 02 F2 13		/* enable cmd log buf */
+					29 00 00 00 00 00 03 F0 A5 A5
+
 					/* Sleep out */
 					05 01 00 00 0A 00 01 11			/* Sleep out (Wait 10ms) */
+
+					29 00 00 00 00 00 03 F0 5A 5A
+					29 01 00 00 00 00 02 F2 13		/* enable cmd log buf */
+					29 00 00 00 00 00 03 F0 A5 A5
 
 					/* OMOK setting 1 (Initial setting) - Scaler Latch Setting Guide */
 					29 00 00 00 00 00 03 F0 5A 5A	/* Test Key Enable */
@@ -5121,8 +5309,16 @@
 
 					29 00 00 00 00 00 03 F0 A5 A5		/* level2_key Disable*/
 
+					29 00 00 00 00 00 03 F0 5A 5A
+					29 01 00 00 00 00 02 F2 13		/* enable cmd log buf */
+					29 00 00 00 00 00 03 F0 A5 A5
+
 					/* Sleep out */
 					05 01 00 00 0A 00 01 11			/* Sleep out (Wait 10ms) */
+
+					29 00 00 00 00 00 03 F0 5A 5A
+					29 01 00 00 00 00 02 F2 13		/* enable cmd log buf */
+					29 00 00 00 00 00 03 F0 A5 A5
 
 					/* OMOK setting 1 (Initial setting) - Scaler Latch Setting Guide */
 					29 00 00 00 00 00 03 F0 5A 5A	/* Test Key Enable */
@@ -5263,8 +5459,16 @@
 
 					29 00 00 00 00 00 03 F0 A5 A5		/* level2_key Disable*/
 
+					29 00 00 00 00 00 03 F0 5A 5A
+					29 01 00 00 00 00 02 F2 13		/* enable cmd log buf */
+					29 00 00 00 00 00 03 F0 A5 A5
+
 					/* Sleep out */
 					05 01 00 00 0A 00 01 11			/* Sleep out (Wait 10ms) */
+
+					29 00 00 00 00 00 03 F0 5A 5A
+					29 01 00 00 00 00 02 F2 13		/* enable cmd log buf */
+					29 00 00 00 00 00 03 F0 A5 A5
 
 					/* OMOK setting 1 (Initial setting) - Scaler Latch Setting Guide */
 					29 00 00 00 00 00 03 F0 5A 5A	/* Test Key Enable */

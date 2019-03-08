@@ -104,6 +104,9 @@ void sec_tclm_position_history(struct sec_tclm_data *data)
 {
 	int i;
 	int now_lastp = data->cal_pos_hist_lastp;
+	u8 temp_calposition;
+	u8 temp_calcount;
+	char buffer[21];
 
 	if (data->cal_pos_hist_cnt > CAL_HISTORY_QUEUE_MAX
 		|| data->cal_pos_hist_lastp >= CAL_HISTORY_QUEUE_MAX) {
@@ -114,14 +117,17 @@ void sec_tclm_position_history(struct sec_tclm_data *data)
 
 	pr_info("%s %s: [Now] %4s%d\n", SECLOG, __func__,
 		data->tclm_string[data->cal_position].f_name, data->cal_count);
-	pr_info("%s %s: [Old] ", SECLOG, __func__);
 
 	for (i = 0; i < data->cal_pos_hist_cnt; i++) {
-		pr_cont("%c%d", data->tclm_string[data->cal_pos_hist_queue[2 * now_lastp]].s_name, data->cal_pos_hist_queue[2 * now_lastp + 1]);
+		temp_calposition = data->cal_pos_hist_queue[2 * now_lastp];
+		temp_calcount = data->cal_pos_hist_queue[2 * now_lastp + 1];
+
+		buffer[2 * i] = data->tclm_string[temp_calposition].s_name;
+		buffer[2 * i + 1] = (char)temp_calcount + '0';
 
 		if (i < CAL_HISTORY_QUEUE_SHORT_DISPLAY) {
-			data->cal_pos_hist_last3[2 * i] = data->tclm_string[data->cal_pos_hist_queue[2 * now_lastp]].s_name;
-			data->cal_pos_hist_last3[2 * i + 1] = data->cal_pos_hist_queue[2 * now_lastp + 1];
+			data->cal_pos_hist_last3[2 * i] = buffer[2 * i];
+			data->cal_pos_hist_last3[2 * i + 1] = buffer[2 * i + 1];
 		}
 
 		if (now_lastp <= 0)
@@ -129,12 +135,16 @@ void sec_tclm_position_history(struct sec_tclm_data *data)
 		else
 			now_lastp--;
 	}
-	pr_cont("\n");
+
+	/* end  */
+	buffer[2 * i] = 0;
 
 	if (i < CAL_HISTORY_QUEUE_SHORT_DISPLAY)
 		data->cal_pos_hist_last3[2 * i] = 0;
 	else
 		data->cal_pos_hist_last3[6] = 0;
+
+	pr_info("%s %s: [Old] %s\n", SECLOG, __func__, buffer);
 
 }
 
@@ -192,6 +202,7 @@ static bool sec_tclm_check_condition_valid(struct sec_tclm_data *data)
 bool sec_execute_tclm_package(struct sec_tclm_data *data, int factory_mode)
 {
 	int ret, rc;
+	//u8 buff[4];
 
 	pr_err("%s %s: tclm_level:%02X, last pos:%d(%4s), now pos:%d(%4s), factory:%d\n",
 		SECLOG, __func__, data->tclm_level,
@@ -285,8 +296,8 @@ bool sec_execute_tclm_package(struct sec_tclm_data *data, int factory_mode)
 
 	/* saving tune_version */
 	rc = data->tclm_read(data->client, SEC_TCLM_NVM_OFFSET_IC_FIRMWARE_VER);
+	data->tune_fix_ver = rc;
 	data->tclm_write(data->client, SEC_TCLM_NVM_OFFSET_TUNE_VERSION, rc);
-	data->tune_fix_ver = data->tclm_read(data->client, SEC_TCLM_NVM_OFFSET_TUNE_VERSION);
 
 	sec_tclm_position_history(data);
 

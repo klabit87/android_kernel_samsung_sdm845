@@ -129,17 +129,17 @@ static char active_drawer_control_disable_cmd[] = {
 };
 
 static struct dsi_cmd_desc DSI_CMD_ACTIVE_CLK_CONTROL_CMD[] = {
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(level_1_key_on), level_1_key_on, 0, NULL}, false, 0},
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(active_clk_control_cmd), active_clk_control_cmd, 0, NULL}, false, 0},
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(active_drawer_control_cmd), active_drawer_control_cmd, 0, NULL}, false, 0},
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(level_1_key_off), level_1_key_off, 0, NULL}, true, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(level_1_key_on), level_1_key_on, 0, NULL}, false, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(active_clk_control_cmd), active_clk_control_cmd, 0, NULL}, false, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(active_drawer_control_cmd), active_drawer_control_cmd, 0, NULL}, false, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(level_1_key_off), level_1_key_off, 0, NULL}, true, 0},
 };
 
 static struct dsi_cmd_desc DSI_CMD_ACTIVE_CLK_CONTROL_DISABLE_CMD[] = {
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(level_1_key_on), level_1_key_on, 0, NULL}, false, 0},
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(active_clk_control_disable_cmd), active_clk_control_disable_cmd, 0, NULL}, false, 0},
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(active_drawer_control_disable_cmd), active_drawer_control_disable_cmd, 0, NULL}, false, 0},
-	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, sizeof(level_1_key_off), level_1_key_off, 0, NULL}, true, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(level_1_key_on), level_1_key_on, 0, NULL}, false, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(active_clk_control_disable_cmd), active_clk_control_disable_cmd, 0, NULL}, false, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(active_drawer_control_disable_cmd), active_drawer_control_disable_cmd, 0, NULL}, false, 0},
+	{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, sizeof(level_1_key_off), level_1_key_off, 0, NULL}, true, 0},
 };
 
 static char active_clk_img_to_cmd[ACT_CLK_IMG_CMD_COUNT][ACT_CLK_IMG_PAYLOAD_SIZE+1] = {{0},};

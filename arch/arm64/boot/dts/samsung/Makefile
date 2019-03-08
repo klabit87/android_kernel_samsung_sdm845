@@ -34,7 +34,19 @@ dtb-$(CONFIG_SEC_STAR2QLTE_PROJECT) += sdm845-sec-star2qlte-r00.dtb	\
 
 dtb-$(CONFIG_SEC_CROWNQLTE_PROJECT) += sdm845-sec-crownqlte-r00.dtb	\
 			sdm845-sec-crownqlte-r01.dtb 			\
-			sdm845-sec-crownqlte-r02.dtb
+			sdm845-sec-crownqlte-r02.dtb			\
+			sdm845-sec-crownqlte-r03.dtb			\
+			sdm845-sec-crownqlte-r04.dtb			\
+			sdm845-sec-crownqlte-r05.dtb			\
+			sdm845-sec-crownqlte-r06.dtb			\
+			sdm845-sec-crownqlte-r10.dtb
+
+dtb-$(CONFIG_SEC_LYKANLTE_PROJECT) += sdm845-sec-lykanlte-r00.dtb	\
+			sdm845-sec-lykanlte-r01.dtb			\
+			sdm845-sec-lykanlte-r02.dtb			\
+			sdm845-sec-lykanlte-r03.dtb			\
+			sdm845-sec-lykanlte-r04.dtb			\
+			sdm845-sec-lykanlte-r05.dtb
 
 ifeq ($(filter y,$(CONFIG_MACH_STARQLTE_CHNZC) $(CONFIG_MACH_STARQLTE_CHNZM) $(CONFIG_MACH_STARQLTE_CHN_LDU)),y)
 dtb-y = sdm845-sec-starqlte-chn-r02.dtb		\
@@ -132,6 +144,33 @@ dtb-y = sdm845-sec-star2qlte-jpn-r05.dtb	\
 	sdm845-sec-star2qlte-jpn-r12.dtb	\
 	sdm845-sec-star2qlte-jpn-r13.dtb	\
 	sdm845-sec-star2qlte-jpn-r14.dtb
+endif
+
+ifeq ($(filter y,$(CONFIG_MACH_CROWNQLTE_CHNZC) $(CONFIG_MACH_CROWNQLTE_CHNZM) $(CONFIG_MACH_CROWNQLTE_CHN_LDU)),y)
+dtb-y =	sdm845-sec-crownqlte-chn-r03.dtb	\
+	sdm845-sec-crownqlte-chn-r05.dtb	\
+	sdm845-sec-crownqlte-chn-r06.dtb	\
+	sdm845-sec-crownqlte-chn-r10.dtb
+endif
+
+ifeq ($(filter y,$(CONFIG_MACH_CROWNQLTE_CHNHK)),y)
+dtb-y =	sdm845-sec-crownqlte-chnhk-r03.dtb	\
+	sdm845-sec-crownqlte-chnhk-r05.dtb	\
+	sdm845-sec-crownqlte-chnhk-r06.dtb	\
+	sdm845-sec-crownqlte-chnhk-r10.dtb
+endif
+
+ifeq ($(filter y,$(CONFIG_MACH_CROWNQLTE_DCM) $(CONFIG_MACH_CROWNQLTE_KDI)),y)
+dtb-y = sdm845-sec-crownqlte-jpn-r03.dtb	
+endif
+
+ifeq ($(filter y,$(CONFIG_MACH_LYKANLTE_CHNZC) $(CONFIG_MACH_LYKANLTE_CHNLDU)),y)
+dtb-y =	sdm845-sec-lykanlte-chn-r00.dtb		\
+	sdm845-sec-lykanlte-chn-r01.dtb		\
+	sdm845-sec-lykanlte-chn-r02.dtb		\
+	sdm845-sec-lykanlte-chn-r03.dtb		\
+	sdm845-sec-lykanlte-chn-r04.dtb		\
+	sdm845-sec-lykanlte-chn-r05.dtb
 endif
 
 ifeq ($(CONFIG_ARM64),y)

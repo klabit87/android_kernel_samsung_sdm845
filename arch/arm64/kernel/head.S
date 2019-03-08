@@ -228,9 +228,6 @@ ENTRY(stext)
 #endif
 	bl	preserve_boot_args
 	bl	el2_setup			// Drop to EL1, w0=cpu_boot_mode
-#ifdef CONFIG_RELOCATABLE_KERNEL
-	bl __relocate_kernel_physical_address
-#endif
 	adrp	x23, __PHYS_OFFSET
 	and	x23, x23, MIN_KIMG_ALIGN - 1	// KASLR offset, defaults to 0
 	bl	set_cpu_boot_mode_flag
@@ -244,73 +241,6 @@ ENTRY(stext)
 	bl	__cpu_setup			// initialise processor
 	b	__primary_switch
 ENDPROC(stext)
-
-#ifdef CONFIG_RELOCATABLE_KERNEL
-
-#define SIZE_8 0x08
-#define PAGE_BIT (SIZE_8-1)
-#define ALIGN_PG (~(PAGE_BIT))
-__relocate_kernel_physical_address:
-	adrp	x23, __PHYS_OFFSET
-
-	mov_q 	x24, KIMAGE_VADDR
-	sub x24, x24, x23
-
-	and	x23, x23, MIN_KIMG_ALIGN - 1	// KASLR offset, defaults to 0
-
-	adr_l	x9, __reloc_start
-	adr_l 	x10, __reloc_end
-0:	cmp	x9, x10
-	b.hs	1f
-	ldp	x11, x12, [x9], #24
-	ldr	x13, [x9, #-8]
-	cmp	w12, #R_AARCH64_RELATIVE
-	b.ne	0b
-	add	x13, x13, x23			// relocate
-	sub x11, x11, x24
-
-	tst x11, #PAGE_BIT
-	b.ne __unaligned_data
-
-2:	str	x13, [x11]
-	b	0b
-1:	ret
-ENDPROC(__relocate_kernel_physical_address)
-
-__unaligned_data:
-
-	and x12, x11, #PAGE_BIT
-	lsl x12, x12, #0x03
-
-	and x11, x11, #ALIGN_PG
-	ldp x7, x8, [x11]
-
-	mov x2, #0x01
-	lsl x1, x2, x12
-	sub x1, x1, #0x01
-	mvn x2, x1
-
-	mov x3, #0x40
-	sub x12, x3, x12
-	ror x13, x13, x12
-
-	and x7, x7, x1
-	and x3, x13, x2
-	orr x7, x7, x3
-
-	and x8, x8, x2
-	and x3, x13, x1
-	orr x8, x8, x3
-
-	stp x7, x8, [x11]
-
-	mov x1, xzr
-	mov x2, xzr
-	mov x3, xzr
-
-	b	0b
-ENDPROC(__unaligned_data)
-#endif
 
 /*
  * Preserve the arguments passed by the bootloader in x0 .. x3
@@ -551,7 +481,7 @@ ENDPROC(__primary_switched)
  * end early head section, begin head code that is also used for
  * hotplug and needs to have the same protections as the text region
  */
-	.section ".idmap.text","ax"
+	.section ".idmap.text","awx"
 
 ENTRY(kimage_vaddr)
 	.quad		_text - TEXT_OFFSET

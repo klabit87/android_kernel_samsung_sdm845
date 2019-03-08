@@ -23,12 +23,23 @@ enum {
 	RKP_ROPP_RELOAD,
 	/* and KDT cmds */
 	RKP_NOSHIP,
+#ifdef CONFIG_RKP_TEST
+	CMD_ID_TEST_GET_PAR = 0x81,
+	CMD_ID_TEST_GET_RO = 0x83,
+	CMD_ID_TEST_GET_VA_XN,
+	CMD_ID_TEST_GET_VMM_INFO,
+#endif
 	RKP_MAX
 };
 
 #define RKP_PREFIX  UL(0x83800000)
 
+#ifdef CONFIG_RKP_TEST
+#define RKP_INIT_MAGIC		0x5afe0002
+#else
 #define RKP_INIT_MAGIC		0x5afe0001
+#endif
+
 #define RKP_VMM_BUFFER		0x600000
 #define RKP_RO_BUFFER		UL(0x800000)
 
@@ -38,16 +49,17 @@ enum {
 /* For RKP mem reserves */
 #define RKP_NUM_MEM		0x01
 
-#define RKP_PHYS_MAP_START	(0xA0200000)
-#define RKP_PHYS_MAP_SIZE	(6ULL << 20)
-#define RKP_PGT_BITMAP_LEN	0x30000
-
 #define RKP_ROBUF_START		0x9FA08000
 #define RKP_ROBUF_SIZE		(0x7f8000ULL)
 
-//#define RKP_EXTRA_MEM_START	(RKP_ROBUF_START + RKP_ROBUF_SIZE)
-#define RKP_EXTRA_MEM_START	(0xAF800000)
-#define RKP_EXTRA_MEM_SIZE	0x600000
+#define RKP_PHYS_MAP_START	0xA0200000
+#ifdef CONFIG_UH_RKP_8G
+#define RKP_PHYS_MAP_SIZE	(8ULL << 20)
+#define RKP_PGT_BITMAP_LEN	0x40000
+#else
+#define RKP_PHYS_MAP_SIZE	(6ULL << 20)
+#define RKP_PGT_BITMAP_LEN	0x30000
+#endif
 
 #define RKP_RBUF_VA		(phys_to_virt(RKP_ROBUF_START))
 #define RO_PAGES		(RKP_ROBUF_SIZE >> PAGE_SHIFT) // (RKP_ROBUF_SIZE/PAGE_SIZE)
@@ -61,6 +73,8 @@ extern int boot_mode_security;
 
 extern u8 rkp_pgt_bitmap[];
 extern u8 rkp_map_bitmap[];
+extern u8 __rkp_start_prot_page[];
+extern u8 __rkp_end_prot_page[];
 extern u8 rkp_def_init_done;
 extern u8 rkp_started;
 extern void *rkp_ro_alloc(void);
@@ -77,6 +91,7 @@ struct rkp_init { //copy from uh (app/rkp/rkp.h)
 	u64 rkp_pgt_bitmap;
 	u64 rkp_dbl_bitmap;
 	u32 rkp_bitmap_size;
+    u32 rkp_prot_page_size;
 	u32 no_fimc_verify;
 	u64 fimc_phys_addr;
 	u64 _text;
@@ -109,6 +124,7 @@ typedef struct __attribute__((__packed__)) kdp_init_struct {
 	u32 rp_task;
 	u32 comm_task;
 	u32 bp_cred_secptr;
+	u64 verifiedbootstate;
 } kdp_init_t;
 
 
@@ -143,7 +159,11 @@ do {						\
  * The following all assume PHYS_OFFSET is fix addr
  */
 #define	PHYS_PFN_OFFSET_MIN_DRAM	(0x80000ULL)
+#ifdef CONFIG_UH_RKP_8G
+#define	PHYS_PFN_OFFSET_MAX_DRAM	(0x280000ULL)
+#else
 #define	PHYS_PFN_OFFSET_MAX_DRAM	(0x200000ULL)
+#endif
 
 #define FIMC_LIB_OFFSET_VA		(VMALLOC_START + 0xF6000000)
 #define FIMC_LIB_START_VA		(FIMC_LIB_OFFSET_VA + 0x04000000)

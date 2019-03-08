@@ -50,6 +50,16 @@ config SECURITY_WRITABLE_HOOKS
 	bool
 	default n
 
+config PAGE_TABLE_ISOLATION
+	bool "Remove the kernel mapping in user mode"
+	default y
+	depends on X86_64 && SMP
+	help
+	  This enforces a strict kernel and user space isolation, in order
+	  to close hardware side channels on kernel address information.
+
+	  If you are unsure how to answer this question, answer Y.
+
 config SECURITYFS
 	bool "Enable the securityfs filesystem"
 	help
@@ -200,6 +210,8 @@ source security/mstdrv/Kconfig
 
 source security/integrity/Kconfig
 source security/tz_iccc/Kconfig
+source security/defex_lsm/Kconfig
+source security/dsms/Kconfig
 
 choice
 	prompt "Default security module"

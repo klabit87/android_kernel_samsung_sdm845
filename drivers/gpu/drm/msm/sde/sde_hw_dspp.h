@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -115,11 +115,11 @@ struct sde_hw_dspp_ops {
 	void (*setup_danger_safe)(struct sde_hw_dspp *ctx, void *cfg);
 
 	/**
-	 * setup_dither - setup dspp dither
+	 * setup_pa_dither - setup dspp PA dither
 	 * @ctx: Pointer to dspp context
 	 * @cfg: Pointer to configuration
 	 */
-	void (*setup_dither)(struct sde_hw_dspp *ctx, void *cfg);
+	void (*setup_pa_dither)(struct sde_hw_dspp *ctx, void *cfg);
 
 	/**
 	 * setup_vlut - setup dspp PA VLUT
@@ -159,10 +159,11 @@ struct sde_hw_dspp_ops {
 	/**
 	 * ad_read_intr_resp - function to get interrupt response for ad
 	 * @event: Event for which response needs to be read
-	 * @resp: Pointer to u32 where response value is dumped.
+	 * @resp_in: Pointer to u32 where resp ad4 input value is dumped.
+	 * @resp_out: Pointer to u32 where resp ad4 output value is dumped.
 	 */
 	void (*ad_read_intr_resp)(struct sde_hw_dspp *ctx, u32 event,
-			u32 *resp);
+			u32 *resp_in, u32 *resp_out);
 
 };
 

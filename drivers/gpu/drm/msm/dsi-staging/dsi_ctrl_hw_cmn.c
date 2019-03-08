@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -392,7 +392,7 @@ void dsi_ctrl_hw_cmn_setup_cmd_stream(struct dsi_ctrl_hw *ctrl,
 	}
 
 	/* HS Timer value */
-	DSI_W32(ctrl, DSI_HS_TIMER_CTRL, 0x3FD08);
+	DSI_W32(ctrl, DSI_HS_TIMER_CTRL, 0x3FFFF);
 
 	stream_ctrl = (stride_final + 1) << 16;
 	stream_ctrl |= (vc_id & 0x3) << 8;
@@ -459,59 +459,20 @@ void dsi_ctrl_hw_cmn_video_engine_setup(struct dsi_ctrl_hw *ctrl,
 	pr_debug("[DSI_%d] Video engine setup done\n", ctrl->index);
 }
 
-static u32 dsi_dbg_bus_sdm845[] = {
-	0x0001, 0x1001, 0x0001, 0x0011,
-	0x1021, 0x0021, 0x0031, 0x0041,
-	0x0051, 0x0061, 0x3061, 0x0061,
-	0x2061, 0x2061, 0x1061, 0x1061,
-	0x1061, 0x0071, 0x0071, 0x0071,
-	0x0081, 0x0081, 0x00A1, 0x00A1,
-	0x10A1, 0x20A1, 0x30A1, 0x10A1,
-	0x10A1, 0x30A1, 0x20A1, 0x00B1,
-	0x00C1, 0x00C1, 0x10C1, 0x20C1,
-	0x30C1, 0x00D1, 0x00D1, 0x20D1,
-	0x30D1, 0x00E1, 0x00E1, 0x00E1,
-	0x00F1, 0x00F1, 0x0101, 0x0101,
-	0x1101, 0x2101, 0x3101, 0x0111,
-	0x0141, 0x1141, 0x0141, 0x1141,
-	0x1141, 0x0151, 0x0151, 0x1151,
-	0x2151, 0x3151, 0x0161, 0x0161,
-	0x1161, 0x0171, 0x0171, 0x0181,
-	0x0181, 0x0191, 0x0191, 0x01A1,
-	0x01A1, 0x01B1, 0x01B1, 0x11B1,
-	0x21B1, 0x01C1, 0x01C1, 0x11C1,
-	0x21C1, 0x31C1, 0x01D1, 0x01D1,
-	0x01D1, 0x01D1, 0x11D1, 0x21D1,
-	0x21D1, 0x01E1, 0x01E1, 0x01F1,
-	0x01F1, 0x0201, 0x0201, 0x0211,
-	0x0221, 0x0231, 0x0241, 0x0251,
-	0x0281, 0x0291, 0x0281, 0x0291,
-	0x02A1, 0x02B1, 0x02C1, 0x0321,
-	0x0321, 0x1321, 0x2321, 0x3321,
-	0x0331, 0x0331, 0x1331, 0x0341,
-	0x0341, 0x1341, 0x2341, 0x3341,
-	0x0351, 0x0361, 0x0361, 0x1361,
-	0x2361, 0x0371, 0x0381, 0x0391,
-	0x03C1, 0x03D1, 0x03E1, 0x03F1,
-};
-
-void dsi_ctrl_hw_cmn_debug_bus(struct dsi_ctrl_hw *ctrl)
+void dsi_ctrl_hw_cmn_debug_bus(struct dsi_ctrl_hw *ctrl, u32 *entries, u32 size)
 {
-	u32 reg = 0;
-	int i = 0, count;
+	u32 reg = 0, i = 0;
 
-	count = sizeof(dsi_dbg_bus_sdm845) / sizeof(dsi_dbg_bus_sdm845[0]);
-
-	for (i = 0; i < count; i++) {
-		DSI_W32(ctrl, DSI_DEBUG_BUS_CTL, dsi_dbg_bus_sdm845[i]);
+	for (i = 0; i < size; i++) {
+		DSI_W32(ctrl, DSI_DEBUG_BUS_CTL, entries[i]);
 		/* make sure that debug test point is enabled */
 		wmb();
 		reg = DSI_R32(ctrl, DSI_DEBUG_BUS_STATUS);
-
-		pr_err("[DSI_%d] debug bus_ctl: 0x%x status:0x%x\n",
-				ctrl->index, dsi_dbg_bus_sdm845[i], reg);
+		pr_err("[DSI_%d] debug bus ctrl: 0x%x status:0x%x\n",
+				ctrl->index, entries[i], reg);
 	}
 }
+
 /**
  * cmd_engine_setup() - setup dsi host controller for command mode
  * @ctrl:          Pointer to the controller host hardware.
@@ -653,11 +614,16 @@ void dsi_ctrl_hw_cmn_kickoff_command(struct dsi_ctrl_hw *ctrl,
 	else
 		reg &= ~BIT(26);
 
-	reg |= BIT(28);
+	reg |= BIT(28);/* Select embedded mode */
+	reg &= ~BIT(24);/* packet type */
+	reg &= ~BIT(29);/* WC_SEL to 0 */
 	DSI_W32(ctrl, DSI_COMMAND_MODE_DMA_CTRL, reg);
 
-	DSI_W32(ctrl, DSI_DMA_FIFO_CTRL, 0x110000);
+	reg = DSI_R32(ctrl, DSI_DMA_FIFO_CTRL);
+	reg |= BIT(20);/* Disable write watermark*/
+	reg |= BIT(16);/* Disable read watermark */
 
+	DSI_W32(ctrl, DSI_DMA_FIFO_CTRL, reg);
 	DSI_W32(ctrl, DSI_DMA_CMD_OFFSET, cmd->offset);
 	DSI_W32(ctrl, DSI_DMA_CMD_LENGTH, (cmd->length & 0xFFFFFF));
 
@@ -1454,17 +1420,20 @@ void dsi_ctrl_hw_cmn_mask_error_intr(struct dsi_ctrl_hw *ctrl, u32 idx, bool en)
 	reg = DSI_R32(ctrl, 0x10c);
 
 	if (idx & BIT(DSI_FIFO_OVERFLOW)) {
-		if (en)
-			reg |= (0xf << 16);
-		else
-			reg &= ~(0xf << 16);
+		if (en) {
+			reg |= (0x1f << 16);
+			reg |= BIT(9);
+		} else {
+			reg &= ~(0x1f << 16);
+			reg &= ~BIT(9);
+		}
 	}
 
 	if (idx & BIT(DSI_FIFO_UNDERFLOW)) {
 		if (en)
-			reg |= (0xf << 26);
+			reg |= (0x1b << 26);
 		else
-			reg &= ~(0xf << 26);
+			reg &= ~(0x1b << 26);
 	}
 
 	if (idx & BIT(DSI_LP_Rx_TIMEOUT)) {
@@ -1511,4 +1480,32 @@ u32 dsi_ctrl_hw_cmn_get_hw_version(struct dsi_ctrl_hw *ctrl)
 	reg = DSI_R32(ctrl, 0x0);
 
 	return reg;
+}
+
+int dsi_ctrl_hw_cmn_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl_hw *ctrl)
+{
+	int rc = 0, val = 0;
+	u32 cmd_mode_mdp_busy_mask = BIT(2);
+	u32 const sleep_us = 2 * 1000;
+	u32 const timeout_us = 200 * 1000;
+
+	rc = readl_poll_timeout(ctrl->base + DSI_STATUS, val,
+			!(val & cmd_mode_mdp_busy_mask), sleep_us, timeout_us);
+	if (rc)
+		pr_err("%s: timed out waiting for idle\n", __func__);
+
+	return rc;
+}
+
+void dsi_ctrl_hw_cmn_set_continuous_clk(struct dsi_ctrl_hw *ctrl, bool enable)
+{
+	u32 reg = 0;
+
+	reg = DSI_R32(ctrl, DSI_LANE_CTRL);
+	if (enable)
+		reg |= BIT(28);
+	else
+		reg &= ~BIT(28);
+	DSI_W32(ctrl, DSI_LANE_CTRL, reg);
+	wmb(); /* make sure request is set */
 }

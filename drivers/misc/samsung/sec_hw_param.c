@@ -983,6 +983,7 @@ static ssize_t show_extrc_info(struct device *dev,
 {
 	ssize_t offset = 0;
 	unsigned int reset_reason;
+	unsigned int i = 0;
 	char *extrc_buf = NULL;
 
 	if (!__is_ready_debug_reset_header()) {
@@ -1011,6 +1012,15 @@ static ssize_t show_extrc_info(struct device *dev,
 	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"RWC\":\"%d\",", sec_debug_get_reset_write_cnt());
 
+	for(i = 0; i < SEC_DEBUG_RESET_EXTRC_SIZE; i++) { // check " character and then change ' character
+		if (extrc_buf[i] == '"')
+			extrc_buf[i] = '\'';
+		if (extrc_buf[i] == '\0')
+			break;
+	}
+
+	extrc_buf[SEC_DEBUG_RESET_EXTRC_SIZE-1] = '\0';
+	
 	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"LKL\":\"%s\"", &extrc_buf[offset]);
 out:

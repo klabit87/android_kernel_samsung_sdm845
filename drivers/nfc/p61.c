@@ -403,7 +403,7 @@ static long p61_dev_ioctl(struct file *filp, unsigned int cmd,
 			__func__, cmd, _IOC_TYPE(cmd), P61_MAGIC);
 		return -ENOTTY;
 	}
-	pr_debug("%s entered %x arg = %p\n", __func__, cmd, (void *)arg);
+	pr_debug("%s entered %x\n", __func__, cmd);
 	p61_dev = filp->private_data;
 
 	switch (cmd) {
@@ -427,6 +427,7 @@ static long p61_dev_ioctl(struct file *filp, unsigned int cmd,
 		}
 		break;
 
+#if !defined(CONFIG_NFC_FEATURE_SN100U)
 	case P61_SET_SPI_CONFIG:
 		pr_info("%s P61_SET_SPI_CONFIG. No Action.\n", __func__);
 		break;
@@ -436,6 +437,7 @@ static long p61_dev_ioctl(struct file *filp, unsigned int cmd,
 	case P61_DISABLE_SPI_CLK:
 		pr_info("%s P61_DISABLE_SPI_CLK. No Action.\n", __func__);
 		break;
+#endif
 
 	case P61_RW_SPI_DATA:
 #ifdef CONFIG_ESE_SECURE

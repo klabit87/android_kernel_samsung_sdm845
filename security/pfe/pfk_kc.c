@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -129,6 +129,16 @@ static inline void kc_spin_lock(void)
 static inline void kc_spin_unlock(void)
 {
 	spin_unlock_irqrestore(&kc_lock, flags);
+}
+
+/**
+ * pfk_kc_get_storage_type() - return the hardware storage type.
+ *
+ * Return: storage type queried during bootup.
+ */
+const char *pfk_kc_get_storage_type(void)
+{
+	return s_type;
 }
 
 /**
@@ -389,13 +399,15 @@ static void kc_clear_entry(struct kc_entry *entry)
  * @key_size: key_size
  * @salt: salt
  * @salt_size: salt_size
+ * @data_unit: dun size
  *
  * The previous key is securely released and wiped, the new one is loaded
  * to ICE.
  * Should be invoked under spinlock
  */
 static int kc_update_entry(struct kc_entry *entry, const unsigned char *key,
-	size_t key_size, const unsigned char *salt, size_t salt_size)
+	size_t key_size, const unsigned char *salt, size_t salt_size,
+	unsigned int data_unit, int ice_rev)
 {
 	int ret;
 
@@ -412,7 +424,7 @@ static int kc_update_entry(struct kc_entry *entry, const unsigned char *key,
 	kc_spin_unlock();
 
 	ret = qti_pfk_ice_set_key(entry->key_index, entry->key,
-			entry->salt, s_type);
+			entry->salt, s_type, data_unit, ice_rev);
 
 	kc_spin_lock();
 	return ret;
@@ -435,6 +447,7 @@ int pfk_kc_init(void)
 	}
 	kc_ready = true;
 	kc_spin_unlock();
+
 	return 0;
 }
 
@@ -446,8 +459,8 @@ int pfk_kc_init(void)
 int pfk_kc_deinit(void)
 {
 	int res = pfk_kc_clear();
-
 	kc_ready = false;
+
 	return res;
 }
 
@@ -477,7 +490,7 @@ int pfk_kc_deinit(void)
  */
 int pfk_kc_load_key_start(const unsigned char *key, size_t key_size,
 		const unsigned char *salt, size_t salt_size, u32 *key_index,
-		bool async)
+		bool async, unsigned int data_unit, int ice_rev)
 {
 	int ret = 0;
 	struct kc_entry *entry = NULL;
@@ -542,7 +555,8 @@ int pfk_kc_load_key_start(const unsigned char *key, size_t key_size,
 			break;
 		}
 	case (FREE):
-		ret = kc_update_entry(entry, key, key_size, salt, salt_size);
+		ret = kc_update_entry(entry, key, key_size, salt, salt_size,
+					data_unit, ice_rev);
 		if (ret) {
 			entry->state = SCM_ERROR;
 			entry->scm_error = ret;

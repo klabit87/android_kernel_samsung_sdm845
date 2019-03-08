@@ -224,7 +224,7 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 		ret = copy_from_user(&param, (void *)arg, sizeof(param));
 		if (ret != 0) {
 			LOG(KERN_INFO "[oemflag]copy_from_user failed, ret = 0x%08x\n", ret);
-			goto return_new_from;
+			return ret;
 		}
 
 		p1 = param.name;
@@ -246,7 +246,8 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 		param.value = p2;
 		param.func_cmd = p3;
 
-		goto return_new_to;
+		ret = copy_to_user((void *)arg, &param, sizeof(param));
+	break;
 #endif /* CONFIG_TZDEV */
 
 	case TZIC_IOCTL_GET_FUSE_REQ:
@@ -265,8 +266,7 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 		mutex_unlock(&tzic_mutex);
 		if (ret)
 			LOG(KERN_INFO "[oemflag]failed tzic_set_fuse_cmd: %d\n", ret);
-		ret = get_tamper_fuse_cmd();
-		LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", ret);
+		LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", get_tamper_fuse_cmd());
 		break;
 
 	case TZIC_IOCTL_SET_FUSE_REQ_DEFAULT://SET ALL OEM FLAG EXCEPT 0
@@ -287,8 +287,7 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 			mutex_unlock(&tzic_mutex);
 			if (ret)
 				LOG(KERN_INFO "[oemflag]failed tzic_set_fuse_cmd: %d\n", ret);
-			ret = get_tamper_fuse_cmd_new(param.name);
-			LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", ret);
+			LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", get_tamper_fuse_cmd_new(param.name));
 		}
 		break;
 
@@ -336,8 +335,7 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 			mutex_unlock(&tzic_mutex);
 			if (ret)
 				LOG(KERN_INFO "[oemflag]failed tzic_set_fuse_cmd: %d\n", ret);
-			ret = get_tamper_fuse_cmd_new(param.name);
-			LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", ret);
+			LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", get_tamper_fuse_cmd_new(param.name));
 		} else {
 			LOG(KERN_INFO "[oemflag]command error\n");
 			return -EINVAL;
@@ -374,8 +372,7 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 				mutex_unlock(&tzic_mutex);
 				if (ret)
 					LOG(KERN_INFO "[oemflag]failed tzic_set_fuse_cmd: %d\n", ret);
-				ret = get_tamper_fuse_cmd_new(param.name);
-				LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", ret);
+				LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", get_tamper_fuse_cmd_new(param.name));
 			} else {
 				LOG(KERN_INFO "[oemflag]command error\n");
 				return -EINVAL;

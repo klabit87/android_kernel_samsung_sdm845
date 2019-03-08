@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -128,6 +128,7 @@ enum sde_plane_sclcheck_state {
  * @dirty:	bitmask for which pipe h/w config functions need to be updated
  * @multirect_index: index of the rectangle of SSPP
  * @multirect_mode: parallel or time multiplex multirect mode
+ * @const_alpha_en: const alpha channel is enabled for this HW pipe
  * @pending:	whether the current update is still pending
  * @defer_prepare_fb:	indicate if prepare_fb call was deferred
  * @scaler3_cfg: configuration data for scaler3
@@ -200,6 +201,17 @@ enum sde_sspp sde_plane_pipe(struct drm_plane *plane);
 bool is_sde_plane_virtual(struct drm_plane *plane);
 
 /**
+ * sde_plane_confirm_hw_rsvps - reserve an sbuf resource, if needed
+ * @plane: Pointer to DRM plane object
+ * @state: Pointer to plane state
+ * @cstate: Pointer to crtc state containing the resource pool
+ * Returns: Zero on success
+ */
+int sde_plane_confirm_hw_rsvps(struct drm_plane *plane,
+		const struct drm_plane_state *state,
+		struct drm_crtc_state *cstate);
+
+/**
  * sde_plane_get_ctl_flush - get control flush mask
  * @plane:   Pointer to DRM plane object
  * @ctl: Pointer to control hardware
@@ -210,11 +222,11 @@ void sde_plane_get_ctl_flush(struct drm_plane *plane, struct sde_hw_ctl *ctl,
 		u32 *flush_sspp, u32 *flush_rot);
 
 /**
- * sde_plane_rot_calc_prefill - calculate rotator start prefill
+ * sde_plane_rot_get_prefill - calculate rotator start prefill
  * @plane: Pointer to drm plane
- * return: prefill time in line
+ * return: prefill time in lines
  */
-u32 sde_plane_rot_calc_prefill(struct drm_plane *plane);
+u32 sde_plane_rot_get_prefill(struct drm_plane *plane);
 
 /**
  * sde_plane_restore - restore hw state if previously power collapsed
@@ -321,5 +333,21 @@ void sde_plane_set_revalidate(struct drm_plane *plane, bool enable);
  */
 int sde_plane_helper_reset_custom_properties(struct drm_plane *plane,
 		struct drm_plane_state *plane_state);
+
+/**
+ * sde_plane_is_sec_ui_allowed - indicates if the sspp allows secure-ui layers
+ * @plane: Pointer to DRM plane object
+ * Returns: true if allowed; false otherwise
+ */
+bool sde_plane_is_sec_ui_allowed(struct drm_plane *plane);
+
+/* sde_plane_secure_ctrl_xin_client - controls the VBIF programming of
+ *	the xin-client before the secure-ui session. Programs the QOS
+ *	and OT limits in VBIF for the sec-ui allowed xins
+ * @plane: Pointer to DRM plane object
+ * @crtc: Pointer to DRM CRTC state object
+ */
+void sde_plane_secure_ctrl_xin_client(struct drm_plane *plane,
+		struct drm_crtc *crtc);
 
 #endif /* _SDE_PLANE_H_ */

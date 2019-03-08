@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -358,6 +358,13 @@ static u32 sde_hw_ctl_poll_reset_status(struct sde_hw_ctl *ctx, u32 timeout_us)
 	return status;
 }
 
+static u32 sde_hw_ctl_get_reset_status(struct sde_hw_ctl *ctx)
+{
+	if (!ctx)
+		return 0;
+	return (u32)SDE_REG_READ(&ctx->hw, CTL_SW_RESET);
+}
+
 static int sde_hw_ctl_reset_control(struct sde_hw_ctl *ctx)
 {
 	struct sde_hw_blk_reg_map *c = &ctx->hw;
@@ -580,6 +587,23 @@ static void sde_hw_ctl_intf_cfg(struct sde_hw_ctl *ctx,
 	SDE_REG_WRITE(c, CTL_TOP, intf_cfg);
 }
 
+static void sde_hw_ctl_update_wb_cfg(struct sde_hw_ctl *ctx,
+		struct sde_hw_intf_cfg *cfg, bool enable) {
+	struct sde_hw_blk_reg_map *c = &ctx->hw;
+	u32 intf_cfg = 0;
+
+	if (!cfg->wb)
+		return;
+
+	intf_cfg = SDE_REG_READ(c, CTL_TOP);
+	if (enable)
+		intf_cfg |= (cfg->wb & 0x3) + 2;
+	else
+		intf_cfg &= ~((cfg->wb & 0x3) + 2);
+
+	SDE_REG_WRITE(c, CTL_TOP, intf_cfg);
+}
+
 static inline u32 sde_hw_ctl_read_ctl_top(struct sde_hw_ctl *ctx)
 {
 	struct sde_hw_blk_reg_map *c;
@@ -642,7 +666,9 @@ static void _setup_ctl_ops(struct sde_hw_ctl_ops *ops,
 	ops->read_ctl_top = sde_hw_ctl_read_ctl_top;
 	ops->read_ctl_layers = sde_hw_ctl_read_ctl_layers;
 	ops->setup_intf_cfg = sde_hw_ctl_intf_cfg;
+	ops->update_wb_cfg = sde_hw_ctl_update_wb_cfg;
 	ops->reset = sde_hw_ctl_reset_control;
+	ops->get_reset = sde_hw_ctl_get_reset_status;
 	ops->hard_reset = sde_hw_ctl_hard_reset;
 	ops->wait_reset_status = sde_hw_ctl_wait_reset_status;
 	ops->clear_all_blendstages = sde_hw_ctl_clear_all_blendstages;

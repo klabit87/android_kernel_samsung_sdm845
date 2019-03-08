@@ -40,7 +40,7 @@
 /* timeout for dog bark/bite */
 #define DELAY_TIME 20000
 
-static int force_error(const char *val, struct kernel_param *kp);
+static int force_error(const char *val, const struct kernel_param *kp);
 module_param_call(force_error, force_error, NULL, NULL,
 		S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
@@ -91,6 +91,16 @@ static void __simulate_secure_wdog_bite(void)
 				SCM_SVC_SEC_WDOG_TRIG), &desc);
 	/* if we hit, scm_call has failed */
 	pr_emerg("simulation of secure watch dog bite failed\n");
+}
+
+extern void qpnp_pon_pmic_wd_trigger(void);
+static void __simulate_pmic_wdog_bite(void)
+{
+	pr_emerg("simulating pmic watch dog bite\n");
+	
+	qpnp_pon_pmic_wd_trigger();
+
+	while(1);
 }
 #endif
 
@@ -266,7 +276,7 @@ static void __check_page_read(void)
 }
 #endif
 
-static int force_error(const char *val, struct kernel_param *kp)
+static int force_error(const char *val, const struct kernel_param *kp)
 {
 	size_t i;
 	struct __magic {
@@ -319,6 +329,9 @@ static int force_error(const char *val, struct kernel_param *kp)
 		{ "WP",
 			NULL,
 			&__simulate_secure_wdog_bite },
+		{ "PMWD",
+			NULL,
+			&__simulate_pmic_wdog_bite },
 #endif
 #ifdef CONFIG_FREE_PAGES_RDONLY
 		{ "pageRDcheck",

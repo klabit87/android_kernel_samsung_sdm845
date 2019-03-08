@@ -51,7 +51,14 @@
 #define NFC_DEBUG 0
 
 #define FEATURE_NFC_TEST
+#if !defined(CONFIG_NFC_FEATURE_SN100U)
 #define FEATURE_PN80T
+#else
+#define FEATURE_SN100X
+/* VEN is kept ON all the time if you define the macro VEN_ALWAYS_ON.
+Used for SN100 usecases */
+#define VEN_ALWAYS_ON
+#endif
 
 struct pn547_dev {
 	wait_queue_head_t read_wq;
@@ -66,7 +73,9 @@ struct pn547_dev {
 
 #ifdef CONFIG_NFC_PN547_ESE_SUPPORT
 	unsigned int ese_pwr_req;
-	struct mutex        p61_state_mutex;
+#ifdef ISO_RST
+	unsigned int		iso_rst_gpio; /* ISO-RST pin gpio*/
+#endif
 	enum p61_access_state  p61_current_state;
 	struct completion ese_comp;
 	struct completion svdd_sync_comp;
@@ -105,6 +114,7 @@ static void p61_get_access_state(struct pn547_dev *pn547_dev,
 
 static unsigned char svdd_sync_wait;
 static unsigned char p61_trans_acc_on;
+static struct semaphore dwp_onoff_release_sema;
 #endif
 
 static irqreturn_t pn547_dev_irq_handler(int irq, void *dev_id)
@@ -300,6 +310,7 @@ static int pn547_dev_open(struct inode *inode, struct file *filp)
 	filp->private_data = pn547_dev;
 	NFC_LOG_INFO("imajor:%d, iminor:%d (%d)\n", imajor(inode), iminor(inode),
 			pn547_dev->i2c_probe);
+	nfc_logger_set_max_count(-1);
 
 	return 0;
 }
@@ -323,7 +334,7 @@ static int pn547_dev_release(struct inode *inode, struct file *filp)
 #ifdef CONFIG_NFC_PN547_ESE_SUPPORT
 static void dwp_onoff(long nfc_service_pid, enum p61_access_state origin)
 {
-	int timeout = 100; /*100 ms timeout*/
+	int timeout = 500; /*500 ms timeout*/
 	unsigned long tempJ = msecs_to_jiffies(timeout);
 
 	if (nfc_service_pid) {
@@ -338,15 +349,47 @@ static void dwp_onoff(long nfc_service_pid, enum p61_access_state origin)
 }
 static int release_dwp_onoff(void)
 {
+	int timeout = 500; //500 ms timeout
+	unsigned long tempJ = msecs_to_jiffies(timeout);
+
 	NFC_LOG_INFO("enter\n");
 	complete(&pn547_dev->dwp_onoff_comp);
+	{
+		sema_init(&dwp_onoff_release_sema, 0);
+		if(down_timeout(&dwp_onoff_release_sema, tempJ) != 0)
+		{
+			NFC_LOG_INFO("Dwp On/off release wait protection: Timeout");
+		}
+		NFC_LOG_INFO("Dwp On/Off release wait protection : released");
+	}
 	return 0;
 }
 
 static int set_nfc_pid(unsigned long arg)
 {
-	NFC_LOG_INFO("The NFC Service PID is %ld\n", arg);
+	pid_t pid = arg;
+	struct task_struct *task;
+
 	pn547_dev->nfc_service_pid = arg;
+
+	if (arg == 0)
+		goto done;
+
+	task = pid_task(find_vpid(pid), PIDTYPE_PID);
+	if (task) {
+		NFC_LOG_INFO("task->comm: %s\n", task->comm);
+		if (!strncmp(task->comm, "com.android.nfc", 15)) {
+			pn547_dev->nfc_service_pid = arg;
+			goto done;
+		} else {
+			NFC_LOG_INFO("it's not nfc pid : %ld, %s\n", pn547_dev->nfc_service_pid, task->comm);
+		}
+	}
+
+	pn547_dev->nfc_service_pid = 0;
+done:
+	NFC_LOG_INFO("The NFC Service PID is %ld\n", pn547_dev->nfc_service_pid);
+
 	return 0;
 }
 
@@ -376,18 +419,6 @@ static void p61_get_access_state(struct pn547_dev *pn547_dev,
 		NFC_LOG_ERR("invalid state of p61_access_state\n");
 	else
 		*current_state = pn547_dev->p61_current_state;
-}
-
-static void p61_access_lock(struct pn547_dev *pn547_dev)
-{
-	NFC_LOG_INFO("\n");
-	mutex_lock(&pn547_dev->p61_state_mutex);
-}
-
-static void p61_access_unlock(struct pn547_dev *pn547_dev)
-{
-	NFC_LOG_INFO("\n");
-	mutex_unlock(&pn547_dev->p61_state_mutex);
 }
 
 static int signal_handler(enum p61_access_state state, long nfc_pid)
@@ -428,7 +459,7 @@ static int signal_handler(enum p61_access_state state, long nfc_pid)
 
 static void svdd_sync_onoff(long nfc_service_pid, enum p61_access_state origin)
 {
-	int timeout = 100; /*100 ms timeout*/
+	int timeout = 500; /*500 ms timeout*/
 	unsigned long tempJ = msecs_to_jiffies(timeout);
 
 	NFC_LOG_INFO("Enter nfc_service_pid: %ld\n", nfc_service_pid);
@@ -490,8 +521,10 @@ static int pn547_set_pwr(struct pn547_dev *pdev, unsigned long arg)
 
 		pdev->nfc_ven_enabled = false;
 		/* Don't change Ven state if spi made it high */
+#ifndef VEN_ALWAYS_ON
 		if (pdev->spi_ven_enabled == false)
 			gpio_set_value_cansleep(pdev->ven_gpio, 0);
+#endif
 		usleep_range(4900, 5000);
 		break;
 	case 1: /* power on */
@@ -504,9 +537,10 @@ static int pn547_set_pwr(struct pn547_dev *pdev, unsigned long arg)
 		gpio_set_value(pdev->firm_gpio, 0);
 
 		pdev->nfc_ven_enabled = true;
+#ifndef VEN_ALWAYS_ON
 		if (pdev->spi_ven_enabled == false)
 			gpio_set_value_cansleep(pdev->ven_gpio, 1);
-
+#endif
 		usleep_range(4900, 5000);
 		if (atomic_read(&pdev->irq_enabled) == 0) {
 			atomic_set(&pdev->irq_enabled, 1);
@@ -545,16 +579,51 @@ static int pn547_set_pwr(struct pn547_dev *pdev, unsigned long arg)
 				gpio_get_value(pdev->firm_gpio));
 		}
 		break;
+#ifdef FEATURE_SN100X
+	case 3:
+		/*NFC Service called ISO-RST*/
+		if(current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO)) {
+			return -EPERM; /* Operation not permitted */
+		}
+		if(current_state & P61_STATE_WIRED) {
+			p61_update_access_state(pn547_dev, P61_STATE_WIRED, false);
+		}
+#ifdef ISO_RST
+		gpio_set_value(pn547_dev->iso_rst_gpio, 0);
+		msleep(50);
+		gpio_set_value(pn547_dev->iso_rst_gpio, 1);
+		msleep(50);
+		pr_info("%s ISO RESET from DWP DONE\n", __func__);
+#endif
+		break;
+	case 4:
+		pr_info("%s FW dwldioctl called from NFC \n", __func__);
+		/*NFC Service called FW dwnld*/
+		if (pn547_dev->firm_gpio) {
+			p61_update_access_state(pn547_dev, P61_STATE_DWNLD, true);
+			gpio_set_value(pn547_dev->firm_gpio, 1);
+			msleep(10);
+		}
+		break;
+	case 5:
+		msleep(10);
+		gpio_set_value(pn547_dev->ven_gpio, 0);
+		msleep(10);
+		gpio_set_value(pn547_dev->ven_gpio, 1);
+		msleep(10);
+		pr_info("%s VEN reset DONE >>>>>>>\n", __func__);
+		break;
+#elif defined (FEATURE_PN80T)
 	case 3:
 		NFC_LOG_INFO("Read Cancel\n");
 		pdev->cancel_read = true;
 		atomic_set(&pdev->read_flag, 1);
 		wake_up(&pdev->read_wq);
 		break;
+#endif
 	default:
 		NFC_LOG_ERR("bad arg %lu\n", arg);
 		/* changed the p61 state to idle*/
-		/*p61_access_unlock(pn547_dev); redundant*/
 		ret = -EINVAL;
 	}
 	return ret;
@@ -570,7 +639,7 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 	NFC_LOG_INFO("PN61_SET_SPI_PWR cur=0x%x\n", current_state);
 	switch (arg) {
 	case 0: /*else if (arg == 0)*/
-#ifdef FEATURE_PN80T
+#if defined (FEATURE_PN80T) || defined (FEATURE_SN100X)
 		NFC_LOG_INFO("power off ese PN80T\n");
 		if (current_state & P61_STATE_SPI_PRIO) {
 			p61_update_access_state(pn547_dev,
@@ -593,6 +662,7 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 					P61_STATE_SPI_SVDD_SYNC_START);
 			}
 			pn547_dev->spi_ven_enabled = false;
+#ifndef VEN_ALWAYS_ON
 			if (!(current_state & P61_STATE_WIRED)) {
 				gpio_set_value(pn547_dev->ese_pwr_req, 0);
 				ese_spi_pinctrl(0);/*for factory spi pinctrl*/
@@ -604,8 +674,8 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 				gpio_set_value(pn547_dev->ven_gpio, 0);
 				usleep_range(10000, 10100);
 			}
+#endif
 		} else if (current_state & P61_STATE_SPI) {
-			p61_update_access_state(pn547_dev, P61_STATE_SPI, false);
 			if (!(current_state & P61_STATE_WIRED) && !(current_state & P61_STATE_JCP_DWNLD)) {
 				if (pn547_dev->nfc_service_pid) {
 					NFC_LOG_INFO("nfc service pid ---- %ld\n",
@@ -616,9 +686,13 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 					NFC_LOG_ERR("invalid nfc svc pid %ld\n",
 						pn547_dev->nfc_service_pid);
 				}
+#ifndef VEN_ALWAYS_ON
 				gpio_set_value(pn547_dev->ese_pwr_req, 0);
 				ese_spi_pinctrl(0);
 				msleep(60);
+#endif
+				p61_update_access_state(pn547_dev,
+					P61_STATE_SPI, false);
 				svdd_sync_onoff(pn547_dev->nfc_service_pid,
 						P61_STATE_SPI_SVDD_SYNC_END);
 			}
@@ -640,22 +714,27 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 						P61_STATE_SPI_SVDD_SYNC_START);
 				}
 
+#ifndef VEN_ALWAYS_ON
 				gpio_set_value(pn547_dev->ese_pwr_req, 0);
 				ese_spi_pinctrl(0);
 				msleep(60);
+				p61_update_access_state(pn547_dev,
+						P61_STATE_SPI, false);
 				svdd_sync_onoff(pn547_dev->nfc_service_pid,
 					P61_STATE_SPI_SVDD_SYNC_END);
 				NFC_LOG_INFO("PN80T ese_pwr_gpio off");
+#endif
 			}
 			pn547_dev->spi_ven_enabled = false;
+#ifndef VEN_ALWAYS_ON
 			if (pn547_dev->nfc_ven_enabled == false) {
 				gpio_set_value(pn547_dev->ven_gpio, 0);
 				usleep_range(10000, 10100);
 			}
+#endif
 		} else {
 			NFC_LOG_ERR("power off ese failed, current_state = 0x%x\n",
 				pn547_dev->p61_current_state);
-			/*p61_access_unlock(pn547_dev); redundant*/
 			ret = -EPERM; /* Operation not permitted */
 		}
 #else
@@ -724,7 +803,6 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 		NFC_LOG_INFO("power on ese\n");
 		if ((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO
 				|P61_STATE_DWNLD)) == 0) {
-			p61_update_access_state(pn547_dev, P61_STATE_SPI, true);
 			/*To handle triple mode protection signal NFC service when SPI session started */
 			if (!(current_state & P61_STATE_JCP_DWNLD)) {
 				if (pn547_dev->nfc_service_pid) {
@@ -738,6 +816,7 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 				}
 			}
 			pn547_dev->spi_ven_enabled = true;
+#ifndef VEN_ALWAYS_ON
 			if (pn547_dev->nfc_ven_enabled == false) {
 			/*provide power to NFCC if, NFC service not provided*/
 				gpio_set_value(pn547_dev->ven_gpio, 1);
@@ -747,9 +826,15 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 			gpio_set_value(pn547_dev->ese_pwr_req, 1);
 			ese_spi_pinctrl(1);
 			usleep_range(10000, 10100);
+			p61_update_access_state(pn547_dev, P61_STATE_SPI, true);
+			/* Releasing the DWP Link ON/OF release ioctl after
+			 * protecting the critical area*/
+			if(pn547_dev->nfc_service_pid){
+				up(&dwp_onoff_release_sema);
+			}
+#endif
 		} else {
 			NFC_LOG_ERR("PN61_SET_SPI_PWR - power on ese failed\n");
-			/*p61_access_unlock(pn547_dev); redundant*/
 			ret = -EBUSY; /* Device or resource busy */
 		}
 		break;
@@ -759,23 +844,28 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 		(P61_STATE_IDLE|P61_STATE_SPI|P61_STATE_SPI_PRIO)) {
 			if (pn547_dev->spi_ven_enabled == false) {
 				pn547_dev->spi_ven_enabled = true;
+#ifndef VEN_ALWAYS_ON
 				if (pn547_dev->nfc_ven_enabled == false) {
 					/* provide power to NFCC if,	NFC service not provided */
 					gpio_set_value(pn547_dev->ven_gpio, 1);
 					usleep_range(10000, 10100);
 				}
+#endif
 			}
 			svdd_sync_onoff(pn547_dev->nfc_service_pid,
 				P61_STATE_SPI_SVDD_SYNC_START);
+#ifndef VEN_ALWAYS_ON
 			gpio_set_value(pn547_dev->ese_pwr_req, 0);
 			msleep(60);
+#endif
 			svdd_sync_onoff(pn547_dev->nfc_service_pid,
 				P61_STATE_SPI_SVDD_SYNC_END);
+#ifndef VEN_ALWAYS_ON
 			gpio_set_value(pn547_dev->ese_pwr_req, 1);
 			usleep_range(10000, 10100);
+#endif
 		} else {
 			NFC_LOG_ERR("reset failed\n");
-			/*p61_access_unlock(pn547_dev); redundant*/
 			ret = -EBUSY; /* Device or resource busy */
 		}
 		break;
@@ -783,7 +873,7 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 		NFC_LOG_INFO("Prio Session Start power on ese\n");
 		if ((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO|P61_STATE_DWNLD)) == 0) {
 			p61_update_access_state(pn547_dev, P61_STATE_SPI_PRIO, true);
-#ifdef FEATURE_PN80T
+#if defined (FEATURE_PN80T) || defined (FEATURE_SN100X)
 			if (current_state & P61_STATE_WIRED)
 #endif
 			{
@@ -798,6 +888,7 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 				}
 			}
 			pn547_dev->spi_ven_enabled = true;
+#ifndef VEN_ALWAYS_ON
 			if (pn547_dev->nfc_ven_enabled == false) {
 				/* provide power to NFCC if,	NFC service not provided */
 				gpio_set_value(pn547_dev->ven_gpio, 1);
@@ -807,10 +898,10 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 			gpio_set_value(pn547_dev->ese_pwr_req, 1);
 			ese_spi_pinctrl(1);
 			usleep_range(10000, 10100);
+#endif
 		} else {
 			NFC_LOG_ERR("Prio Session Start power on ese failed 0x%x\n",
 				current_state);
-			/*p61_access_unlock(pn547_dev); redundant*/
 			ret = -EBUSY; /* Device or resource busy */
 		}
 		break;
@@ -820,7 +911,7 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 			p61_update_access_state(pn547_dev, P61_STATE_SPI_PRIO, false);
 			/* after SPI prio timeout, the state is changing from SPI prio to SPI */
 			p61_update_access_state(pn547_dev, P61_STATE_SPI, true);
-#ifdef FEATURE_PN80T
+#if defined (FEATURE_PN80T) || defined (FEATURE_SN100X)
 			if (current_state & P61_STATE_WIRED)
 #endif
 			{
@@ -839,6 +930,24 @@ static int pn547_p61_set_spi_pwr(struct pn547_dev *pdev,
 		break;
 	case 5:
 		release_ese_lock(P61_STATE_SPI);
+		break;
+	case 6:
+		/*SPI Service called ISO-RST*/
+		if(current_state & P61_STATE_WIRED) {
+			return -EPERM; /* Operation not permitted */
+		}
+		if(current_state & P61_STATE_SPI) {
+			p61_update_access_state(pn547_dev, P61_STATE_SPI, false);
+		}else if(current_state & P61_STATE_SPI_PRIO) {
+			p61_update_access_state(pn547_dev, P61_STATE_SPI_PRIO, false);
+		}
+#ifdef ISO_RST
+		gpio_set_value(pn547_dev->iso_rst_gpio, 0);
+		msleep(50);
+		gpio_set_value(pn547_dev->iso_rst_gpio, 1);
+		msleep(50);
+		pr_info("%s ISO RESET from SPI DONE\n", __func__);
+#endif
 		break;
 	default:
 		NFC_LOG_ERR("bad ese pwr arg %lu\n", arg);
@@ -860,7 +969,7 @@ static int pn547_p61_set_wired_access(struct pn547_dev *pdev, unsigned long arg)
 		NFC_LOG_INFO("disabling\n");
 		if (current_state & P61_STATE_WIRED) {
 			p61_update_access_state(pn547_dev, P61_STATE_WIRED, false);
-#ifndef FEATURE_PN80T
+#if !defined (FEATURE_PN80T) && !defined (FEATURE_SN100X)
 			if ((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO)) == 0) {
 				svdd_sync_onoff(pn547_dev->nfc_service_pid,
 					P61_STATE_DWP_SVDD_SYNC_START);
@@ -890,7 +999,7 @@ static int pn547_p61_set_wired_access(struct pn547_dev *pdev, unsigned long arg)
 						pn547_dev->nfc_service_pid);
 				}
 			}
-#ifndef FEATURE_PN80T
+#if !defined (FEATURE_PN80T) && !defined (FEATURE_SN100X)
 			if ((current_state & (P61_STATE_SPI|P61_STATE_SPI_PRIO)) == 0) {
 				gpio_set_value(pn547_dev->ese_pwr_req, 1);
 				usleep_range(10000, 10100);
@@ -903,7 +1012,7 @@ static int pn547_p61_set_wired_access(struct pn547_dev *pdev, unsigned long arg)
 		break;
 	case 2: /*	else if(arg == 2)*/
 		NFC_LOG_INFO("P61 ESE POWER REQ LOW\n");
-#ifndef FEATURE_PN80T
+#if !defined (FEATURE_PN80T) && !defined (FEATURE_SN100X)
 		svdd_sync_onoff(pn547_dev->nfc_service_pid,
 			P61_STATE_DWP_SVDD_SYNC_START);
 		gpio_set_value(pn547_dev->ese_pwr_req, 0);
@@ -913,7 +1022,7 @@ static int pn547_p61_set_wired_access(struct pn547_dev *pdev, unsigned long arg)
 		break;
 	case 3: /*	else if(arg == 3)*/
 		NFC_LOG_INFO("P61 ESE POWER REQ HIGH\n");
-#ifndef FEATURE_PN80T
+#if !defined (FEATURE_PN80T) && !defined (FEATURE_SN100X)
 		gpio_set_value(pn547_dev->ese_pwr_req, 1);
 		usleep_range(10000, 10100);
 #endif
@@ -957,7 +1066,7 @@ static void release_ese_lock(enum p61_access_state  p61_current_state)
 	NFC_LOG_INFO("p61_trans_acc_on =%d exit\n", p61_trans_acc_on);
 }
 
-#ifdef FEATURE_PN80T
+#if defined (FEATURE_PN80T) || defined (FEATURE_SN100X)
 static int set_jcop_download_state(unsigned long arg)
 {
 	enum p61_access_state current_state = P61_STATE_INVALID;
@@ -992,7 +1101,6 @@ static int set_jcop_download_state(unsigned long arg)
 		p61_update_access_state(pn547_dev, P61_STATE_JCP_DWNLD, false);
 	} else {
 		NFC_LOG_ERR("bad jcop download arg %lu\n", arg);
-		p61_access_unlock(pn547_dev);
 		return -EBADRQC; /* Invalid request code */
 	}
 	NFC_LOG_INFO("PN547_SET_DWNLD_STATUS = %x", current_state);
@@ -1029,7 +1137,6 @@ long pn547_dev_ioctl(struct file *filp,
 	}
 	/* Free pass autobahn area, not protected. Use it carefullly. END */
 
-	p61_access_lock(pn547_dev);
 	switch (cmd) {
 	case PN547_SET_PWR:
 		ret = pn547_set_pwr(pn547_dev, arg);
@@ -1046,7 +1153,7 @@ long pn547_dev_ioctl(struct file *filp,
 		put_user(current_state, (int __user *)arg);
 		break;
 
-#ifdef FEATURE_PN80T
+#if defined (FEATURE_PN80T) || defined (FEATURE_SN100X)
 	case PN547_SET_DWNLD_STATUS:
 		ret = set_jcop_download_state(arg);
 		if (ret < 0)
@@ -1059,10 +1166,9 @@ long pn547_dev_ioctl(struct file *filp,
 		break;
 
 	default:
-		NFC_LOG_ERR("bad ioctl cmd:%x arg:%p\n", cmd, (void *)arg);
+		NFC_LOG_ERR("bad ioctl cmd:%x\n", cmd);
 		ret = -EINVAL;
 	}
-	p61_access_unlock(pn547_dev);
 	return (long)ret;
 #else
 	switch (cmd) {
@@ -1146,6 +1252,9 @@ static int pn547_parse_dt(struct device *dev,
 
 	pdev->firm_gpio = of_get_named_gpio(np, "pn547,firm-gpio", 0);
 
+#ifdef ISO_RST
+	pdev->iso_rst_gpio = of_get_named_gpio(np, "pn547,iso-rst-gpio", 0);
+#endif
 #ifdef CONFIG_NFC_PN547_ESE_SUPPORT
 	pdev->ese_pwr_req = of_get_named_gpio(np, "pn547,pwr_req", 0);
 #endif
@@ -1201,6 +1310,13 @@ static int pn547_regulator_onoff(struct device *dev,
 
 	NFC_LOG_INFO("onoff = %d\n", onoff);
 	if (onoff == NFC_I2C_LDO_ON) {
+#ifdef FEATURE_SN100X
+		rc = regulator_set_load(regulator_nfc_pvdd, 300000);
+		if (rc) {
+			NFC_LOG_ERR("regulator_uwb_vdd set_load failed, rc=%d\n", rc);
+			goto done;
+		}
+#endif
 		rc = regulator_enable(regulator_nfc_pvdd);
 		if (rc) {
 			NFC_LOG_ERR("enable failed, rc=%d\n", rc);
@@ -1237,9 +1353,6 @@ static ssize_t pn547_class_show(struct class *class,
 
 	old_ven = pn547_dev->nfc_ven_enabled;
 	NFC_LOG_INFO("old_ven is %d\n", old_ven);
-#ifdef CONFIG_NFC_PN547_ESE_SUPPORT
-	p61_access_lock(pn547_dev);
-#endif
 	retry = 20;
 	if (!old_ven) {	/* if nfc status is off */
 		pn547_dev->nfc_ven_enabled = true;
@@ -1345,9 +1458,6 @@ static ssize_t pn547_class_show(struct class *class,
 		disable_irq_wake(pn547_dev->client->irq);
 		disable_irq_nosync(pn547_dev->client->irq);
 	}
-#ifdef CONFIG_NFC_PN547_ESE_SUPPORT
-	p61_access_unlock(pn547_dev);
-#endif
 	if (ret < 0 || ret > count) {
 		NFC_LOG_ERR("i2c_master_recv returned %d. count : %d\n",
 			ret, count);
@@ -1364,9 +1474,6 @@ static ssize_t pn547_class_show(struct class *class,
 fail:
 	mutex_unlock(&pn547_dev->read_mutex);
 fail_lock:
-#ifdef CONFIG_NFC_PN547_ESE_SUPPORT
-	p61_access_unlock(pn547_dev);
-#endif
 	return ret;
 }
 static ssize_t pn547_class_store(struct class *class,
@@ -1386,6 +1493,12 @@ static int pn547_probe(struct i2c_client *client, const struct i2c_device_id *id
 	int addrcnt;
 #ifdef FEATURE_NFC_TEST
 	struct class *nfc_class;
+#endif
+
+#if !defined(CONFIG_SEC_FACTORY) && defined(CONFIG_ESE_SECURE) && !defined(ENABLE_ESE_SPI_SECURED)
+	/* should not be here! */
+	pr_err("[error] ese support but not secured? check!!\n");
+	return -ENODEV;
 #endif
 
 	NFC_LOG_INFO("entered\n");
@@ -1429,6 +1542,11 @@ static int pn547_probe(struct i2c_client *client, const struct i2c_device_id *id
 	if (ret)
 		goto err_clk_req;
 #endif
+#ifdef ISO_RST
+	ret = gpio_request(pn547_dev->iso_rst_gpio, "iso_rst");
+	if (ret)
+		goto err_iso_rst;
+#endif
 
 	ret = pn547_regulator_onoff(&client->dev, pn547_dev, NFC_I2C_LDO_ON);
 	if (ret < 0)
@@ -1455,17 +1573,19 @@ static int pn547_probe(struct i2c_client *client, const struct i2c_device_id *id
 	pn547_dev->spi_ven_enabled = false;
 #endif
 	pn547_dev->client = client;
-
+#ifdef ISO_RST
+	pn547_dev->iso_rst_gpio = false;
+#endif
 	/* init mutex and queues */
 	init_waitqueue_head(&pn547_dev->read_wq);
 	mutex_init(&pn547_dev->read_mutex);
 
 #ifdef CONFIG_NFC_PN547_ESE_SUPPORT
-	mutex_init(&pn547_dev->p61_state_mutex);
 	p61_trans_acc_on = 0;
 	init_completion(&pn547_dev->ese_comp);
 	init_completion(&pn547_dev->svdd_sync_comp);
 	init_completion(&pn547_dev->dwp_onoff_comp);
+	sema_init(&dwp_onoff_release_sema, 0);
 #endif
 
 	pn547_dev->pn547_device.minor = MISC_DYNAMIC_MINOR;
@@ -1491,7 +1611,9 @@ static int pn547_probe(struct i2c_client *client, const struct i2c_device_id *id
 #if defined(CONFIG_NFC_PN547_CLOCK_REQUEST)
 	gpio_direction_input(pn547_dev->clk_req_gpio);
 #endif
-
+#ifdef ISO_RST
+	gpio_direction_output(pn547_dev->iso_rst_gpio, 0);
+#endif
 	i2c_set_clientdata(client, pn547_dev);
 	wake_lock_init(&pn547_dev->nfc_wake_lock, WAKE_LOCK_SUSPEND, "nfc_wake_lock");
 #ifdef CONFIG_NFC_PN547_CLOCK_REQUEST
@@ -1555,6 +1677,11 @@ static int pn547_probe(struct i2c_client *client, const struct i2c_device_id *id
 	gpio_set_value(pn547_dev->ven_gpio, 0);
 	gpio_set_value(pn547_dev->firm_gpio, 0); /* add */
 
+#ifdef VEN_ALWAYS_ON
+	usleep_range(4900, 5000);
+	gpio_set_value(pn547_dev->ven_gpio, 1);
+#endif
+
 	if (ret < 0)
 		NFC_LOG_ERR("fail to get i2c addr\n");
 	else
@@ -1581,9 +1708,6 @@ err_create_workqueue:
 	wake_lock_destroy(&pn547_dev->nfc_wake_lock);
 err_misc_register:
 	mutex_destroy(&pn547_dev->read_mutex);
-#ifdef CONFIG_NFC_PN547_ESE_SUPPORT
-	mutex_destroy(&pn547_dev->p61_state_mutex);
-#endif
 #ifdef CONFIG_NFC_PN547_CLOCK_REQUEST
 	msm_xo_put(pn547_dev->nfc_clock);
 err_get_clock:
@@ -1601,6 +1725,10 @@ err_firm:
 	gpio_free(pn547_dev->ven_gpio);
 err_ven:
 	gpio_free(pn547_dev->irq_gpio);
+#ifdef ISO_RST
+err_iso_rst:
+	gpio_free(pn547_dev->iso_rst_gpio);
+#endif
 	kfree(pn547_dev);
 	NFC_LOG_ERR("failed!\n");
 	return ret;
@@ -1617,15 +1745,15 @@ static int pn547_remove(struct i2c_client *client)
 	free_irq(client->irq, pn547_dev);
 	misc_deregister(&pn547_dev->pn547_device);
 	mutex_destroy(&pn547_dev->read_mutex);
-#ifdef CONFIG_NFC_PN547_ESE_SUPPORT
-	mutex_destroy(&pn547_dev->p61_state_mutex);
-#endif
 	gpio_free(pn547_dev->irq_gpio);
 	gpio_free(pn547_dev->ven_gpio);
 	gpio_free(pn547_dev->firm_gpio);
 #ifdef CONFIG_NFC_PN547_CLOCK_REQUEST
 	gpio_free(pn547_dev->clk_req_gpio);
 	msm_xo_put(pn547_dev->nfc_clock);
+#endif
+#ifdef ISO_RST
+    gpio_free(pn547_dev->iso_rst_gpio);
 #endif
 #ifdef CONFIG_NFC_PN547_ESE_SUPPORT
 	pn547_dev->p61_current_state = P61_STATE_INVALID;

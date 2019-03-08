@@ -214,6 +214,12 @@ config USB_F_SUBSET
 config USB_F_RNDIS
 	tristate
 
+config USB_F_QCRNDIS
+	tristate
+
+config USB_F_RMNET_BAM
+	tristate
+
 config USB_F_MASS_STORAGE
 	tristate
 
@@ -347,6 +353,14 @@ config USB_CONFIGFS_ECM_SUBSET
 	  On hardware that can't implement the full protocol,
 	  a simple CDC subset is used, placing fewer demands on USB.
 
+config USB_CONFIGFS_QCRNDIS
+	bool "QCRNDIS"
+	depends on USB_CONFIGFS
+	depends on RNDIS_IPA
+	depends on NET
+	select USB_U_ETHER
+	select USB_F_QCRNDIS
+
 config USB_CONFIGFS_RNDIS
 	bool "RNDIS"
 	depends on USB_CONFIGFS
@@ -364,7 +378,7 @@ config USB_CONFIGFS_RNDIS
 	   is given in comments found in that info file.
 
 config USB_CONFIGFS_RMNET_BAM
-	bool "RMNET"
+	bool "RMNET_BAM"
 	depends on USB_CONFIGFS
 	depends on IPA
 	select USB_F_RMNET_BAM
@@ -596,6 +610,7 @@ config USB_CONFIGFS_F_CCID
 config USB_CONFIGFS_F_GSI
 	bool "USB GSI function"
 	select USB_F_GSI
+	select USB_U_ETHER
 	depends on USB_CONFIGFS
 	help
 	  Generic function driver to support h/w acceleration to IPA over GSI.

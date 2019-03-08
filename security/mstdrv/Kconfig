@@ -13,6 +13,7 @@
 
 config MST_LDO
 	bool "MST LDO kernel driver"
+	depends on !(SEC_LYKANLTE_PROJECT)
 	default n
 	help
 	This enables the MST LDO kernel driver

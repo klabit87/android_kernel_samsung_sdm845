@@ -102,7 +102,6 @@ static int try_to_freeze_tasks(bool user_only)
 		       " (%d tasks refusing to freeze, wq_busy=%d):\n",
 		       elapsed_msecs / 1000, elapsed_msecs % 1000,
 		       todo - wq_busy, wq_busy);
-		suspend_stats_ex_save_failed(FAILED_FREEZE_TIMEOUT, NULL);
 
 		if (wq_busy)
 			show_workqueue_state();

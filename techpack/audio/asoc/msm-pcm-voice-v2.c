@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,6 +29,9 @@
 #include <dsp/q6voice.h>
 
 #include "msm-pcm-voice-v2.h"
+
+#define NUM_CHANNELS_MONO   1
+#define NUM_CHANNELS_STEREO 2
 
 static struct msm_voice voice_info[VOICE_SESSION_INDEX_MAX];
 
@@ -519,6 +522,22 @@ done:
 	return ret;
 }
 
+static int msm_voice_mbd_get(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = voc_get_mbd_enable();
+	return 0;
+}
+
+static int msm_voice_mbd_put(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	bool enable = ucontrol->value.integer.value[0];
+
+	voc_set_mbd_enable(enable);
+
+	return 0;
+}
 
 
 static const char * const tty_mode[] = {"OFF", "HCO", "VCO", "FULL"};
@@ -603,6 +622,38 @@ done:
 	return ret;
 }
 
+static int msm_voice_rec_config_put(struct snd_kcontrol *kcontrol,
+				  struct snd_ctl_elem_value *ucontrol)
+{
+	int ret = 0;
+	int voc_rec_config_channels = ucontrol->value.integer.value[0];
+
+	if (voc_rec_config_channels < NUM_CHANNELS_MONO ||
+			voc_rec_config_channels > NUM_CHANNELS_STEREO) {
+		pr_err("%s: Invalid channel config (%d)\n", __func__,
+			voc_rec_config_channels);
+		ret = -EINVAL;
+		goto done;
+	}
+	voc_set_incall_capture_channel_config(voc_rec_config_channels);
+
+done:
+	pr_debug("%s: voc_rec_config_channels = %d, ret = %d\n", __func__,
+		voc_rec_config_channels, ret);
+	return ret;
+}
+
+static int msm_voice_rec_config_get(struct snd_kcontrol *kcontrol,
+				  struct snd_ctl_elem_value *ucontrol)
+{
+
+	ucontrol->value.integer.value[0] =
+		voc_get_incall_capture_channel_config();
+	pr_debug("%s: rec_config_channels = %ld\n", __func__,
+		ucontrol->value.integer.value[0]);
+	return 0;
+}
+
 static int msm_voice_cvd_version_info(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_info *uinfo)
 {
@@ -661,6 +712,14 @@ static struct snd_kcontrol_new msm_voice_controls[] = {
 	},
 	SOC_SINGLE_MULTI_EXT("Voice Sidetone Enable", SND_SOC_NOPM, 0, 1, 0, 1,
 			     msm_voice_sidetone_get, msm_voice_sidetone_put),
+	SOC_SINGLE_BOOL_EXT("Voice Mic Break Enable", 0, msm_voice_mbd_get,
+				msm_voice_mbd_put),
+};
+
+static struct snd_kcontrol_new msm_voice_rec_config_controls[] = {
+	SOC_SINGLE_MULTI_EXT("Voc Rec Config", SND_SOC_NOPM, 0,
+			     2, 0, 1, msm_voice_rec_config_get,
+			     msm_voice_rec_config_put),
 };
 
 static const struct snd_pcm_ops msm_pcm_ops = {
@@ -688,7 +747,8 @@ static int msm_pcm_voice_probe(struct snd_soc_platform *platform)
 {
 	snd_soc_add_platform_controls(platform, msm_voice_controls,
 					ARRAY_SIZE(msm_voice_controls));
-
+	snd_soc_add_platform_controls(platform, msm_voice_rec_config_controls,
+				    ARRAY_SIZE(msm_voice_rec_config_controls));
 	return 0;
 }
 
@@ -753,6 +813,7 @@ static struct platform_driver msm_pcm_driver = {
 		.name = "msm-pcm-voice",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_voice_dt_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = msm_pcm_probe,
 	.remove = msm_pcm_remove,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -54,6 +54,7 @@ size_t get_cal_info_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_info_voc_col);
 		break;
 	case ADM_TOPOLOGY_CAL_TYPE:
+	case ADM_LSM_TOPOLOGY_CAL_TYPE:
 		size = sizeof(struct audio_cal_info_adm_top);
 		break;
 	case ADM_CUST_TOPOLOGY_CAL_TYPE:
@@ -61,6 +62,7 @@ size_t get_cal_info_size(int32_t cal_type)
 		size = 0;
 		break;
 	case ADM_AUDPROC_CAL_TYPE:
+	case ADM_LSM_AUDPROC_CAL_TYPE:
 		size = sizeof(struct audio_cal_info_audproc);
 		break;
 	case ADM_AUDVOL_CAL_TYPE:
@@ -77,6 +79,7 @@ size_t get_cal_info_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_info_audstrm);
 		break;
 	case AFE_TOPOLOGY_CAL_TYPE:
+	case AFE_LSM_TOPOLOGY_CAL_TYPE:
 		size = sizeof(struct audio_cal_info_afe_top);
 		break;
 	case AFE_CUST_TOPOLOGY_CAL_TYPE:
@@ -86,6 +89,7 @@ size_t get_cal_info_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_info_afe);
 		break;
 	case AFE_COMMON_TX_CAL_TYPE:
+	case AFE_LSM_TX_CAL_TYPE:
 		size = sizeof(struct audio_cal_info_afe);
 		break;
 	case AFE_FB_SPKR_PROT_CAL_TYPE:
@@ -200,6 +204,7 @@ size_t get_user_cal_type_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_type_voc_col);
 		break;
 	case ADM_TOPOLOGY_CAL_TYPE:
+	case ADM_LSM_TOPOLOGY_CAL_TYPE:
 		size = sizeof(struct audio_cal_type_adm_top);
 		break;
 	case ADM_CUST_TOPOLOGY_CAL_TYPE:
@@ -207,6 +212,7 @@ size_t get_user_cal_type_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_type_basic);
 		break;
 	case ADM_AUDPROC_CAL_TYPE:
+	case ADM_LSM_AUDPROC_CAL_TYPE:
 		size = sizeof(struct audio_cal_type_audproc);
 		break;
 	case ADM_AUDVOL_CAL_TYPE:
@@ -223,6 +229,7 @@ size_t get_user_cal_type_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_type_audstrm);
 		break;
 	case AFE_TOPOLOGY_CAL_TYPE:
+	case AFE_LSM_TOPOLOGY_CAL_TYPE:
 		size = sizeof(struct audio_cal_type_afe_top);
 		break;
 	case AFE_CUST_TOPOLOGY_CAL_TYPE:
@@ -232,6 +239,7 @@ size_t get_user_cal_type_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_type_afe);
 		break;
 	case AFE_COMMON_TX_CAL_TYPE:
+	case AFE_LSM_TX_CAL_TYPE:
 		size = sizeof(struct audio_cal_type_afe);
 		break;
 	case AFE_FB_SPKR_PROT_CAL_TYPE:
@@ -1022,9 +1030,40 @@ int cal_utils_set_cal(size_t data_size, void *data,
 		((uint8_t *)data + sizeof(struct audio_cal_type_basic)),
 		data_size - sizeof(struct audio_cal_type_basic));
 
+	/* reset buffer stale flag */
+	cal_block->cal_stale = false;
+
 err:
 	mutex_unlock(&cal_type->lock);
 done:
 	return ret;
 }
 EXPORT_SYMBOL(cal_utils_set_cal);
+
+/**
+ * cal_utils_mark_cal_used
+ *
+ * @cal_block: pointer to cal block
+ */
+void cal_utils_mark_cal_used(struct cal_block_data *cal_block)
+{
+	if (cal_block)
+		cal_block->cal_stale = true;
+}
+EXPORT_SYMBOL(cal_utils_mark_cal_used);
+
+/**
+ * cal_utils_is_cal_stale
+ *
+ * @cal_block: pointer to cal block
+ *
+ * Returns true if cal block is stale, false otherwise
+ */
+bool cal_utils_is_cal_stale(struct cal_block_data *cal_block)
+{
+	if ((cal_block) && (cal_block->cal_stale))
+		return true;
+
+	return false;
+}
+EXPORT_SYMBOL(cal_utils_is_cal_stale);

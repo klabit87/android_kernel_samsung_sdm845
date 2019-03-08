@@ -11,6 +11,13 @@ config SAMSUNG_OIS_RUMBA_S6
 	default n
 	---help---
 	Enables support for external ois module.
+	
+config SAMSUNG_OIS_MCU_STM32
+        tristate "External ois MCU STM32 support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for external ois module.
 
 config SAMSUNG_MULTI_CAMERA
 	tristate "Multi camera support"
@@ -66,4 +73,11 @@ config FLASH_CURRENT_JAPAN
 	default n
 	---help---
 	Enables support for JPN
+	
+config CAMERA_SSM_I2C_ENV
+	tristate "Rear camera support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for SSM I2C test
 

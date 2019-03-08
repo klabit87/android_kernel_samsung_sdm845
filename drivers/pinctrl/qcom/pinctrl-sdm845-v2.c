@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1738,8 +1738,12 @@ static struct msm_dir_conn sdm845_dir_conn[] = {
 	{97, 563},
 	{101, 564},
 	{103, 565},
+	{108, 567},
+	{112, 568},
+	{113, 569},
 	{104, 566},
 	{108, 567},//fix bt hostwake isr fail in sleep state
+	{113, 569},
 	{115, 570},
 	{116, 571},
 	{117, 572},

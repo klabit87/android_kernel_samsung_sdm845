@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 TRUSTONIC LIMITED
+ * Copyright (c) 2013-2018 TRUSTONIC LIMITED
  * All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -35,6 +35,12 @@ struct tlc_tui_response_t {
 	u32	screen_metrics[3];
 };
 
+/* Resolution */
+struct tlc_tui_resolution_t {
+	u32	width;
+	u32	height;
+};
+
 /* Command IDs */
 /*  */
 #define TLC_TUI_CMD_NONE                0
@@ -63,6 +69,7 @@ struct tlc_tui_response_t {
 /* hide secure surface */
 #define TLC_TUI_CMD_HIDE_SURFACE        7
 #define TLC_TUI_CMD_GET_RESOLUTION      8
+#define TLC_TUI_CMD_SET_RESOLUTION      9
 
 /* Return codes */
 #define TLC_TUI_OK                  0
@@ -80,6 +87,7 @@ struct tlc_tui_response_t {
 #define TUI_IO_WAITCMD	_IOR(TUI_IO_MAGIC, 2, struct tlc_tui_command_t)
 #define TUI_IO_ACK	_IOW(TUI_IO_MAGIC, 3, struct tlc_tui_response_t)
 #define TUI_IO_INIT_DRIVER	_IO(TUI_IO_MAGIC, 4)
+#define TUI_IO_SET_RESOLUTION _IOW(TUI_IO_MAGIC, 9, struct tlc_tui_resolution_t)
 
 #ifdef INIT_COMPLETION
 #define reinit_completion(x) INIT_COMPLETION(*(x))

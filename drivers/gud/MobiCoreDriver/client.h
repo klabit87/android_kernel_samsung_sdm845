@@ -24,7 +24,7 @@ struct tee_client;
 /* Client */
 struct tee_client *client_create(bool is_from_kernel);
 void client_get(struct tee_client *client);
-void client_put(struct tee_client *client);
+int client_put(struct tee_client *client);
 bool client_has_sessions(struct tee_client *client);
 void client_close(struct tee_client *client);
 
@@ -38,8 +38,7 @@ int client_open_session(struct tee_client *client, u32 *session_id,
 			struct mc_identity *identity, int client_fd);
 int client_open_trustlet(struct tee_client *client, u32 *session_id, u32 spid,
 			 uintptr_t trustlet, size_t trustlet_len,
-			 uintptr_t tci, size_t tci_len,
-			 int client_fd);
+			 uintptr_t tci, size_t tci_len, int client_fd);
 int client_add_session(struct tee_client *client,
 		       const struct tee_object *obj, uintptr_t tci, size_t len,
 		       u32 *p_sid, bool is_gp_uuid,

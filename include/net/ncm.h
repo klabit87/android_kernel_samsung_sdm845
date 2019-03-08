@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* START_OF_KNOX_NPA */
+// KNOX NPA - START
 
 #ifndef NCM_COMMON_H__
 #define NCM_COMMON_H__
@@ -24,17 +24,26 @@
 /* Address length consistent with com_android_server_enterprise_nap_NetworkAnalyticsDriver.cpp */
 #define INET6_ADDRSTRLEN_NAP 48
 
+#define NCM_VERSION 10
+
+#define INIT_UID_NAP 0
+#define INIT_PID_NAP 1
+
+#define DNS_PORT_NAP 53
+
+#define IPV4_FAMILY_NAP 2
+#define IPV6_FAMILY_NAP 10
+
+#define NCM_FLOW_TYPE_DEFAULT -1
+#define NCM_FLOW_TYPE_ALL 0
+#define NCM_FLOW_TYPE_OPEN 1
+#define NCM_FLOW_TYPE_CLOSE 2
+
 #include <linux/kernel.h>
 #include <linux/inet.h>
 #include <linux/sched.h>
 #include <linux/string.h>
-
-/* Macros to check ipaddress preconditions in af_inet.c and ncm.c */
-#define isIpv4PostRoutingAddressEqualsNull(sk_udp_daddr_v6, sk_udp_saddr_v6) (((sk_udp_daddr_v6[0] || sk_udp_saddr_v6[0]) == 0) ? 1 : 0)
-#define isIpv6PostRoutingAddressEqualsNull(sk_udp_daddr_v6, sk_udp_saddr_v6) (((sk_udp_daddr_v6[0] || sk_udp_daddr_v6[1] || sk_udp_daddr_v6[2] || sk_udp_daddr_v6[3] || sk_udp_saddr_v6[0] || sk_udp_saddr_v6[1] || sk_udp_saddr_v6[2] || sk_udp_saddr_v6[3]) == 0) ? 1 : 0)
-#define isIpv4AddressEqualsNull(srcaddr, dstaddr) ((((strcmp(srcaddr, "0.0.0.0")) || (strcmp(dstaddr, "0.0.0.0"))) == 0) ? 1 : 0)
-#define isIpv6AddressEqualsNull(srcaddr, dstaddr) ((((strcmp(srcaddr, "0000:0000:0000:0000:0000:0000:0000:0000")) || (strcmp(dstaddr, "0000:0000:0000:0000:0000:0000:0000:0000"))) == 0) ? 1 : 0)
-#define isIpv6SourceAddressEqualsNull(srcaddr) (((strcmp(srcaddr, "0000:0000:0000:0000:0000:0000:0000:0000")) == 0) ? 1 : 0)
+#include <net/netfilter/nf_conntrack.h>
 
 /* Struct Socket definition */
 struct knox_socket_metadata {
@@ -63,15 +72,19 @@ struct knox_socket_metadata {
 /* The destination address of the socket */
 	char dstaddr[INET6_ADDRSTRLEN_NAP];
 /* The name of the process which created the socket */
-	char process_name[128];
+	char process_name[PROCESS_NAME_LEN_NAP];
 /* The name of the parent process which created the socket */
-	char parent_process_name[128];
+	char parent_process_name[PROCESS_NAME_LEN_NAP];
 /*  The Domain name associated with the ip address of the socket. The size needs to be in sync with the userspace implementation */
-	char domain_name[255];
+	char domain_name[DOMAIN_NAME_LEN_NAP];
 /* The uid which originated the dns request */
 	uid_t   knox_uid_dns;
 /* The parent process id under which the socket was created */
 	pid_t   knox_ppid;
+/* The interface used by the flow to transmit packet */
+	char interface_name[IFNAMSIZ];
+/* The flow type is used identify the current state of the network flow*/
+	int flow_type;
 /* The struct defined is responsible for inserting the socket meta-data into kfifo */
 	struct work_struct work_kfifo;
 };
@@ -103,20 +116,24 @@ struct knox_user_socket_metadata {
 /* The destination address of the socket */
 	char dstaddr[INET6_ADDRSTRLEN_NAP];
 /* The name of the process which created the socket */
-	char process_name[128];
+	char process_name[PROCESS_NAME_LEN_NAP];
 /* The name of the parent process which created the socket */
-	char parent_process_name[128];
+	char parent_process_name[PROCESS_NAME_LEN_NAP];
 /*  The Domain name associated with the ip address of the socket. The size needs to be in sync with the userspace implementation */
-	char domain_name[255];
+	char domain_name[DOMAIN_NAME_LEN_NAP];
 /* The uid which originated the dns request */
 	uid_t   knox_uid_dns;
 /* The parent process id under which the socket was created */
 	pid_t   knox_ppid;
+/* The interface used by the flow to transmit packet */
+	char interface_name[IFNAMSIZ];
+/* The flow type is used identify the current state of the network flow*/
+	int flow_type;
 };
 
-/* The list of function which is being referenced by the af_inet.c class */
+/* The list of function which is being referenced */
 extern unsigned int check_ncm_flag(void);
-extern void knox_collect_socket_data(struct socket *sock);
+extern void knox_collect_conntrack_data(struct nf_conn *ct, int startStop, int where);
 
 extern bool kfifo_status(void);
 extern void insert_data_kfifo_kthread(struct knox_socket_metadata* knox_socket_metadata);
@@ -134,9 +151,13 @@ extern void insert_data_kfifo_kthread(struct knox_socket_metadata* knox_socket_m
 
 /* IOCTL definitions*/
 #define __NCMIOC    0x120
-#define NCM_ACTIVATED       _IO(__NCMIOC, 2)
-#define NCM_DEACTIVATED     _IO(__NCMIOC, 4)
+#define NCM_ACTIVATED_OPEN       _IO(__NCMIOC, 2)
+#define NCM_DEACTIVATED          _IO(__NCMIOC, 4)
+#define NCM_ACTIVATED_CLOSE      _IO(__NCMIOC, 8)
+#define NCM_ACTIVATED_ALL        _IO(__NCMIOC, 16)
+#define NCM_GETVERSION           _IO(__NCMIOC, 32)
+#define NCM_MATCH_VERSION        _IO(__NCMIOC, 64)
 
 #endif
 
-/* END_OF_KNOX_NPA */
+// KNOX NPA - END

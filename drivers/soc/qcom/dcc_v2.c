@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,8 +35,6 @@
 #define dcc_readl(drvdata, off)						\
 	__raw_readl(drvdata->base + off)
 
-#define dcc_sram_writel(drvdata, val, off)				\
-	__raw_writel((val), drvdata->ram_base + off)
 #define dcc_sram_readl(drvdata, off)					\
 	__raw_readl(drvdata->ram_base + off)
 
@@ -160,6 +158,17 @@ struct dcc_drvdata {
 	uint8_t			cti_trig;
 };
 
+static int dcc_sram_writel(struct dcc_drvdata *drvdata,
+					uint32_t val, uint32_t off)
+{
+	if (unlikely(off > (drvdata->ram_size - 4)))
+		return -EINVAL;
+
+	__raw_writel((val), drvdata->ram_base + off);
+
+	return 0;
+}
+
 static bool dcc_ready(struct dcc_drvdata *drvdata)
 {
 	uint32_t val;
@@ -259,7 +268,10 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 				 * processing the list
 				 */
 				link |= ((0x1 << 8) & BM(8, 14));
-				dcc_sram_writel(drvdata, link, sram_offset);
+				ret = dcc_sram_writel(drvdata,
+							link, sram_offset);
+				if (ret)
+					goto overstep;
 				sram_offset += 4;
 				/* Reset link and prev_off */
 				addr = 0x00;
@@ -269,13 +281,21 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 			}
 
 			addr = DCC_RD_MOD_WR_DESCRIPTOR;
-			dcc_sram_writel(drvdata, addr, sram_offset);
+			ret = dcc_sram_writel(drvdata, addr, sram_offset);
+			if (ret)
+				goto overstep;
 				sram_offset += 4;
 
-			dcc_sram_writel(drvdata, entry->mask, sram_offset);
+			ret = dcc_sram_writel(drvdata,
+					entry->mask, sram_offset);
+			if (ret)
+				goto overstep;
 				sram_offset += 4;
 
-			dcc_sram_writel(drvdata, entry->write_val, sram_offset);
+			ret = dcc_sram_writel(drvdata,
+					entry->write_val, sram_offset);
+			if (ret)
+				goto overstep;
 				sram_offset += 4;
 			addr = 0;
 			break;
@@ -285,7 +305,10 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 		{
 			/* Check if we need to write link of prev entry */
 			if (link) {
-				dcc_sram_writel(drvdata, link, sram_offset);
+				ret = dcc_sram_writel(drvdata,
+						link, sram_offset);
+				if (ret)
+					goto overstep;
 				sram_offset += 4;
 			}
 
@@ -295,7 +318,10 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 				loop |= DCC_LOOP_DESCRIPTOR;
 				total_len += (total_len - loop_len) * loop_cnt;
 
-				dcc_sram_writel(drvdata, loop, sram_offset);
+				ret = dcc_sram_writel(drvdata,
+						loop, sram_offset);
+				if (ret)
+					goto overstep;
 				sram_offset += 4;
 
 				loop_start = false;
@@ -324,7 +350,10 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 				 * processing the list
 				 */
 				link |= ((0x1 << 8) & BM(8, 14));
-				dcc_sram_writel(drvdata, link, sram_offset);
+				ret = dcc_sram_writel(drvdata,
+						link, sram_offset);
+				if (ret)
+					goto overstep;
 				sram_offset += 4;
 				/* Reset link and prev_off */
 				addr = 0x00;
@@ -347,13 +376,20 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 				addr |= DCC_ADDR_DESCRIPTOR | DCC_WRITE_IND
 					| DCC_AHB_IND;
 
-			dcc_sram_writel(drvdata, addr, sram_offset);
+			ret = dcc_sram_writel(drvdata, addr, sram_offset);
+			if (ret)
+				goto overstep;
 				sram_offset += 4;
 
-			dcc_sram_writel(drvdata, link, sram_offset);
+			ret = dcc_sram_writel(drvdata, link, sram_offset);
+			if (ret)
+				goto overstep;
 				sram_offset += 4;
 
-			dcc_sram_writel(drvdata, entry->write_val, sram_offset);
+			ret = dcc_sram_writel(drvdata,
+				entry->write_val, sram_offset);
+			if (ret)
+				goto overstep;
 				sram_offset += 4;
 			addr = 0x00;
 			link = 0;
@@ -377,8 +413,10 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 			if (!prev_addr || prev_addr != addr || prev_off > off) {
 				/* Check if we need to write prev link entry */
 				if (link) {
-					dcc_sram_writel(drvdata,
+					ret = dcc_sram_writel(drvdata,
 							link, sram_offset);
+					if (ret)
+						goto overstep;
 					sram_offset += 4;
 				}
 				dev_dbg(drvdata->dev,
@@ -386,7 +424,10 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 					sram_offset);
 
 				/* Write address */
-				dcc_sram_writel(drvdata, addr, sram_offset);
+				ret = dcc_sram_writel(drvdata,
+						addr, sram_offset);
+				if (ret)
+					goto overstep;
 				sram_offset += 4;
 
 				/* Reset link and prev_off */
@@ -429,7 +470,10 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 			link |= DCC_LINK_DESCRIPTOR;
 
 			if (pos) {
-				dcc_sram_writel(drvdata, link, sram_offset);
+				ret = dcc_sram_writel(drvdata,
+						link, sram_offset);
+				if (ret)
+					goto overstep;
 				sram_offset += 4;
 				link = 0;
 			}
@@ -441,7 +485,9 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 	}
 
 	if (link) {
-		dcc_sram_writel(drvdata, link, sram_offset);
+		ret = dcc_sram_writel(drvdata, link, sram_offset);
+		if (ret)
+			goto overstep;
 		sram_offset += 4;
 	}
 
@@ -457,13 +503,17 @@ static int __dcc_ll_cfg(struct dcc_drvdata *drvdata, int curr_list)
 		addr = (0xC105E) & BM(0, 27);
 		addr |= DCC_ADDR_DESCRIPTOR;
 
-		dcc_sram_writel(drvdata, addr, sram_offset);
+		ret = dcc_sram_writel(drvdata, addr, sram_offset);
+		if (ret)
+			goto overstep;
 		sram_offset += 4;
 	}
 
 	/* Setting zero to indicate end of the list */
 	link = DCC_LINK_DESCRIPTOR;
-	dcc_sram_writel(drvdata, link, sram_offset);
+	ret = dcc_sram_writel(drvdata, link, sram_offset);
+	if (ret)
+		goto overstep;
 	sram_offset += 4;
 
 	/* Update ram_cfg and check if the data will overstep */
@@ -933,7 +983,8 @@ static int dcc_config_add(struct dcc_drvdata *drvdata, unsigned int addr,
 		goto err;
 	}
 
-	if (!len) {
+	/* Check the len to avoid allocate huge memory */
+	if (!len || len > (drvdata->ram_size / 8)) {
 		dev_err(drvdata->dev, "DCC: Invalid length\n");
 		ret = -EINVAL;
 		goto err;
@@ -1033,6 +1084,14 @@ static ssize_t dcc_store_config(struct device *dev,
 		apb_bus = 0;
 	} else {
 		apb_bus = 1;
+	}
+
+	if (len == 0)
+		len = 1;
+
+	if (base == 0) {
+		dev_err(drvdata->dev, "DCC: Invalid  Address\n");
+		return -EINVAL;
 	}
 
 	ret = dcc_config_add(drvdata, base, len, apb_bus);
@@ -1192,7 +1251,6 @@ void ext_dcc_disable(void)
 			dcc_sram_writel(drvdata, DCC_LINK_DESCRIPTOR, 0);	
 		}
 	}
-
 }
 
 EXPORT_SYMBOL(ext_dcc_disable);
@@ -1696,7 +1754,7 @@ static int dcc_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id msm_dcc_match[] = {
-	{ .compatible = "qcom,dcc_v2"},
+	{ .compatible = "qcom,dcc-v2"},
 	{}
 };
 
@@ -1712,15 +1770,6 @@ static struct platform_driver dcc_driver = {
 
 static int __init dcc_init(void)
 {
-#if 0 /* SS does not disable in CSB binary */
-	int ret;
-
-	ret = scm_is_secure_device();
-	if (ret == 0) {
-		pr_info("DCC is not available\n");
-		return -ENODEV;
-	}
-#endif
 	return platform_driver_register(&dcc_driver);
 }
 pure_initcall(dcc_init);

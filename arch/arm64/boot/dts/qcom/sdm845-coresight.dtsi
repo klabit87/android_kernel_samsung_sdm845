@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,6 +18,23 @@
 		reg-names = "csr-base";
 
 		coresight-name = "coresight-csr";
+		qcom,usb-bam-support;
+		qcom,hwctrl-set-support;
+		qcom,set-byte-cntr-support;
+
+		qcom,blk-size = <1>;
+	};
+
+	swao_csr: csr@6b0e000 {
+		compatible = "qcom,coresight-csr";
+		reg = <0x6b0e000 0x1000>;
+		reg-names = "csr-base";
+
+		clocks = <&clock_aop QDSS_CLK>;
+		clock-names = "apb_pclk";
+
+		coresight-name = "coresight-swao-csr";
+		qcom,timestamp-support;
 
 		qcom,blk-size = <1>;
 	};
@@ -113,6 +130,7 @@
 		reg-names = "tmc-base";
 
 		coresight-name = "coresight-tmc-etf-swao";
+		coresight-csr = <&csr>;
 
 		clocks = <&clock_aop QDSS_CLK>;
 		clock-names = "apb_pclk";
@@ -166,6 +184,15 @@
 			};
 
 			port@1 {
+				reg = <6>;
+				funnel_swao_in_sensor_etm0: endpoint {
+					slave-mode;
+					remote-endpoint=
+						<&sensor_etm0_out_funnel_swao>;
+				};
+			};
+
+			port@2 {
 				reg = <7>;
 				funnel_swao_in_tpda_swao: endpoint {
 					slave-mode;
@@ -277,6 +304,7 @@
 
 		coresight-name = "coresight-tmc-etr";
 		coresight-ctis = <&cti0 &cti8>;
+		coresight-csr = <&csr>;
 
 		clocks = <&clock_aop QDSS_CLK>;
 		clock-names = "apb_pclk";
@@ -301,6 +329,7 @@
 
 		coresight-name = "coresight-tmc-etf";
 		coresight-ctis = <&cti0 &cti8>;
+		coresight-csr = <&csr>;
 		arm,default-sink;
 
 		clocks = <&clock_aop QDSS_CLK>;
@@ -405,6 +434,7 @@
 			    "ddr-ch23-ctrl";
 
 		coresight-name = "coresight-hwevent";
+		coresight-csr = <&csr>;
 
 		clocks = <&clock_aop QDSS_CLK>;
 		clock-names = "apb_pclk";
@@ -547,6 +577,8 @@
 
 		clocks = <&clock_aop QDSS_CLK>;
 		clock-names = "apb_pclk";
+
+		status = "disabled";
 
 		ports {
 			#address-cells = <1>;
@@ -2043,6 +2075,20 @@
 				slave-mode;
 				remote-endpoint =
 					<&replicator_swao_out_eud>;
+			};
+		};
+	};
+
+	sensor_etm0 {
+		compatible = "qcom,coresight-remote-etm";
+
+		coresight-name = "coresight-sensor-etm0";
+		qcom,inst-id = <8>;
+
+		port {
+			sensor_etm0_out_funnel_swao: endpoint {
+				remote-endpoint =
+					<&funnel_swao_in_sensor_etm0>;
 			};
 		};
 	};

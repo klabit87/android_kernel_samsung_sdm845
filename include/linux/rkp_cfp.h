@@ -53,6 +53,9 @@
 
 #define RRMK dbgbvr5_el1
 
+#define ROPP_ADDR	0x9FA07020
+#define ROPP_MAGIC	0x4a4c4955
+
 #ifndef __ASSEMBLY__
 
 //two wrappers for replace and stringify

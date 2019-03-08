@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -129,8 +129,10 @@ struct tcs_mbox {
 struct rsc_drv {
 	struct mbox_controller mbox;
 	const char *name;
+	unsigned long addr;
 	void __iomem *base; /* start address of the RSC's registers */
 	void __iomem *reg_base; /* start address for DRV specific register */
+	int irq;
 	int drv_id;
 	struct platform_device *pdev;
 	struct tcs_mbox tcs[TCS_TYPE_NR];
@@ -151,7 +153,7 @@ struct rsc_drv {
 
 /* Log to IPC and Ftrace */
 #define log_send_msg(drv, m, n, i, a, d, c, t) do {			\
-	trace_rpmh_send_msg(drv->name, m, n, i, a, d, c, t);		\
+	trace_rpmh_send_msg(drv->name, drv->addr, m, n, i, a, d, c, t);	\
 	ipc_log_string(drv->ipc_log_ctx,				\
 		"send msg: m=%d n=%d msgid=0x%x addr=0x%x data=0x%x cmpl=%d trigger=%d", \
 		m, n, i, a, d, c, t);					\
@@ -695,9 +697,10 @@ static int find_match(struct tcs_mbox *tcs, struct tcs_cmd *cmd, int len)
 		}
 		/* sanity check to ensure the seq is same */
 		for (j = 1; j < len; j++) {
-			WARN((tcs->cmd_addr[i + j] != cmd[j].addr),
-				"Message does not match previous sequence.\n");
+			if (tcs->cmd_addr[i + j] != cmd[j].addr) {
+				pr_debug("Message does not match previous sequence.\n");
 				return -EINVAL;
+			}
 		}
 		found = true;
 		break;
@@ -725,12 +728,12 @@ static int find_slots(struct tcs_mbox *tcs, struct tcs_mbox_msg *msg)
 	do {
 		slot = bitmap_find_next_zero_area(tcs->slots, MAX_TCS_SLOTS,
 						n, msg->num_payload, 0);
-		if (slot == MAX_TCS_SLOTS)
+		if (slot >= MAX_TCS_SLOTS)
 			break;
 		n += tcs->ncpt;
 	} while (slot + msg->num_payload - 1 >= n);
 
-	return (slot != MAX_TCS_SLOTS) ? slot : -ENOMEM;
+	return (slot < MAX_TCS_SLOTS) ? slot : -ENOMEM;
 }
 
 static int tcs_mbox_write(struct mbox_chan *chan, struct tcs_mbox_msg *msg,
@@ -879,6 +882,8 @@ static void dump_tcs_stats(struct rsc_drv *drv)
 {
 	int i;
 	unsigned long long curr = arch_counter_get_cntvct();
+	struct irq_data *rsc_irq_data = irq_get_irq_data(drv->irq);
+	bool irq_sts;
 
 	for (i = 0; i < drv->num_tcs; i++) {
 		if (!atomic_read(&drv->tcs_in_use[i]))
@@ -892,6 +897,20 @@ static void dump_tcs_stats(struct rsc_drv *drv)
 		print_tcs_regs(drv, i);
 		print_response(drv, i);
 	}
+
+	if (rsc_irq_data) {
+		irq_get_irqchip_state(drv->irq, IRQCHIP_STATE_PENDING,
+								&irq_sts);
+		pr_warn("HW IRQ %lu is %s at GIC\n", rsc_irq_data->hwirq,
+					irq_sts ? "PENDING" : "NOT PENDING");
+	}
+
+	if (test_bit(TASKLET_STATE_SCHED, &drv->tasklet.state))
+		pr_warn("Tasklet is scheduled for execution\n");
+	else if (test_bit(TASKLET_STATE_RUN, &drv->tasklet.state))
+		pr_warn("Tasklet is running\n");
+	else
+		pr_warn("Tasklet is not active\n");
 }
 
 static void chan_debug(struct mbox_chan *chan)
@@ -981,7 +1000,8 @@ tx_fail:
 
 	/* If we were just busy waiting for TCS, dump the state and return */
 	if (ret == -EBUSY) {
-		pr_info_ratelimited("TCS Busy, retrying RPMH message send\n");
+		dev_err_ratelimited(chan->cl->dev,
+				"TCS Busy, retrying RPMH message send\n");
 		ret = -EAGAIN;
 	}
 
@@ -1127,6 +1147,7 @@ static int rsc_drv_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		return -EINVAL;
+	drv->addr = res->start;
 	drv->base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(drv->base))
 		return PTR_ERR(drv->base);
@@ -1264,6 +1285,8 @@ static int rsc_drv_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	drv->irq = irq;
+
 	/* Enable interrupts for AMC TCS */
 	write_tcs_reg(drv->reg_base, RSC_DRV_IRQ_ENABLE, 0, 0,
 					drv->tcs[ACTIVE_TCS].tcs_mask);
@@ -1294,6 +1317,7 @@ static struct platform_driver rpmh_mbox_driver = {
 	.driver = {
 		.name = KBUILD_MODNAME,
 		.of_match_table = rsc_drv_match,
+		.suppress_bind_attrs = true,
 	},
 };
 

@@ -216,6 +216,10 @@ source "drivers/fpga/Kconfig"
 
 source "drivers/sensors/Kconfig"
 
+source "drivers/optics/Kconfig"
+
+source "drivers/tee/Kconfig"
+
 source "drivers/battery_v2/Kconfig"
 
 source "drivers/fingerprint/Kconfig"
@@ -227,4 +231,10 @@ source "drivers/debug/Kconfig"
 source "drivers/adsp_factory/Kconfig"
 
 source "drivers/gud/Kconfig"
+
+source "drivers/five/Kconfig"
+
+source "drivers/gator/Kconfig"
+
+source "drivers/mpsd/Kconfig"
 endmenu

@@ -414,7 +414,7 @@ static int delete_req(struct cam_flash_ctrl *fctrl, uint64_t req_id)
 				flash_data->cmn_attr.request_id) &&
 				(flash_data->cmn_attr.
 					is_settings_valid == 1)) {
-				CAM_DBG(CAM_FLASH, "Deleting request[%d] %llu",
+				CAM_DBG(CAM_FLASH, "Deleting request[%d] %d",
 					i, flash_data->cmn_attr.request_id);
 				flash_data->cmn_attr.request_id = 0;
 				flash_data->cmn_attr.is_settings_valid = false;
@@ -436,53 +436,67 @@ int cam_flash_apply_setting(struct cam_flash_ctrl *fctrl,
 	uint16_t num_iterations;
 	struct cam_flash_frame_setting *flash_data = NULL;
 
-	if (req_id == 0) {
-    if (fctrl->nrt_info.cmn_attr.cmd_type ==
-     CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE) {
-       flash_data = &fctrl->nrt_info;
-       if (flash_data->opcode ==
-             CAMERA_SENSOR_FLASH_OP_FIREHIGH) {
-           if (fctrl->flash_state !=
-                 CAM_FLASH_STATE_CONFIG) {
-               CAM_WARN(CAM_FLASH,
-                   "Cannot apply Start Dev:Prev state: %d",
-                   fctrl->flash_state);
-               return rc;
-             }
-           rc = cam_flash_prepare(fctrl, true);
-           if (rc) {
-               CAM_ERR(CAM_FLASH,
-                   "Enable Regulator Failed rc = %d", rc);
-               return rc;
-             }
-           rc = cam_flash_high(fctrl, flash_data);
-           if (rc)
-               CAM_ERR(CAM_FLASH,
-                     "FLASH ON failed : %d",
-                     rc);
-         }
-       if (flash_data->opcode ==
-             CAMERA_SENSOR_FLASH_OP_OFF) {
-           rc = cam_flash_off(fctrl);
-           if (rc) {
-               CAM_ERR(CAM_FLASH,
-                   "LED OFF FAILED: %d",
-                   rc);
-               return rc;
-             }
-           if ((fctrl->flash_state ==
-                   CAM_FLASH_STATE_START) &&
-                 (fctrl->is_regulator_enabled == true)) {
-               rc = cam_flash_prepare(fctrl, false);
-               if (rc)
-                   CAM_ERR(CAM_FLASH,
-                       "Disable Regulator failed: %d",
-                       rc);
-             }
-         }
-    } else if (fctrl->nrt_info.cmn_attr.cmd_type ==
+	if (req_id == 0) {	
+		if (fctrl->nrt_info.cmn_attr.cmd_type ==
+			CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE) {
+			flash_data = &fctrl->nrt_info;
+		   
+			if (flash_data->opcode ==
+				CAMERA_SENSOR_FLASH_OP_FIREHIGH) {
+				if (fctrl->flash_state !=
+					CAM_FLASH_STATE_CONFIG) {
+					CAM_WARN(CAM_FLASH,
+						"Cannot apply Start Dev:Prev state: %d",
+						fctrl->flash_state);
+					return rc;
+				}
+				rc = cam_flash_prepare(fctrl, true);
+				if (rc) {
+					CAM_ERR(CAM_FLASH,
+						"Enable Regulator Failed rc = %d", rc);
+					return rc;
+				}
+				rc = cam_flash_high(fctrl, flash_data);
+				if (rc)
+					CAM_ERR(CAM_FLASH,
+					"FLASH ON failed : %d",
+					rc);
+			}
+			
+			if (flash_data->opcode ==
+				CAMERA_SENSOR_FLASH_OP_OFF) {
+				rc = cam_flash_off(fctrl);
+				if (rc) {
+					CAM_ERR(CAM_FLASH,
+						"LED OFF FAILED: %d",
+					rc);
+					return rc;
+				}
+				if ((fctrl->flash_state ==
+					CAM_FLASH_STATE_START) &&
+					(fctrl->is_regulator_enabled == true)) {
+					rc = cam_flash_prepare(fctrl, false);
+					if (rc)
+						CAM_ERR(CAM_FLASH,
+							"Disable Regulator failed: %d",
+							rc);
+				}
+			}
+			
+			if (flash_data->opcode ==
+				CAMERA_SENSOR_FLASH_OP_FIRETORCH) {
+				rc = cam_flash_torch(fctrl, flash_data);
+				if (rc) {
+					CAM_ERR(CAM_FLASH,
+						"Torch ON failed : %d",
+						rc);
+					return rc;
+				}
+			}	   
+		} else if (fctrl->nrt_info.cmn_attr.cmd_type ==
 			CAMERA_SENSOR_FLASH_CMD_TYPE_WIDGET) {
 			flash_data = &fctrl->nrt_info;
+			
 			if (flash_data->opcode ==
 				CAMERA_SENSOR_FLASH_OP_FIRELOW) {
 				rc = cam_flash_low(fctrl, flash_data);
@@ -608,7 +622,7 @@ int cam_flash_apply_setting(struct cam_flash_ctrl *fctrl,
 				goto apply_setting_err;
 			}
 		} else {
-			CAM_DBG(CAM_FLASH, "NOP opcode: req_id: %u", req_id);
+			CAM_DBG(CAM_FLASH, "NOP opcode: req_id: %lld", req_id);
 		}
 	}
 
@@ -669,6 +683,7 @@ int cam_flash_parser(struct cam_flash_ctrl *fctrl, void *arg)
 	csl_packet = (struct cam_packet *)(generic_ptr + config.offset);
 
 	switch (csl_packet->header.op_code & 0xFFFFFF) {
+		
 	case CAM_FLASH_PACKET_OPCODE_INIT: {
 		/* INIT packet*/
 		offset = (uint32_t *)((uint8_t *)&csl_packet->payload +
@@ -681,41 +696,48 @@ int cam_flash_parser(struct cam_flash_ctrl *fctrl, void *arg)
 		cmd_buf = (uint32_t *)((uint8_t *)generic_ptr +
 			cmd_desc->offset);
 		cam_flash_info = (struct cam_flash_init *)cmd_buf;
+		cmn_hdr = (struct common_header *)cmd_buf;
 
+		if (cam_flash_info->cmd_type == CAMERA_SENSOR_CMD_TYPE_INVALID) {
+			cam_flash_info->cmd_type = cmn_hdr->cmd_type; //temp code for torch
+		}
+		
 		switch (cam_flash_info->cmd_type) {
+			
 		case CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_INFO:
 			fctrl->flash_type = cam_flash_info->flash_type;
 			fctrl->is_regulator_enabled = false;
 			fctrl->nrt_info.cmn_attr.cmd_type =
 				CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_INFO;
-      fctrl->flash_state =
-        CAM_FLASH_STATE_CONFIG;
-      break;
-   case CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE:
-       CAM_DBG(CAM_FLASH, "Widget Flash Operation");
-       flash_operation_info =
-           (struct cam_flash_set_on_off *) cmd_buf;
-       fctrl->nrt_info.cmn_attr.count =
-           flash_operation_info->count;
-       fctrl->nrt_info.cmn_attr.request_id = 0;
-       fctrl->nrt_info.opcode =
-           flash_operation_info->opcode;
-       fctrl->nrt_info.cmn_attr.cmd_type =
-           CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE;
-       for (i = 0;
-             i < flash_operation_info->count; i++)
-           fctrl->nrt_info.led_current_ma[i] =
-           flash_operation_info->led_current_ma[i];
+			fctrl->flash_state =
+				CAM_FLASH_STATE_CONFIG;
+			break;
+		case CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE:
+			CAM_DBG(CAM_FLASH, "Widget Flash Operation");
+			flash_operation_info =
+				(struct cam_flash_set_on_off *) cmd_buf;
+			fctrl->nrt_info.cmn_attr.count =
+				flash_operation_info->count;
+			fctrl->nrt_info.cmn_attr.request_id = 0;
+			fctrl->nrt_info.opcode =
+				flash_operation_info->opcode;
+			fctrl->nrt_info.cmn_attr.cmd_type =
+				CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE;
+			for (i = 0;
+			i < flash_operation_info->count; i++)
+				fctrl->nrt_info.led_current_ma[i] =
+					flash_operation_info->led_current_ma[i];
 
-         mutex_lock(&fctrl->flash_wq_mutex);
-       rc = cam_flash_apply_setting(fctrl, 0);
-       if (rc)
-           CAM_ERR(CAM_FLASH,
-                 "Apply setting failed: %d",
-                 rc);
-       mutex_unlock(&fctrl->flash_wq_mutex);
-       fctrl->flash_state =
-           CAM_FLASH_STATE_CONFIG;
+			mutex_lock(&fctrl->flash_wq_mutex);
+			rc = cam_flash_apply_setting(fctrl, 0);
+			if (rc)
+				CAM_ERR(CAM_FLASH,
+				"Apply setting failed: %d",
+				rc);
+			mutex_unlock(&fctrl->flash_wq_mutex);
+			fctrl->flash_state =
+				CAM_FLASH_STATE_CONFIG;
+			break;
 		default:
 			CAM_ERR(CAM_FLASH, "Wrong cmd_type = %d",
 				cam_flash_info->cmd_type);
@@ -917,7 +939,7 @@ int cam_flash_parser(struct cam_flash_ctrl *fctrl, void *arg)
 			return 0;
 		}
 
-		CAM_DBG(CAM_FLASH, "NOP Packet is Received: req_id: %u",
+		CAM_DBG(CAM_FLASH, "NOP Packet is Received: req_id: %lld",
 			csl_packet->header.request_id);
 		goto update_req_mgr;
 	}

@@ -49,7 +49,7 @@
 #define SS_LOG_ID_CRASH			(4)
 #define SS_LOG_ID_KERNEL		(5)
 
-#define MAX_BUFFER_SIZE	64
+#define MAX_BUFFER_SIZE	1024
 
 struct ss_pmsg_log_header_t {
 	uint8_t magic;
@@ -100,6 +100,9 @@ static struct event_log_tag_t event_tags[] = {
 	{ 42, "answer" },
 	{ 314, "pi" },
 	{ 1003, "auditd" },
+	{ 1004, "chatty" },
+	{ 1005, "tag_def" },
+	{ 1006, "liblog" },
 	{ 2718, "e" },
 	{ 2719, "configuration_changed" },
 	{ 2720, "sync" },
@@ -113,19 +116,19 @@ static struct event_log_tag_t event_tags[] = {
 	{ 2728, "power_screen_state" },
 	{ 2729, "power_partial_wake_state" },
 	{ 2730, "battery_discharge" },
+	{ 2731, "power_soft_sleep_requested" },
+	{ 2732, "storaged_disk_stats" },
+	{ 2733, "storaged_emmc_info" },
+	{ 2739, "battery_saver_mode" },
 	{ 2740, "location_controller" },
 	{ 2741, "force_gc" },
 	{ 2742, "tickle" },
-	{ 2744, "free_storage_changed" },
-	{ 2745, "low_storage" },
-	{ 2746, "free_storage_left" },
 	{ 2747, "contacts_aggregation" },
 	{ 2748, "cache_file_deleted" },
+	{ 2749, "storage_state" },
 	{ 2750, "notification_enqueue" },
 	{ 2751, "notification_cancel" },
 	{ 2752, "notification_cancel_all" },
-	{ 2753, "idle_maintenance_window_start" },
-	{ 2754, "idle_maintenance_window_finish" },
 	{ 2755, "fstrim_start" },
 	{ 2756, "fstrim_finish" },
 	{ 2802, "watchdog" },
@@ -146,6 +149,8 @@ static struct event_log_tag_t event_tags[] = {
 	{ 2825, "backup_success" },
 	{ 2826, "backup_reset" },
 	{ 2827, "backup_initialize" },
+	{ 2828, "backup_requested" },
+	{ 2829, "backup_quota_exceeded" },
 	{ 2830, "restore_start" },
 	{ 2831, "restore_transport_failure" },
 	{ 2832, "restore_agent_failure" },
@@ -156,7 +161,14 @@ static struct event_log_tag_t event_tags[] = {
 	{ 2842, "full_backup_transport_failure" },
 	{ 2843, "full_backup_success" },
 	{ 2844, "full_restore_package" },
+	{ 2845, "full_backup_quota_exceeded" },
+	{ 2846, "full_backup_cancelled" },
 	{ 2850, "backup_transport_lifecycle" },
+	{ 2851, "backup_transport_connection" },
+	{ 2900, "rescue_note" },
+	{ 2901, "rescue_level" },
+	{ 2902, "rescue_success" },
+	{ 2903, "rescue_failure" },
 	{ 3000, "boot_progress_start" },
 	{ 3010, "boot_progress_system_run" },
 	{ 3020, "boot_progress_preload_start" },
@@ -170,16 +182,25 @@ static struct event_log_tag_t event_tags[] = {
 	{ 3100, "boot_progress_pms_ready" },
 	{ 3110, "unknown_sources_enabled" },
 	{ 3120, "pm_critical_info" },
+	{ 3121, "pm_package_stats" },
 	{ 4000, "calendar_upgrade_receiver" },
 	{ 4100, "contacts_upgrade_receiver" },
+	{ 8000, "job_deferred_execution" },
 	{ 20003, "dvm_lock_sample" },
+	{ 20004, "art_hidden_api_access" },
+	{ 27390, "battery_saving_stats" },
+	{ 27391, "user_activity_timeout_override" },
+	{ 27392, "battery_saver_setting" },
 	{ 27500, "notification_panel_revealed" },
 	{ 27501, "notification_panel_hidden" },
 	{ 27510, "notification_visibility_changed" },
 	{ 27511, "notification_expansion" },
 	{ 27520, "notification_clicked" },
+	{ 27521, "notification_action_clicked" },
 	{ 27530, "notification_canceled" },
-	{ 27531, "notification_visibility"  },
+	{ 27531, "notification_visibility" },
+	{ 27532, "notification_alert" },
+	{ 27533, "notification_autogrouped" },
 	{ 30001, "am_finish_activity" },
 	{ 30002, "am_task_to_front" },
 	{ 30003, "am_new_intent" },
@@ -217,7 +238,7 @@ static struct event_log_tag_t event_tags[] = {
 	{ 30040, "am_wtf" },
 	{ 30041, "am_switch_user" },
 	{ 30042, "am_activity_fully_drawn_time" },
-	{ 30043, "am_focused_activity" },
+	{ 30043, "am_set_resumed_activity" },
 	{ 30044, "am_focused_stack" },
 	{ 30045, "am_pre_boot" },
 	{ 30046, "am_meminfo" },
@@ -225,6 +246,18 @@ static struct event_log_tag_t event_tags[] = {
 	{ 30048, "am_stop_activity" },
 	{ 30049, "am_on_stop_called" },
 	{ 30050, "am_mem_factor" },
+	{ 30051, "am_user_state_changed" },
+	{ 30052, "am_uid_running" },
+	{ 30053, "am_uid_stopped" },
+	{ 30054, "am_uid_active" },
+	{ 30055, "am_uid_idle" },
+	{ 30056, "am_stop_idle_service" },
+	{ 30057, "am_on_create_called" },
+	{ 30058, "am_on_restart_called" },
+	{ 30059, "am_on_start_called" },
+	{ 30060, "am_on_destroy_called" },
+	{ 30061, "am_remove_task" },
+	{ 30062, "am_on_activity_result_called" },
 	{ 31000, "wm_no_surface_memory" },
 	{ 31001, "wm_task_created" },
 	{ 31002, "wm_task_moved" },
@@ -232,24 +265,45 @@ static struct event_log_tag_t event_tags[] = {
 	{ 31004, "wm_stack_created" },
 	{ 31005, "wm_home_stack_moved" },
 	{ 31006, "wm_stack_removed" },
-	{ 31007, "boot_progress_enable_screen" },
+	{ 31007, "wm_boot_animation_done" },
 	{ 32000, "imf_force_reconnect_ime" },
+	{ 33000, "wp_wallpaper_crashed" },
+	{ 34000, "device_idle" },
+	{ 34001, "device_idle_step" },
+	{ 34002, "device_idle_wake_from_idle" },
+	{ 34003, "device_idle_on_start" },
+	{ 34004, "device_idle_on_phase" },
+	{ 34005, "device_idle_on_complete" },
+	{ 34006, "device_idle_off_start" },
+	{ 34007, "device_idle_off_phase" },
+	{ 34008, "device_idle_off_complete" },
+	{ 34009, "device_idle_light" },
+	{ 34010, "device_idle_light_step" },
+	{ 35000, "auto_brightness_adj" },
 	{ 36000, "sysui_statusbar_touch" },
 	{ 36001, "sysui_heads_up_status" },
+	{ 36002, "sysui_fullscreen_notification" },
+	{ 36003, "sysui_heads_up_escalation" },
 	{ 36004, "sysui_status_bar_state" },
 	{ 36010, "sysui_panelbar_touch" },
 	{ 36020, "sysui_notificationpanel_touch" },
+	{ 36021, "sysui_lockscreen_gesture" },
 	{ 36030, "sysui_quickpanel_touch" },
 	{ 36040, "sysui_panelholder_touch" },
 	{ 36050, "sysui_searchpanel_touch" },
-	{ 40000, "volume_changed"  },
-	{ 40001, "stream_devices_changed"  },
+	{ 36060, "sysui_recents_connection" },
+	{ 36070, "sysui_latency" },
+	{ 40000, "volume_changed" },
+	{ 40001, "stream_devices_changed" },
+	{ 40100, "camera_gesture_triggered" },
 	{ 50000, "menu_item_selected" },
 	{ 50001, "menu_opened" },
 	{ 50020, "connectivity_state_changed" },
 	{ 50021, "wifi_state_changed" },
 	{ 50022, "wifi_event_handled" },
 	{ 50023, "wifi_supplicant_state_changed" },
+	{ 50080, "ntp_success" },
+	{ 50081, "ntp_failure" },
 	{ 50100, "pdp_bad_dns_address" },
 	{ 50101, "pdp_radio_reset_countdown_triggered" },
 	{ 50102, "pdp_radio_reset" },
@@ -283,11 +337,31 @@ static struct event_log_tag_t event_tags[] = {
 	{ 51202, "lockdown_vpn_error" },
 	{ 51300, "config_install_failed" },
 	{ 51400, "ifw_intent_matched" },
+	{ 51500, "idle_maintenance_window_start" },
+	{ 51501, "idle_maintenance_window_finish" },
+	{ 51600, "timezone_trigger_check" },
+	{ 51610, "timezone_request_install" },
+	{ 51611, "timezone_install_started" },
+	{ 51612, "timezone_install_complete" },
+	{ 51620, "timezone_request_uninstall" },
+	{ 51621, "timezone_uninstall_started" },
+	{ 51622, "timezone_uninstall_complete" },
+	{ 51630, "timezone_request_nothing" },
+	{ 51631, "timezone_nothing_complete" },
+	{ 51690, "timezone_check_trigger_received" },
+	{ 51691, "timezone_check_read_from_data_app" },
+	{ 51692, "timezone_check_request_uninstall" },
+	{ 51693, "timezone_check_request_install" },
+	{ 51694, "timezone_check_request_nothing" },
 	{ 52000, "db_sample" },
 	{ 52001, "http_stats" },
 	{ 52002, "content_query_sample" },
 	{ 52003, "content_update_sample" },
 	{ 52004, "binder_sample" },
+	{ 52100, "unsupported_settings_query" },
+	{ 52101, "persist_setting_error" },
+	{ 53000, "harmful_app_warning_uninstall" },
+	{ 53001, "harmful_app_warning_launch_anyway" },
 	{ 60000, "viewroot_draw" },
 	{ 60001, "viewroot_layout" },
 	{ 60002, "view_build_drawing_cache" },
@@ -298,31 +372,22 @@ static struct event_log_tag_t event_tags[] = {
 	{ 70000, "screen_toggled" },
 	{ 70101, "browser_zoom_level_change" },
 	{ 70102, "browser_double_tap_duration" },
-	{ 70103, "browser_bookmark_added" },
-	{ 70104, "browser_page_loaded" },
-	{ 70105, "browser_timeonpage" },
 	{ 70150, "browser_snap_center" },
 	{ 70151, "exp_det_attempt_to_call_object_getclass" },
 	{ 70200, "aggregation" },
 	{ 70201, "aggregation_test" },
-	{ 70300, "telephony_event" },
+	{ 70220, "gms_unknown" },
 	{ 70301, "phone_ui_enter" },
 	{ 70302, "phone_ui_exit" },
 	{ 70303, "phone_ui_button_click" },
 	{ 70304, "phone_ui_ringer_query_elapsed" },
 	{ 70305, "phone_ui_multiple_query" },
-	{ 70310, "telecom_event" },
-	{ 70311, "telecom_service" },
 	{ 71001, "qsb_start" },
 	{ 71002, "qsb_click" },
 	{ 71003, "qsb_search" },
 	{ 71004, "qsb_voice_search" },
 	{ 71005, "qsb_exit" },
 	{ 71006, "qsb_latency" },
-	{ 73001, "input_dispatcher_slow_event_processing" },
-	{ 73002, "input_dispatcher_stale_event" },
-	{ 73100, "looper_slow_lap_time" },
-	{ 73200, "choreographer_frame_skip" },
 	{ 75000, "sqlite_mem_alarm_current" },
 	{ 75001, "sqlite_mem_alarm_max" },
 	{ 75002, "sqlite_mem_alarm_alloc_attempt" },
@@ -345,11 +410,13 @@ static struct event_log_tag_t event_tags[] = {
 	{ 80300, "bionic_event_resolver_old_response" },
 	{ 80305, "bionic_event_resolver_wrong_server" },
 	{ 80310, "bionic_event_resolver_wrong_query" },
+	{ 81002, "dropbox_file_copy" },
 	{ 90100, "exp_det_cert_pin_failure" },
 	{ 90200, "lock_screen_type" },
 	{ 90201, "exp_det_device_admin_activated_by_user" },
 	{ 90202, "exp_det_device_admin_declined_by_user" },
-	{ 90300, "install_package_attempt" },
+	{ 90203, "exp_det_device_admin_uninstalled_by_user" },
+	{ 90204, "settings_latency" },
 	{ 201001, "system_update" },
 	{ 201002, "system_update_user" },
 	{ 202001, "vending_reconstruct" },
@@ -374,19 +441,55 @@ static struct event_log_tag_t event_tags[] = {
 	{ 205011, "google_mail_switch" },
 	{ 206001, "snet" },
 	{ 206003, "exp_det_snet" },
-	{ 1050101, "nitz_information" },
-	{ 1230000, "am_create_stack" },
-	{ 1230001, "am_remove_stack" },
-	{ 1230002, "am_move_task_to_stack" },
-	{ 1230003, "am_exchange_task_to_stack" },
-	{ 1230004, "am_create_task_to_stack" },
-	{ 1230005, "am_focus_stack" },
-	{ 1260001, "vs_move_task_to_display" },
-	{ 1260002, "vs_create_display" },
-	{ 1260003, "vs_remove_display" },
-	{ 1261000, "am_start_user " },
-	{ 1261001, "am_stop_user " },
+	{ 208000, "metrics_heartbeat" },
+	{ 210001, "security_adb_shell_interactive" },
+	{ 210002, "security_adb_shell_command" },
+	{ 210003, "security_adb_sync_recv" },
+	{ 210004, "security_adb_sync_send" },
+	{ 210005, "security_app_process_start" },
+	{ 210006, "security_keyguard_dismissed" },
+	{ 210007, "security_keyguard_dismiss_auth_attempt" },
+	{ 210008, "security_keyguard_secured" },
+	{ 210009, "security_os_startup" },
+	{ 210010, "security_os_shutdown" },
+	{ 210011, "security_logging_started" },
+	{ 210012, "security_logging_stopped" },
+	{ 210013, "security_media_mounted" },
+	{ 210014, "security_media_unmounted" },
+	{ 210015, "security_log_buffer_size_critical" },
+	{ 210016, "security_password_expiration_set" },
+	{ 210017, "security_password_complexity_set" },
+	{ 210018, "security_password_history_length_set" },
+	{ 210019, "security_max_screen_lock_timeout_set" },
+	{ 210020, "security_max_password_attempts_set" },
+	{ 210021, "security_keyguard_disabled_features_set" },
+	{ 210022, "security_remote_lock" },
+	{ 210023, "security_wipe_failed" },
+	{ 210024, "security_key_generated" },
+	{ 210025, "security_key_imported" },
+	{ 210026, "security_key_destroyed" },
+	{ 210027, "security_user_restriction_added" },
+	{ 210028, "security_user_restriction_removed" },
+	{ 210029, "security_cert_authority_installed" },
+	{ 210030, "security_cert_authority_removed" },
+	{ 210031, "security_crypto_self_test_completed" },
+	{ 210032, "security_key_integrity_violation" },
+	{ 210033, "security_cert_validation_failure" },
+	{ 230000, "service_manager_stats" },
+	{ 230001, "service_manager_slow" },
+	{ 275534, "notification_unautogrouped" },
+	{ 300000, "arc_system_event" },
+	{ 524287, "sysui_view_visibility" },
+	{ 524288, "sysui_action" },
+	{ 524290, "sysui_count" },
+	{ 524291, "sysui_histogram" },
+	{ 524292, "sysui_multi_action" },
+	{ 525000, "commit_sys_config_file" },
+	{ 1010000, "bt_hci_timeout" },
+	{ 1010001, "bt_config_source" },
+	{ 1010002, "bt_hci_unknown_type" },
 	{ 1397638484, "snet_event_log" },
+	{ 1937006964, "stats_log" },
 };
 
 static const char *find_tag_name_from_id(int id)
@@ -445,9 +548,10 @@ static off_t parse_buffer(char *buffer, unsigned char type, off_t pos)
 		unsigned int len_to_copy =
 			min(len, (unsigned int)(MAX_BUFFER_SIZE - 1));
 
-		next += sizeof(int) + len;
+		pos += sizeof(unsigned int);
+		next += sizeof(unsigned int) + len;
 
-		memcpy(buf, buffer, len_to_copy);
+		memcpy(buf, &buffer[pos], len_to_copy);
 		logger.func_hook_logger(buf, len_to_copy);
 	}
 	break;
@@ -499,12 +603,11 @@ static inline void __ss_logger_level_prefix(char *buffer, size_t count)
 
 	logbuf[0] = prio < strlen(kPrioChars) ?
 		kPrioChars[prio] : '?';
-	logbuf[1] = ' ';
 
 #ifdef CONFIG_SEC_EVENT_LOG
 	logger.msg[0] = 0xff;
 #endif
-	logger.func_hook_logger(logbuf, SS_LOGGER_LEVEL_PREFIX);
+	logger.func_hook_logger(logbuf, 1);
 }
 
 static inline void __ss_logger_level_text_event_log(char *buffer, size_t count)
@@ -516,50 +619,38 @@ static inline void __ss_logger_level_text_event_log(char *buffer, size_t count)
 	const char *tag_name;
 
 	tag_name = find_tag_name_from_id(tag_id);
-
 	if (count == 4 && tag_name) {
-		buf_len = scnprintf(buf, MAX_BUFFER_SIZE, " # %s ", tag_name);
+		buf_len = scnprintf(buf, MAX_BUFFER_SIZE, "# %s", tag_name);
 		logger.func_hook_logger(buf, buf_len);
 	} else {
-		/* SINGLE ITEM
-		 * logger.msg[0] => count == 1,
-		 * if event log, it is type.
-		 */
-		if (logger.msg[0] == EVENT_TYPE_LONG ||
-		    logger.msg[0] == EVENT_TYPE_INT ||
-		    logger.msg[0] == EVENT_TYPE_FLOAT)
-			parse_buffer(buffer, logger.msg[0], 0);
-		else if (count > 6) {
-		/* TYPE(1) + ITEMS(1) + SINGLEITEM(5) or STRING(2+4+1>..)
-		 * CASE 2,3:
-		 * STRING OR LIST ITEM
-		 */
-			if (*buffer == EVENT_TYPE_LIST) {
-				size_t items = (size_t)buffer[1];
-				size_t i;
-				off_t pos = 0;
-				unsigned char type;
+		if (*buffer == EVENT_TYPE_LONG ||
+		    *buffer == EVENT_TYPE_INT ||
+		    *buffer == EVENT_TYPE_FLOAT ||
+		    *buffer == EVENT_TYPE_STRING)
+			parse_buffer(buffer, *buffer, 1);
+		else if (*buffer == EVENT_TYPE_LIST) {
+			size_t items = (size_t)buffer[1];
+			size_t i;
+			off_t pos = 0;
+			unsigned char type;
 
-				pos += 2;
+			pos += 2;
 
-				logger.func_hook_logger("[", 1);
-
-				for (i = 0; i < items; i++) {
-					if (unlikely(pos > count)) {
-						pr_warn("out-of-bound error %zu / %zu",
-								pos, count);
-						break;
-					}
-
-					type = buffer[pos++];
-
-					pos = parse_buffer(buffer, type, pos);
-					logger.func_hook_logger(":", 1);
+			logger.func_hook_logger("[", 1);
+			for (i = 0; i < items; i++) {
+				if (unlikely(pos > count)) {
+					pr_warn("out-of-bound error %zu / %zu",
+							pos, count);
+					break;
 				}
 
-				logger.func_hook_logger("]", 1);
-			} else if (*buffer == EVENT_TYPE_STRING)
-				parse_buffer(buffer, EVENT_TYPE_STRING, 1);
+				type = buffer[pos++];
+
+				pos = parse_buffer(buffer, type, pos);
+				if (i < items -1)
+					logger.func_hook_logger(",", 1);
+			}
+			logger.func_hook_logger("]", 1);
 		}
 
 		logger.msg[0] = 0xff; /* dummy value; */
@@ -613,6 +704,7 @@ static int ss_combine_pmsg(char *buffer, size_t count, unsigned int level)
 		pr_warn("Unknown logger level : %u\n", level);
 		break;
 	}
+	logger.func_hook_logger(" ", 1);
 
 	return 0;
 }

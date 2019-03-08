@@ -21,6 +21,9 @@
 #include <linux/muic/muic.h>
 #include <linux/muic/max77705-muic.h>
 #include <linux/battery/battery_notifier.h>
+#if defined(CONFIG_TYPEC)
+#include <linux/usb/typec.h>
+#endif
 
 struct max77705_opcode {
 	unsigned char opcode;
@@ -153,7 +156,6 @@ struct max77705_usbc_platform_data {
 	int host_turn_on_event;
 	int host_turn_on_wait_time;
 	int is_samsung_accessory_enter_mode;
-	int send_vdm_identity;
 	u8 sbu[2];
 	u8 is_sbu_done;
 	u8 selftest;
@@ -189,7 +191,18 @@ struct max77705_usbc_platform_data {
 	int data_role;
 	int try_state_change;
 	struct delayed_work role_swap_work;
+#elif defined(CONFIG_TYPEC)
+	struct typec_port *port;
+	struct typec_partner *partner;
+	struct usb_pd_identity partner_identity;
+	struct typec_capability typec_cap;
+	struct completion typec_reverse_completion;
+	int typec_power_role;
+	int typec_data_role;
+	int typec_try_state_change;
+	int pwr_opmode;
 #endif
+	bool pd_support;
 	struct delayed_work usb_external_notifier_register_work;
 	struct notifier_block usb_external_notifier_nb;
 	int mpsm_mode;
@@ -211,6 +224,7 @@ struct max77705_usbc_platform_data {
 	struct delayed_work factory_state_work;
 	struct delayed_work factory_rid_work;
 #endif
+	int detach_done_wait;
 };
 
 /* Function Status from s2mm005 definition */
@@ -258,6 +272,9 @@ extern void max77705_vbus_turn_on_ctrl(struct max77705_usbc_platform_data *usbc_
 extern void max77705_dp_detach(void *data);
 void max77705_usbc_disable_auto_vbus(struct max77705_usbc_platform_data *usbc_data);
 extern bool check_usbc_opcode_queue(void);
+#if defined(CONFIG_TYPEC)
+int max77705_get_pd_support(struct max77705_usbc_platform_data *usbc_data);
+#endif
 extern const uint8_t BOOT_FLASH_FW_PASS2[];
 extern const uint8_t BOOT_FLASH_FW_PASS3[];
 

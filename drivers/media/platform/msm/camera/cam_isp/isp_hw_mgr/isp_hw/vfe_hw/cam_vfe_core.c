@@ -24,6 +24,11 @@
 #include "cam_ife_hw_mgr.h"
 #include "cam_debug_util.h"
 
+#define CAM_VFE_WM_MAX 20
+#define CAM_VFE_WM_BASE_ADDR 0x00002200
+#define CAM_VFE_WM_REG_SIZE  0x00000100
+#define CAM_VFE_WM_n_CFG_ADDR(n) ((CAM_VFE_WM_BASE_ADDR + n*CAM_VFE_WM_REG_SIZE) + 0x8)
+
 static const char drv_name[] = "vfe";
 static uint32_t irq_reg_offset[CAM_IFE_IRQ_REGISTERS_MAX] = {
 	0x0000006C,
@@ -195,6 +200,12 @@ static int cam_vfe_irq_err_top_half(uint32_t    evt_id,
 			core_info->irq_err_handle);
 		cam_irq_controller_clear_and_mask(evt_id,
 			core_info->vfe_irq_controller);
+		CAM_ERR(CAM_ISP, "Stopping WMs");
+		/*stop all the WMs for this VFE*/
+		for (i = 0; i < CAM_VFE_WM_MAX; i++)
+			cam_io_w_mb(0x0, handler_priv->mem_base +
+				CAM_VFE_WM_n_CFG_ADDR(i));
+
 		error_flag = true;
 	}
 

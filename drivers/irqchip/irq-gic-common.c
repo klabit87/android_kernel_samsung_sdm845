@@ -21,6 +21,8 @@
 
 #include "irq-gic-common.h"
 
+static DEFINE_RAW_SPINLOCK(irq_controller_lock);
+
 static const struct gic_kvm_info *gic_kvm_info;
 
 const struct gic_kvm_info *gic_get_kvm_info(void)
@@ -50,22 +52,26 @@ int gic_configure_irq(unsigned int irq, unsigned int type,
 {
 	u32 confmask = 0x2 << ((irq % 16) * 2);
 	u32 confoff = (irq / 16) * 4;
-	u32 newval, oldval, curval;
+	u32 val, oldval;
 	int ret = 0;
+	unsigned long flags;
 
 	/*
 	 * Read current configuration register, and insert the config
 	 * for "irq", depending on "type".
 	 */
-	newval = oldval = readl_relaxed(base + GIC_DIST_CONFIG + confoff);
+	raw_spin_lock_irqsave(&irq_controller_lock, flags);
+	val = oldval = readl_relaxed(base + GIC_DIST_CONFIG + confoff);
 	if (type & IRQ_TYPE_LEVEL_MASK)
-		newval &= ~confmask;
+		val &= ~confmask;
 	else if (type & IRQ_TYPE_EDGE_BOTH)
-		newval |= confmask;
+		val |= confmask;
 
 	/* If the current configuration is the same, then we are done */
-	if (newval == oldval)
+	if (val == oldval) {
+		raw_spin_unlock_irqrestore(&irq_controller_lock, flags);
 		return 0;
+	}
 
 	/*
 	 * Write back the new configuration, and possibly re-enable
@@ -75,17 +81,15 @@ int gic_configure_irq(unsigned int irq, unsigned int type,
 	 * does not allow us to set the configuration or we are in a
 	 * non-secure mode, and hence it may not be catastrophic.
 	 */
-	writel_relaxed(newval, base + GIC_DIST_CONFIG + confoff);
-	curval = readl_relaxed(base + GIC_DIST_CONFIG + confoff);
-	if (curval != newval) {
-		if (WARN_ON(irq >= 32)) {
-			pr_err("irq(%u), type(0x%x), old(0x%x), new(0x%x), cur(0x%x)\n",
-				irq, type, oldval, newval, curval);
+	writel_relaxed(val, base + GIC_DIST_CONFIG + confoff);
+	if (readl_relaxed(base + GIC_DIST_CONFIG + confoff) != val) {
+		if (WARN_ON(irq >= 32))
 			ret = -EINVAL;
-		} else
+		else
 			pr_warn("GIC: PPI%d is secure or misconfigured\n",
 				irq - 16);
 	}
+	raw_spin_unlock_irqrestore(&irq_controller_lock, flags);
 
 	if (sync_access)
 		sync_access();

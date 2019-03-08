@@ -113,7 +113,18 @@ int cam_ois_driver_soc_init(struct cam_ois_ctrl_t *o_ctrl)
 			return rc;
 		}
 	}
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	rc = of_property_read_u32(of_node, "slave-addr", 
+		&o_ctrl->slave_addr);
+	if (rc < 0) {
+		pr_err("%s failed rc %d\n", __func__, rc);		
+	}
+        o_ctrl->reset_ctrl_gpio = of_get_named_gpio(of_node, "gpio-reset-ctrl", 0);
+        o_ctrl->boot0_ctrl_gpio = of_get_named_gpio(of_node, "gpio-boot0-ctrl", 0);
 
+	CAM_ERR(CAM_OIS, ": client->addr=0x%x slave_addr=0x%x reset=%d  boot0=%d",o_ctrl->io_master_info.client->addr, o_ctrl->slave_addr, 
+		o_ctrl->reset_ctrl_gpio, o_ctrl->boot0_ctrl_gpio);	
+#endif
 	rc = cam_ois_get_dt_data(o_ctrl);
 	if (rc < 0)
 		CAM_DBG(CAM_OIS, "failed: ois get dt data rc %d", rc);

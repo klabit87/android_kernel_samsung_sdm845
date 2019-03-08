@@ -35,7 +35,6 @@ enum {
 	CCIC_DOCK_NEW		= 200,  /* For New uevent */
 };
 
-#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 typedef enum {
 	TYPE_C_DETACH = 0,
 	TYPE_C_ATTACH_DFP = 1, /* Host */
@@ -43,8 +42,19 @@ typedef enum {
 	TYPE_C_ATTACH_DRP = 3, /* Dual role */
 } CCIC_OTP_MODE;
 
-#define DUAL_ROLE_SET_MODE_WAIT_MS 1500
+#if defined(CONFIG_TYPEC)
+typedef enum {
+	TRY_ROLE_SWAP_NONE = 0,
+	TRY_ROLE_SWAP_PR = 1, /* pr_swap */
+	TRY_ROLE_SWAP_DR = 2, /* dr_swap */
+	TRY_ROLE_SWAP_TYPE = 3, /* type */
+} CCIC_ROLE_SWAP_MODE;
+
+#define TRY_ROLE_SWAP_WAIT_MS 5000
 #endif
+
+#define DUAL_ROLE_SET_MODE_WAIT_MS 1500
+
 #define GEAR_VR_DETACH_WAIT_MS		1000
 
 #if defined(CONFIG_CCIC_NOTIFIER)

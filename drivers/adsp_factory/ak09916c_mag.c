@@ -15,6 +15,9 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
+#ifdef CONFIG_SUPPORT_DEVICE_MODE
+#include <linux/hall.h>
+#endif
 #include "adsp.h"
 #define VENDOR "AKM"
 #define CHIP_ID "AK09916C"
@@ -23,38 +26,6 @@
 #define AK09911C_MODE_POWERDOWN 0x00
 #define SNS_EFAIL 1
 #define SNS_SUCCEES 0
-
-static int mag_read_register(struct device *dev,
-	struct device_attribute *attr)
-{
-#if 0
-	struct adsp_data *data = dev_get_drvdata(dev);
-	struct msg_data message;
-	uint8_t cnt = 0;
-
-	adsp_unicast(&message, sizeof(message),
-		MSG_MAG, 0, MSG_TYPE_MAG_READ_REGISTERS);
-
-	while (!(data->ready_flag[MSG_TYPE_MAG_READ_REGISTERS] & 1 << MSG_MAG)
-		&& cnt++ < TIMEOUT_CNT)
-		msleep(20);
-
-	data->ready_flag[MSG_TYPE_MAG_READ_REGISTERS] &= ~(1 << MSG_MAG);
-
-	if (cnt >= TIMEOUT_CNT) {
-		pr_err("[FACTORY] %s: Timeout!!!\n", __func__);
-		return -SNS_EFAIL;
-	}
-
-	pr_info("[FACTORY] %s: result %d\n", __func__, data->msg_buf[MSG_MAG][0]);
-
-	if (data->msg_buf[MSG_MAG][0] == -1)
-		return -SNS_EFAIL;
-	else
-		return SNS_SUCCEES;
-#endif
-	return SNS_SUCCEES;
-}
 
 static ssize_t mag_vendor_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -71,44 +42,15 @@ static ssize_t mag_name_show(struct device *dev,
 static ssize_t mag_check_cntl(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	struct adsp_data *data = dev_get_drvdata(dev);
-	int8_t reg;
-
-	reg = mag_read_register(dev, attr);
-
-	if (reg < 0)
-		pr_err("[FACTORY] %s: failed!! = %d\n", __func__, reg);
-
-	return snprintf(buf, PAGE_SIZE, "%s\n",
-			((data->msg_buf[MSG_MAG][14] == AK09911C_MODE_POWERDOWN)
-			&& (reg == 0)) ? "OK" : "NG");
+	return snprintf(buf, PAGE_SIZE, "OK\n");
 }
 
 static ssize_t mag_check_registers(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	struct adsp_data *data = dev_get_drvdata(dev);
-	int reg;
-
-	reg = mag_read_register(dev, attr);
-
-	if (reg < 0) {
-		pr_info("[FACTORY] %s: Fail!! = %d\n", __func__, reg);
 		return snprintf(buf, PAGE_SIZE,
 			"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-	} else {
-		pr_info("[FACTORY] %s: Pass!!\n", __func__);
-		return snprintf(buf, PAGE_SIZE,
-			"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-			data->msg_buf[MSG_MAG][1], data->msg_buf[MSG_MAG][2],
-			data->msg_buf[MSG_MAG][3], data->msg_buf[MSG_MAG][4],
-			data->msg_buf[MSG_MAG][5], data->msg_buf[MSG_MAG][6],
-			data->msg_buf[MSG_MAG][7], data->msg_buf[MSG_MAG][8],
-			data->msg_buf[MSG_MAG][9], data->msg_buf[MSG_MAG][10],
-			data->msg_buf[MSG_MAG][11], data->msg_buf[MSG_MAG][12],
-			data->msg_buf[MSG_MAG][13]);
-	}
 }
 
 static ssize_t mag_get_asa(struct device *dev,
@@ -271,7 +213,25 @@ static ssize_t mag_dhr_sensor_info_show(struct device *dev,
 #endif
 	return 0;
 }
+#ifdef CONFIG_SUPPORT_DEVICE_MODE
+int mag_device_mode_notify(struct notifier_block *nb, unsigned long flip_state, void *v)
+{
+	int state = (int)flip_state;
 
+	pr_info("[FACTORY] %s - device mode %d", __func__, state);
+	if(state == 0)
+		adsp_unicast(NULL, 0, MSG_MAG, 0, MSG_TYPE_FACTORY_ENABLE);
+	else
+		adsp_unicast(NULL, 0, MSG_MAG, 0, MSG_TYPE_FACTORY_DISABLE);
+
+	return 0;
+}
+
+static struct notifier_block mag_device_mode_notifier = {
+    .notifier_call = mag_device_mode_notify,
+    .priority = 1,
+};
+#endif
 static DEVICE_ATTR(name, 0444, mag_name_show, NULL);
 static DEVICE_ATTR(vendor, 0444, mag_vendor_show, NULL);
 static DEVICE_ATTR(raw_data, 0664, mag_raw_data_show, mag_raw_data_store);
@@ -300,7 +260,9 @@ static struct device_attribute *mag_attrs[] = {
 static int __init ak09916c_factory_init(void)
 {
 	adsp_factory_register(MSG_MAG, mag_attrs);
-
+#ifdef CONFIG_SUPPORT_DEVICE_MODE
+        hall_ic_register_notify(&mag_device_mode_notifier);
+#endif
 	pr_info("[FACTORY] %s\n", __func__);
 
 	return 0;
@@ -309,7 +271,9 @@ static int __init ak09916c_factory_init(void)
 static void __exit ak09916c_factory_exit(void)
 {
 	adsp_factory_unregister(MSG_MAG);
-
+#ifdef CONFIG_SUPPORT_DEVICE_MODE
+	hall_ic_unregister_notify(&mag_device_mode_notifier);
+#endif
 	pr_info("[FACTORY] %s\n", __func__);
 }
 

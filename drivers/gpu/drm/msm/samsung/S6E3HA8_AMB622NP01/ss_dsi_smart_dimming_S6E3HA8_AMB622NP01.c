@@ -867,7 +867,7 @@ static void mtp_sorting(struct SMART_DIM *psmart)
 /* packed V255 ~ V1, each Vx has R/G/B, V1 and V0 are zero, and ignore it. */
 #define PACKED_GAMM_SET_CNT 30
 #define V255_RGB_MSB_CNT 3
-int hbm_interpolation_gamma[HBM_INTERPOLATION_STEP_revG][PACKED_GAMM_SET_CNT];
+static int hbm_interpolation_gamma[HBM_INTERPOLATION_STEP_revG][PACKED_GAMM_SET_CNT];
 static void hbm_interpolation_init(struct SMART_DIM *pSmart)
 {
 	int loop, gamma_index;

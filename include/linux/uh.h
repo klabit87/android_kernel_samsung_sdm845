@@ -18,7 +18,11 @@
 /* For uH Memory */
 #define UH_NUM_MEM		0x00
 
+#ifdef CONFIG_UH_RKP_8G
+#define UH_LOG_START		0xA0A00000
+#else
 #define UH_LOG_START		0xA0800000
+#endif
 #define UH_LOG_SIZE			0x40000
 
 int uh_call(u64 app_id, u64 command, u64 arg0, u64 arg1, u64 arg2, u64 arg3);

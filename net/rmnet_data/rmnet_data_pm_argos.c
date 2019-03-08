@@ -11,112 +11,79 @@
  *
  */
 
+#include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/cpumask.h>
 #include <linux/sec_argos.h>
 #include <linux/netdevice.h>
+#include <linux/pm_qos.h>
 
-#include "rmnet_data_private.h"
-#include "rmnet_data_vnd.h"
+static struct pm_qos_request rmnet_qos_req;
+#define PM_QOS_RMNET_LATENCY_VALUE 44
+
+#define RMNET_DATA_MAX_VND	8
+const char *ndev_prefix = "rmnet_data";
 
 #define ARGOS_IPA_LABEL "IPA"
-/* tuning value for rps map */
-#define ARGOS_RMNET_RPS_MASK "60" /* big core 2, 3 */
 
-/* load default rps map for restore */
-static char rmnet_default_rps_map[4];
-static int rmnet_default_rps_map_len;
+/* tuning value for rps map */
+#define ARGOS_RMNET_RPS_BIG_MASK "c0" /* big core 2, 3 */
+#define ARGOS_RMNET_RPS_DEFAULT_MASK "0d" /* default */
 
 /* rps boosting trigger value in Mbps */
-#define ARGOS_RMNET_RPS_BOOST_MBPS 100
+#define ARGOS_RMNET_RPS_BOOST_MBPS 300
 static unsigned int rmnet_rps_boost_mbps = ARGOS_RMNET_RPS_BOOST_MBPS;
 module_param(rmnet_rps_boost_mbps, uint, 0644);
 MODULE_PARM_DESC(rmnet_rps_boost_mbps, "Rps Boost Threshold");
 
 #ifdef CONFIG_RPS
-/*
- * reference from net/core/net-sysfs.c show_rps_map()
- */
-static int rmnet_data_pm_get_default_rps_map(void)
-{
-	struct net_device *vndev;
-	struct netdev_rx_queue *queue;
-	struct rps_map *map;
-	cpumask_var_t mask;
-	int i, len;
-
-	/* get rx_queueu from net devices pointer */
-	for (i = 0; i < RMNET_DATA_MAX_VND; i++) {
-		vndev = rmnet_vnd_get_by_id(i);
-		if (vndev)
-			break;
-	}
-
-	if (!vndev)
-		return -ENODEV;
-
-	queue = vndev->_rx;
-
-	if (!zalloc_cpumask_var(&mask, GFP_KERNEL))
-		return -ENOMEM;
-
-	rcu_read_lock();
-	map = rcu_dereference(queue->rps_map);
-	if (map)
-		for (i = 0; i < map->len; i++)
-			cpumask_set_cpu(map->cpus[i], mask);
-
-	len = snprintf(rmnet_default_rps_map,
-		       sizeof(rmnet_default_rps_map),
-		       "%*pb\n", cpumask_pr_args(mask));
-
-	rmnet_default_rps_map_len = len;
-
-	rcu_read_unlock();
-	free_cpumask_var(mask);
-
-	return len;
-}
-
 
 /*
  * reference from net/core/net-sysfs.c store_rps_map()
  */
 static int rmnet_data_pm_change_rps_map(struct netdev_rx_queue *queue,
-		      const char *buf, int len)
+		      const char *buf, size_t len)
 {
 	struct rps_map *old_map, *map;
 	cpumask_var_t mask;
 	int err, cpu, i;
 	static DEFINE_MUTEX(rps_map_mutex);
 
-	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
+	if (!alloc_cpumask_var(&mask, GFP_KERNEL)){
+		pr_err("rmnet_data_pm_change_rps_map alloc_cpumask_var fail\n");
 		return -ENOMEM;
-
+	}
 	err = bitmap_parse(buf, len, cpumask_bits(mask), nr_cpumask_bits);
 	if (err) {
 		free_cpumask_var(mask);
+		pr_err("rmnet_data_pm_change_rps_map bitmap_parse err %d\n", err);
 		return err;
 	}
 
-	map = kzalloc(max_t(unsigned int,
+	map = kzalloc(max_t(unsigned long,
 	    RPS_MAP_SIZE(cpumask_weight(mask)), L1_CACHE_BYTES),
 	    GFP_KERNEL);
 	if (!map) {
 		free_cpumask_var(mask);
+		pr_err("rmnet_data_pm_change_rps_map kzalloc fail\n");
 		return -ENOMEM;
 	}
 
 	i = 0;
-	for_each_cpu_and(cpu, mask, cpu_online_mask)
+	for_each_cpu_and(cpu, mask, cpu_online_mask) {
 		map->cpus[i++] = cpu;
+	}
 
-	if (i)
+	if (i) {
 		map->len = i;
-	else {
+	} else {
 		kfree(map);
 		map = NULL;
+
+		free_cpumask_var(mask);
+		pr_err("failed to map rps_cpu\n");
+		return -EINVAL;
 	}
 
 	mutex_lock(&rps_map_mutex);
@@ -135,27 +102,36 @@ static int rmnet_data_pm_change_rps_map(struct netdev_rx_queue *queue,
 		kfree_rcu(old_map, rcu);
 
 	free_cpumask_var(mask);
-	return len;
+	return map->len;
 }
 #else
-#define rmnet_data_pm_get_default_rps_map(queue) do { } while (0)
 #define rmnet_data_pm_change_rps_map(queue, buf, len) do { } while (0)
 #endif /* CONFIG_RPS */
 
 static int rmnet_data_pm_set_rps(char *buf, int len)
 {
-	struct net_device *vndev;
+	char ndev_name[IFNAMSIZ];
+	struct net_device *ndev;
 	int i, ret = 0;
+
 	/* get rx_queue from net devices pointer */
 	for (i = 0; i < RMNET_DATA_MAX_VND; i++) {
-		vndev = rmnet_vnd_get_by_id(i);
-		if (!vndev)
+		memset(ndev_name, 0, IFNAMSIZ);
+		snprintf(ndev_name, IFNAMSIZ, "%s%d", ndev_prefix, i);
+
+		ndev = dev_get_by_name(&init_net, ndev_name);
+		if (!ndev) {
+			pr_info("Cannot find %s from init_net\n", ndev_name);
 			continue;
-		ret = rmnet_data_pm_change_rps_map(vndev->_rx, buf, len);
+		}
+
+		ret = rmnet_data_pm_change_rps_map(ndev->_rx, buf, len);
 		if (ret < 0)
-			pr_err("set rps %s : %s, err %d\n",
-							vndev->name, buf, ret);
-	};
+			pr_err("set rps %s : %s, err %d\n", ndev->name, buf, ret);
+
+		dev_put(ndev);
+	}
+
 	return ret;
 }
 
@@ -169,21 +145,31 @@ static int rmnet_data_pm_argos_cb(struct notifier_block *nb,
 		if (speed >= rmnet_rps_boost_mbps)
 			return NOTIFY_DONE;
 
+		pr_info("Speed: %luMbps, %s -> %s\n",
+			speed, ARGOS_RMNET_RPS_BIG_MASK, ARGOS_RMNET_RPS_DEFAULT_MASK);
+
 		/* reset to default value */
-		rmnet_data_pm_set_rps(rmnet_default_rps_map,
-						rmnet_default_rps_map_len);
+		rmnet_data_pm_set_rps(ARGOS_RMNET_RPS_DEFAULT_MASK,
+			strlen(ARGOS_RMNET_RPS_DEFAULT_MASK));
+
+		pm_qos_remove_request(&rmnet_qos_req);
+
 		rmnet_data_pm_in_boost = false;
 	} else {
 		if (speed < rmnet_rps_boost_mbps)
 			return NOTIFY_DONE;
+		pr_info("%s in speed %lu Mbps\n", __func__, speed);
 
-		if (rmnet_data_pm_get_default_rps_map() < 0)
-			return NOTIFY_DONE;
+		pr_info("Speed: %luMbps, %s -> %s\n",
+			speed, ARGOS_RMNET_RPS_DEFAULT_MASK, ARGOS_RMNET_RPS_BIG_MASK);
+
+		pm_qos_add_request(&rmnet_qos_req, PM_QOS_CPU_DMA_LATENCY,
+				   PM_QOS_RMNET_LATENCY_VALUE);
+
+		rmnet_data_pm_set_rps(ARGOS_RMNET_RPS_BIG_MASK,
+			strlen(ARGOS_RMNET_RPS_BIG_MASK));
 
 		rmnet_data_pm_in_boost = true;
-
-		rmnet_data_pm_set_rps(ARGOS_RMNET_RPS_MASK,
-						sizeof(ARGOS_RMNET_RPS_MASK));
 	}
 
 	return NOTIFY_DONE;

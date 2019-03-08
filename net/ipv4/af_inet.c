@@ -125,13 +125,6 @@
 #ifdef CONFIG_ANDROID_PARANOID_NETWORK
 #include <linux/android_aid.h>
 
-/* START_OF_KNOX_NPA */
-#include <net/ncm.h>
-#include <linux/kfifo.h>
-#include <asm/current.h>
-#include <linux/pid.h>
-/* END_OF_KNOX_NPA */
-
 static inline int current_has_network(void)
 {
 	return in_egroup_p(AID_INET) || capable(CAP_NET_RAW);
@@ -409,15 +402,6 @@ out_rcu_unlock:
 	goto out;
 }
 
-/* START_OF_KNOX_NPA */
-/** The function is used to check if the ncm feature is enabled or not; if enabled then it calls knox_collect_socket_data function in ncm.c to record all the socket data; **/
-static void knox_collect_metadata(struct socket *sock) {
-	if(check_ncm_flag()) {
-		knox_collect_socket_data(sock);
-	}
-}
-/* END_OF_KNOX_NPA */
-
 /*
  *	The peer socket should always be NULL (or else). When we call this
  *	function we are destroying the object and from then on nobody
@@ -447,9 +431,6 @@ int inet_release(struct socket *sock)
 		if (sock_flag(sk, SOCK_LINGER) &&
 			!(current->flags & PF_EXITING))
 			timeout = sk->sk_lingertime;
-		/* START_OF_KNOX_NPA */
-		knox_collect_metadata(sock);
-		/* END_OF_KNOX_NPA */
 		sock->sk = NULL;
 		sk->sk_prot->close(sk, timeout);
 	}
@@ -605,13 +586,24 @@ int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 	int err;
 	long timeo;
 
-	if (addr_len < sizeof(uaddr->sa_family))
-		return -EINVAL;
+	/*
+	 * uaddr can be NULL and addr_len can be 0 if:
+	 * sk is a TCP fastopen active socket and
+	 * TCP_FASTOPEN_CONNECT sockopt is set and
+	 * we already have a valid cookie for this socket.
+	 * In this case, user can call write() after connect().
+	 * write() will invoke tcp_sendmsg_fastopen() which calls
+	 * __inet_stream_connect().
+	 */
+	if (uaddr) {
+		if (addr_len < sizeof(uaddr->sa_family))
+			return -EINVAL;
 
-	if (uaddr->sa_family == AF_UNSPEC) {
-		err = sk->sk_prot->disconnect(sk, flags);
-		sock->state = err ? SS_DISCONNECTING : SS_UNCONNECTED;
-		goto out;
+		if (uaddr->sa_family == AF_UNSPEC) {
+			err = sk->sk_prot->disconnect(sk, flags);
+			sock->state = err ? SS_DISCONNECTING : SS_UNCONNECTED;
+			goto out;
+		}
 	}
 
 	switch (sock->state) {
@@ -622,7 +614,10 @@ int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 		err = -EISCONN;
 		goto out;
 	case SS_CONNECTING:
-		err = -EALREADY;
+		if (inet_sk(sk)->defer_connect)
+			err = -EINPROGRESS;
+		else
+			err = -EALREADY;
 		/* Fall out of switch with err, set for this state */
 		break;
 	case SS_UNCONNECTED:
@@ -635,6 +630,9 @@ int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 			goto out;
 
 		sock->state = SS_CONNECTING;
+
+		if (!err && inet_sk(sk)->defer_connect)
+			goto out;
 
 		/* Just entered SS_CONNECTING state; the only
 		 * difference is that return value in non-blocking
@@ -773,15 +771,6 @@ int inet_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 
 	err = sk->sk_prot->sendmsg(sk, msg, size);
 
-	/* START_OF_KNOX_NPA */
-	if (err >= 0) {
-		if (sock->knox_sent + err > ULLONG_MAX)
-			sock->knox_sent = ULLONG_MAX;
-		else
-			sock->knox_sent = sock->knox_sent + err;
-	}
-	/* END_OF_KNOX_NPA */
-
 	return err;
 }
 EXPORT_SYMBOL(inet_sendmsg);
@@ -817,12 +806,6 @@ int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 				   flags & ~MSG_DONTWAIT, &addr_len);
 	if (err >= 0) {
 		msg->msg_namelen = addr_len;
-		/* START_OF_KNOX_NPA */
-		if (sock->knox_recv + err > ULLONG_MAX)
-			sock->knox_recv = ULLONG_MAX;
-		else
-			sock->knox_recv = sock->knox_recv + err;
-		/* END_OF_KNOX_NPA */
 	}
 	return err;
 }
@@ -1382,7 +1365,6 @@ struct sk_buff **inet_gro_receive(struct sk_buff **head, struct sk_buff *skb)
 
 	for (p = *head; p; p = p->next) {
 		struct iphdr *iph2;
-		u16 flush_id;
 
 		if (!NAPI_GRO_CB(p)->same_flow)
 			continue;
@@ -1408,34 +1390,23 @@ struct sk_buff **inet_gro_receive(struct sk_buff **head, struct sk_buff *skb)
 
 		NAPI_GRO_CB(p)->flush |= flush;
 
-		/* We need to store of the IP ID check to be included later
-		 * when we can verify that this packet does in fact belong
-		 * to a given flow.
+		/* For non-atomic datagrams we need to save the IP ID offset
+		 * to be included later.  If the frame has the DF bit set
+		 * we must ignore the IP ID value as per RFC 6864.
 		 */
-		flush_id = (u16)(id - ntohs(iph2->id));
+		if (iph2->frag_off & htons(IP_DF))
+			continue;
 
-		/* This bit of code makes it much easier for us to identify
-		 * the cases where we are doing atomic vs non-atomic IP ID
-		 * checks.  Specifically an atomic check can return IP ID
-		 * values 0 - 0xFFFF, while a non-atomic check can only
-		 * return 0 or 0xFFFF.
+		/* We must save the offset as it is possible to have multiple
+		 * flows using the same protocol and address pairs so we
+		 * need to wait until we can validate this is part of the
+		 * same flow with a 5-tuple or better to avoid unnecessary
+		 * collisions between flows.
 		 */
-		if (!NAPI_GRO_CB(p)->is_atomic ||
-			!(iph->frag_off & htons(IP_DF))) {
-			flush_id ^= NAPI_GRO_CB(p)->count;
-			flush_id = flush_id ? 0xFFFF : 0;
-		}
-
-		/* If the previous IP ID value was based on an atomic
-		 * datagram we can overwrite the value and ignore it.
-		 */
-		if (NAPI_GRO_CB(skb)->is_atomic)
-			NAPI_GRO_CB(p)->flush_id = flush_id;
-		else
-			NAPI_GRO_CB(p)->flush_id |= flush_id;
+		NAPI_GRO_CB(p)->flush_id |= ntohs(iph2->id) ^
+					    (u16)(id - NAPI_GRO_CB(p)->count);
 	}
 
-	NAPI_GRO_CB(skb)->is_atomic = !!(iph->frag_off & htons(IP_DF));
 	NAPI_GRO_CB(skb)->flush |= flush;
 	skb_set_network_header(skb, off);
 	/* The above will be needed by the transport layer if there is one

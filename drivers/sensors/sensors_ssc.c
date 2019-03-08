@@ -77,8 +77,11 @@ static struct attribute *attrs[] = {
 };
 
 static struct platform_device *slpi_private;
+#ifdef CONFIG_SENSORS_DELAYED_LOAD
+static struct delayed_work slpi_ldr_work;
+#else
 static struct work_struct slpi_ldr_work;
-
+#endif
 static void slpi_load_fw(struct work_struct *slpi_ldr_work)
 {
 	struct platform_device *pdev = slpi_private;
@@ -128,7 +131,11 @@ fail:
 static void slpi_loader_do(struct platform_device *pdev)
 {
 	dev_dbg(&pdev->dev, "%s: scheduling work to load SLPI fw\n", __func__);
+#ifdef CONFIG_SENSORS_DELAYED_LOAD
+	schedule_delayed_work(&slpi_ldr_work, msecs_to_jiffies(400));
+#else
 	schedule_work(&slpi_ldr_work);
+#endif
 }
 
 static void slpi_loader_unload(struct platform_device *pdev)
@@ -395,7 +402,11 @@ static int sensors_ssc_probe(struct platform_device *pdev)
 		goto cdev_add_err;
 	}
 
+#ifdef CONFIG_SENSORS_DELAYED_LOAD
+	INIT_DELAYED_WORK(&slpi_ldr_work, slpi_load_fw);
+#else
 	INIT_WORK(&slpi_ldr_work, slpi_load_fw);
+#endif
 
 	return 0;
 

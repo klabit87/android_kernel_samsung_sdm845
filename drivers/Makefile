@@ -102,6 +102,7 @@ obj-$(CONFIG_TC)		+= tc/
 obj-$(CONFIG_UWB)		+= uwb/
 obj-$(CONFIG_USB_PHY)		+= usb/
 obj-$(CONFIG_USB)		+= usb/
+obj-$(CONFIG_USB_SUPPORT)	+= usb/
 obj-$(CONFIG_PCI)		+= usb/
 obj-$(CONFIG_USB_GADGET)	+= usb/
 obj-$(CONFIG_OF)		+= usb/
@@ -181,6 +182,9 @@ obj-$(CONFIG_ESOC)              += esoc/
 obj-$(CONFIG_FPGA)		+= fpga/
 obj-$(CONFIG_SAMSUNG_NFC)		+= nfc/
 obj-$(CONFIG_SENSORS_SSC)		+= sensors/
+obj-$(CONFIG_SENSORS_HRMSENSOR)	+= optics/
+obj-$(CONFIG_SENSORS_MAX86915)	+= optics/
+obj-$(CONFIG_TEE)		+= tee/
 obj-$(CONFIG_ADSP_FACTORY)      += adsp_factory/
 
 ifeq ($(CONFIG_BATTERY_SAMSUNG_V2), y)
@@ -206,3 +210,19 @@ obj-$(CONFIG_UH)        += uh/
 
 # CONFIG_SEC_DEBUG
 obj-y				+= debug/
+
+# FIVE TEE driver
+obj-$(CONFIG_FIVE_TEE_DRIVER)	+= five/
+
+# MPSD driver
+obj-$(CONFIG_MPSD)	+= mpsd/
+
+# streamline
+ifeq ($(CONFIG_GATOR), y)
+	obj-$(CONFIG_GATOR)				+= gator/
+endif
+
+#$(info kpermon_CURDIR="$(shell pwd)")
+ifeq (exist, $(shell [ -e ../../../../../../../system/core/liblog/include/log/perflog.h ] && echo exist))
+	obj-y				+= kperfmon/
+endif

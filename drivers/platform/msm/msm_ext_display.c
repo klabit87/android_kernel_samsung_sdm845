@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -52,6 +52,20 @@ static const unsigned int msm_ext_disp_supported_cable[] = {
 	EXTCON_DISP_HDMI,
 	EXTCON_NONE,
 };
+
+static int msm_ext_disp_find_index(struct extcon_dev *edev,
+		enum msm_ext_disp_type id)
+{
+	int i;
+
+	/* Find the the index of extcon cable in edev->supported_cable */
+	for (i = 0; i < edev->max_supported; i++) {
+		if (edev->supported_cable[i] == id)
+			return i;
+	}
+
+	return -EINVAL;
+}
 
 static int msm_ext_disp_extcon_register(struct msm_ext_disp *ext_disp)
 {
@@ -158,7 +172,8 @@ static int msm_ext_disp_process_audio(struct msm_ext_disp *ext_disp,
 		enum msm_ext_disp_cable_state new_state)
 {
 	int ret = 0;
-	int state;
+	int state, index;
+	enum msm_ext_disp_cable_state current_state;
 
 	if (!ext_disp->ops) {
 		pr_err("codec not registered, skip notification\n");
@@ -167,13 +182,27 @@ static int msm_ext_disp_process_audio(struct msm_ext_disp *ext_disp,
 	}
 
 	state = ext_disp->audio_sdev.state;
-	ret = extcon_set_state_sync(&ext_disp->audio_sdev,
-			ext_disp->current_disp, !!new_state);
 
-	pr_debug("Audio state %s %d\n",
-			ext_disp->audio_sdev.state == state ?
-			"is same" : "switched to",
-			ext_disp->audio_sdev.state);
+	index = msm_ext_disp_find_index(&ext_disp->audio_sdev, type);
+	if (index < 0 || index >= ext_disp->audio_sdev.max_supported) {
+		pr_err("invalid index\n");
+		ret = -EINVAL;
+		goto end;
+	}
+
+	if (state & BIT(index))
+		current_state = EXT_DISPLAY_CABLE_CONNECT;
+	else
+		current_state = EXT_DISPLAY_CABLE_DISCONNECT;
+
+	if (current_state == new_state) {
+		ret = -EEXIST;
+		pr_debug("same state\n");
+	} else {
+		ret = extcon_set_state_sync(&ext_disp->audio_sdev,
+			ext_disp->current_disp, !!new_state);
+		pr_debug("state changed to %d\n", new_state);
+	}
 
 #ifdef CONFIG_SEC_DISPLAYPORT
 {
@@ -270,7 +299,10 @@ static int msm_ext_disp_update_audio_ops(struct msm_ext_disp *ext_disp,
 
 		pr_debug("codec ops set for %s\n", msm_ext_disp_name(type));
 	} else if (state == EXT_DISPLAY_CABLE_DISCONNECT) {
-		*ext_disp->ops = (struct msm_ext_disp_audio_codec_ops){NULL};
+		if (ext_disp->ops)
+			*ext_disp->ops =
+				(struct msm_ext_disp_audio_codec_ops){NULL};
+
 		ext_disp->current_disp = EXT_DISPLAY_TYPE_MAX;
 
 		pr_debug("codec ops cleared for %s\n", msm_ext_disp_name(type));

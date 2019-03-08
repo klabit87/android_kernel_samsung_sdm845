@@ -57,7 +57,7 @@ void end_swap_bio_write(struct bio *bio)
 		 */
 		set_page_dirty(page);
 #ifndef CONFIG_VNSWAP
-		pr_alert("Write-error on swap-device (%u:%u:%llu)\n",
+		pr_alert_ratelimited("Write-error on swap-device (%u:%u:%llu)\n",
 			 imajor(bio->bi_bdev->bd_inode),
 			 iminor(bio->bi_bdev->bd_inode),
 			 (unsigned long long)bio->bi_iter.bi_sector);

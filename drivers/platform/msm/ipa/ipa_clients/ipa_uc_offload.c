@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,9 @@
 #include <linux/ipa_uc_offload.h>
 #include <linux/msm_ipa.h>
 #include "../ipa_common_i.h"
+#ifdef CONFIG_IPA3
 #include "../ipa_v3/ipa_pm.h"
+#endif
 
 #define IPA_NTN_DMA_POOL_ALIGNMENT 8
 #define OFFLOAD_DRV_NAME "ipa_uc_offload"
@@ -71,6 +73,7 @@ struct ipa_uc_offload_ctx {
 	ipa_notify_cb notify;
 	struct completion ntn_completion;
 	u32 pm_hdl;
+	struct ipa_ntn_conn_in_params conn;
 };
 
 static struct ipa_uc_offload_ctx *ipa_uc_offload_ctx[IPA_UC_MAX_PROT_SIZE];
@@ -115,6 +118,7 @@ static int ipa_commit_partial_hdr(
 	return 0;
 }
 
+#ifdef CONFIG_IPA3
 static void ipa_uc_offload_ntn_pm_cb(void *p, enum ipa_pm_cb_event event)
 {
 	/* suspend/resume is not supported */
@@ -156,6 +160,7 @@ static void ipa_uc_offload_ntn_deregister_pm_client(
 	ipa_pm_deactivate_sync(ntn_ctx->pm_hdl);
 	ipa_pm_deregister(ntn_ctx->pm_hdl);
 }
+#endif
 static int ipa_uc_offload_ntn_create_rm_resources(
 	struct ipa_uc_offload_ctx *ntn_ctx)
 {
@@ -203,9 +208,11 @@ static int ipa_uc_offload_ntn_reg_intf(
 
 	IPA_UC_OFFLOAD_DBG("register interface for netdev %s\n",
 					 inp->netdev_name);
+#ifdef CONFIG_IPA3
 	if (ipa_pm_is_used())
 		ret = ipa_uc_offload_ntn_register_pm_client(ntn_ctx);
 	else
+#endif
 		ret = ipa_uc_offload_ntn_create_rm_resources(ntn_ctx);
 	if (ret) {
 		IPA_UC_OFFLOAD_ERR("fail to create rm resource\n");
@@ -289,12 +296,16 @@ static int ipa_uc_offload_ntn_reg_intf(
 fail:
 	kfree(hdr);
 fail_alloc:
+#ifdef CONFIG_IPA3
 	if (ipa_pm_is_used()) {
 		ipa_uc_offload_ntn_deregister_pm_client(ntn_ctx);
 	} else {
+#endif
 		ipa_rm_delete_resource(IPA_RM_RESOURCE_ETHERNET_CONS);
 		ipa_rm_delete_resource(IPA_RM_RESOURCE_ETHERNET_PROD);
+#ifdef CONFIG_IPA3
 	}
+#endif
 	return ret;
 }
 
@@ -393,12 +404,62 @@ static void ipa_uc_offload_rm_notify(void *user_data, enum ipa_rm_event event,
 	}
 }
 
+static int ipa_uc_ntn_alloc_conn_smmu_info(struct ipa_ntn_setup_info *dest,
+	struct ipa_ntn_setup_info *source)
+{
+	int result;
+
+	IPA_UC_OFFLOAD_DBG("Allocating smmu info\n");
+
+	memcpy(dest, source, sizeof(struct ipa_ntn_setup_info));
+
+	dest->data_buff_list =
+		kcalloc(dest->num_buffers, sizeof(struct ntn_buff_smmu_map),
+			GFP_KERNEL);
+	if (dest->data_buff_list == NULL) {
+		IPA_UC_OFFLOAD_ERR("failed to alloc smmu info\n");
+		return -ENOMEM;
+	}
+
+	memcpy(dest->data_buff_list, source->data_buff_list,
+		sizeof(struct ntn_buff_smmu_map) * dest->num_buffers);
+
+	result = ipa_smmu_store_sgt(&dest->buff_pool_base_sgt,
+		source->buff_pool_base_sgt);
+	if (result) {
+		kfree(dest->data_buff_list);
+		return result;
+	}
+
+	result = ipa_smmu_store_sgt(&dest->ring_base_sgt,
+		source->ring_base_sgt);
+	if (result) {
+		kfree(dest->data_buff_list);
+		ipa_smmu_free_sgt(&dest->buff_pool_base_sgt);
+		return result;
+	}
+
+	return 0;
+}
+
+static void ipa_uc_ntn_free_conn_smmu_info(struct ipa_ntn_setup_info *params)
+{
+	kfree(params->data_buff_list);
+	ipa_smmu_free_sgt(&params->buff_pool_base_sgt);
+	ipa_smmu_free_sgt(&params->ring_base_sgt);
+}
+
 int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 			struct ipa_ntn_conn_out_params *outp,
 			struct ipa_uc_offload_ctx *ntn_ctx)
 {
 	int result = 0;
 	enum ipa_uc_offload_state prev_state;
+
+	if (ntn_ctx->conn.dl.smmu_enabled != ntn_ctx->conn.ul.smmu_enabled) {
+		IPA_UC_OFFLOAD_ERR("ul and dl smmu enablement do not match\n");
+		return -EINVAL;
+	}
 
 	prev_state = ntn_ctx->state;
 	if (inp->dl.ring_base_pa % IPA_NTN_DMA_POOL_ALIGNMENT ||
@@ -412,6 +473,7 @@ int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_IPA3
 	if (ipa_pm_is_used()) {
 		result = ipa_pm_activate_sync(ntn_ctx->pm_hdl);
 		if (result) {
@@ -419,6 +481,7 @@ int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 			return result;
 		}
 	} else {
+#endif
 		result = ipa_rm_add_dependency(IPA_RM_RESOURCE_ETHERNET_PROD,
 			IPA_RM_RESOURCE_APPS_CONS);
 		if (result) {
@@ -440,7 +503,9 @@ int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 			result = -EFAULT;
 			goto fail;
 		}
+#ifdef CONFIG_IPA3
 	}
+#endif
 
 	ntn_ctx->state = IPA_UC_OFFLOAD_STATE_UP;
 	result = ipa_setup_uc_ntn_pipes(inp, ntn_ctx->notify,
@@ -453,7 +518,21 @@ int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 		goto fail;
 	}
 
-	return 0;
+	if (ntn_ctx->conn.dl.smmu_enabled) {
+		result = ipa_uc_ntn_alloc_conn_smmu_info(&ntn_ctx->conn.dl,
+			&inp->dl);
+		if (result) {
+			IPA_UC_OFFLOAD_ERR("alloc failure on TX\n");
+			goto fail;
+		}
+		result = ipa_uc_ntn_alloc_conn_smmu_info(&ntn_ctx->conn.ul,
+			&inp->ul);
+		if (result) {
+			ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.dl);
+			IPA_UC_OFFLOAD_ERR("alloc failure on RX\n");
+			goto fail;
+		}
+	}
 
 fail:
 	if (!ipa_pm_is_used())
@@ -529,11 +608,12 @@ int ipa_set_perf_profile(struct ipa_perf_profile *profile)
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_IPA3
 	if (ipa_pm_is_used())
 		return ipa_pm_set_perf_profile(
 			ipa_uc_offload_ctx[IPA_UC_NTN]->pm_hdl,
 			profile->max_supported_bw_mbps);
-
+#endif
 	if (ipa_rm_set_perf_profile(resource_name, &rm_profile)) {
 		IPA_UC_OFFLOAD_ERR("fail to setup rm perf profile\n");
 		return -EFAULT;
@@ -548,8 +628,14 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 	int ipa_ep_idx_ul, ipa_ep_idx_dl;
 	int ret = 0;
 
+	if (ntn_ctx->conn.dl.smmu_enabled != ntn_ctx->conn.ul.smmu_enabled) {
+		IPA_UC_OFFLOAD_ERR("ul and dl smmu enablement do not match\n");
+		return -EINVAL;
+	}
+
 	ntn_ctx->state = IPA_UC_OFFLOAD_STATE_INITIALIZED;
 
+#ifdef CONFIG_IPA3
 	if (ipa_pm_is_used()) {
 		ret = ipa_pm_deactivate_sync(ntn_ctx->pm_hdl);
 		if (ret) {
@@ -558,6 +644,7 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 			return -EFAULT;
 		}
 	} else {
+#endif
 		ret = ipa_rm_release_resource(IPA_RM_RESOURCE_ETHERNET_PROD);
 		if (ret) {
 			IPA_UC_OFFLOAD_ERR("fail release ETHERNET_PROD: %d\n",
@@ -571,16 +658,22 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 			IPA_UC_OFFLOAD_ERR("fail del dep ETH->APPS, %d\n", ret);
 			return -EFAULT;
 		}
+#ifdef CONFIG_IPA3
 	}
+#endif
 
 	ipa_ep_idx_ul = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 	ipa_ep_idx_dl = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
-	ret = ipa_tear_down_uc_offload_pipes(ipa_ep_idx_ul, ipa_ep_idx_dl);
+	ret = ipa_tear_down_uc_offload_pipes(ipa_ep_idx_ul, ipa_ep_idx_dl,
+		&ntn_ctx->conn);
 	if (ret) {
 		IPA_UC_OFFLOAD_ERR("fail to tear down ntn offload pipes, %d\n",
 						 ret);
 		return -EFAULT;
 	}
+	if (ntn_ctx->conn.dl.smmu_enabled)
+		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.dl);
+		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.ul);
 
 	return ret;
 }
@@ -627,9 +720,11 @@ static int ipa_uc_ntn_cleanup(struct ipa_uc_offload_ctx *ntn_ctx)
 	int len, result = 0;
 	struct ipa_ioc_del_hdr *hdr;
 
+#ifdef CONFIG_IPA3
 	if (ipa_pm_is_used()) {
 		ipa_uc_offload_ntn_deregister_pm_client(ntn_ctx);
 	} else {
+#endif
 		if (ipa_rm_delete_resource(IPA_RM_RESOURCE_ETHERNET_PROD)) {
 			IPA_UC_OFFLOAD_ERR("fail to delete ETHERNET_PROD\n");
 			return -EFAULT;
@@ -639,8 +734,9 @@ static int ipa_uc_ntn_cleanup(struct ipa_uc_offload_ctx *ntn_ctx)
 			IPA_UC_OFFLOAD_ERR("fail to delete ETHERNET_CONS\n");
 			return -EFAULT;
 		}
+#ifdef CONFIG_IPA3
 	}
-
+#endif
 	len = sizeof(struct ipa_ioc_del_hdr) + 2 * sizeof(struct ipa_hdr_del);
 	hdr = kzalloc(len, GFP_KERNEL);
 	if (hdr == NULL) {

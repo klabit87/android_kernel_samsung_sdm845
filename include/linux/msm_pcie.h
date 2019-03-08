@@ -200,9 +200,7 @@ static inline int msm_pcie_debug_info(struct pci_dev *dev, u32 option, u32 base,
 enum l1ss_ctrl_ids {
 	L1SS_SYSFS,
 	L1SS_MST,
-#if 0
 	L1SS_AUDIO,
-#endif
 	L1SS_MAX
 };
 

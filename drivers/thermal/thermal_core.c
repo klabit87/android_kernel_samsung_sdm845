@@ -45,6 +45,9 @@
 #include "thermal_core.h"
 #include "thermal_hwmon.h"
 
+#include <linux/kernel.h>
+#include <linux/sec_debug.h>
+
 #ifdef CONFIG_SEC_PM
 void *thermal_ipc_log;
 #endif
@@ -458,7 +461,11 @@ static void handle_critical_trips(struct thermal_zone_device *tz,
 		dev_emerg(&tz->device,
 			  "critical temperature reached(%d C),shutting down\n",
 			  tz->temperature / 1000);
-		orderly_poweroff(true);
+		if (sec_debug_is_enabled())
+			panic("THERMAL_TRIP_CRITICAL");
+		else
+			kernel_restart("TP");
+			/* orderly_poweroff(true); */
 	}
 }
 
@@ -1569,7 +1576,7 @@ int thermal_zone_bind_cooling_device(struct thermal_zone_device *tz,
 	 * based on the MACRO determine the default state to use or the
 	 * offset from the max_state.
 	 */
-	if (upper > (THERMAL_MAX_LIMIT - max_state)) {
+	if (upper >= (THERMAL_MAX_LIMIT - max_state)) {
 		/* upper default max_state */
 		if (upper == THERMAL_NO_LIMIT)
 			upper = max_state;
@@ -1577,7 +1584,7 @@ int thermal_zone_bind_cooling_device(struct thermal_zone_device *tz,
 			upper = max_state - (THERMAL_MAX_LIMIT - upper);
 	}
 
-	if (lower > (THERMAL_MAX_LIMIT - max_state)) {
+	if (lower >= (THERMAL_MAX_LIMIT - max_state)) {
 		/* lower default 0 */
 		if (lower == THERMAL_NO_LIMIT)
 			lower = 0;
@@ -2595,11 +2602,9 @@ static int thermal_pm_notify(struct notifier_block *nb,
 	case PM_POST_SUSPEND:
 		atomic_set(&in_suspend, 0);
 		list_for_each_entry(tz, &thermal_tz_list, node) {
-			mutex_lock(&tz->lock);
 			thermal_zone_device_reset(tz);
-			mod_delayed_work(system_freezable_power_efficient_wq,
-						&tz->poll_queue, 0);
-			mutex_unlock(&tz->lock);
+			thermal_zone_device_update(tz,
+						   THERMAL_EVENT_UNSPECIFIED);
 		}
 		break;
 	default:

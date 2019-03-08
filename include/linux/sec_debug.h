@@ -1,7 +1,7 @@
 /*
  * include/linux/sec_debug.h
  *
- * COPYRIGHT(C) 2006-2016 Samsung Electronics Co., Ltd. All Right Reserved.
+ * COPYRIGHT(C) 2006-2018 Samsung Electronics Co., Ltd. All Right Reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -96,6 +96,11 @@ enum sec_restart_reason_t {
 	RESTART_REASON_END = 0xffffffff,
 };
 
+#define UPLOAD_MSG_USER_FAULT			"User Fault"
+#define UPLOAD_MSG_CRASH_KEY			"Crash Key"
+#define UPLOAD_MSG_USER_CRASH_KEY		"User Crash Key"
+#define UPLOAD_MSG_LONG_KEY_PRESS		"Long Key Press"
+
 #ifdef CONFIG_SEC_DEBUG
 DECLARE_PER_CPU(struct sec_debug_core_t, sec_debug_core_reg);
 DECLARE_PER_CPU(struct sec_debug_mmu_reg_t, sec_debug_mmu_reg);
@@ -130,7 +135,8 @@ extern void sec_getlog_supply_kloginfo(void *klog_buf);
 
 extern void sec_gaf_supply_rqinfo(unsigned short curr_offset,
 				  unsigned short rq_offset);
-extern int sec_debug_is_enabled(void);
+extern bool sec_debug_is_enabled(void);
+extern unsigned int sec_debug_level(void);
 extern int sec_debug_is_modem_separate_debug_ssr(void);
 extern int silent_log_panic_handler(void);
 extern void sec_debug_print_model(struct seq_file *m, const char *cpu_name);
@@ -173,7 +179,8 @@ static inline void sec_getlog_supply_kloginfo(void *klog_buf) {}
 static inline void sec_gaf_supply_rqinfo(unsigned short curr_offset,
 					unsigned short rq_offset) {}
 
-static inline int sec_debug_is_enabled(void) { return 0; }
+static inline bool sec_debug_is_enabled(void) { return false; }
+static inline unsigned int sec_debug_level(void) {return 0; }
 static inline  int sec_debug_is_modem_separate_debug_ssr(void)
 			{ return SEC_DEBUG_MODEM_SEPARATE_DIS; }
 static inline void sec_debug_hw_reset(void) {}
@@ -215,9 +222,13 @@ static inline int sec_debug_is_enabled_for_ssr(void) { return 0; }
 #define KERNEL_SEC_DEBUG_LEVEL_LOW	(0x574F4C44)
 #define KERNEL_SEC_DEBUG_LEVEL_MID	(0x44494D44)
 #define KERNEL_SEC_DEBUG_LEVEL_HIGH	(0x47494844)
+
 #define ANDROID_DEBUG_LEVEL_LOW		0x4f4c
 #define ANDROID_DEBUG_LEVEL_MID		0x494d
 #define ANDROID_DEBUG_LEVEL_HIGH	0x4948
+
+#define ANDROID_CP_DEBUG_ON		0x5500
+#define ANDROID_CP_DEBUG_OFF		0x55ff
 
 extern int ssr_panic_handler_for_sec_dbg(void);
 extern void emerg_pet_watchdog(void);
@@ -248,7 +259,5 @@ struct tsp_dump_callbacks {
 	void (*inform_dump)(void);
 };
 #endif
-
-extern int set_reduced_sdi_mode(void);
 
 #endif	/* SEC_DEBUG_H */

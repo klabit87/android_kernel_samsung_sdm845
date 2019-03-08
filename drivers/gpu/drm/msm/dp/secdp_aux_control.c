@@ -141,7 +141,7 @@ static int auxdev_open(struct inode *inode, struct file *file)
 	file->private_data = aux_dev;
 	g_fw_update_status = true;
 
-	pr_info("aux node open : %p\n", aux_dev);
+	pr_info("aux node open\n");
 
 	return 0;
 }
@@ -274,7 +274,7 @@ static int auxdev_release(struct inode *inode, struct file *file)
 	struct secdp_aux_dev *aux_dev = file->private_data;
 
 	g_fw_update_status = false;
-	pr_info("aux node release : %p\n", aux_dev);
+	pr_info("aux node release\n");
 
 	kref_put(&aux_dev->refcount, release_secdp_aux_dev);
 	return 0;

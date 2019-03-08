@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,84 +14,80 @@
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <asm/arch_timer.h>
-
+#include <clocksource/arm_arch_timer.h>
+#include "rpmh_master_stat.h"
+#include <soc/qcom/lpm_levels.h>
 #include <soc/qcom/rpmh.h>
-#include <soc/qcom/system_pm.h>
 #include "../../../kernel/time/tick-internal.h"
 
-#define ARCH_TIMER_HZ		(19200000UL)
 #define PDC_TIME_VALID_SHIFT	31
 #define PDC_TIME_UPPER_MASK	0xFFFFFF
 
+#ifdef CONFIG_ARM_GIC_V3
+#include <linux/irqchip/arm-gic-v3.h>
+#else
+static inline void gic_v3_dist_restore(void) {}
+static inline void gic_v3_dist_save(void) {}
+#endif
+
 static struct rpmh_client *rpmh_client;
 
-static int setup_wakeup(uint64_t sleep_val)
+static int setup_wakeup(uint32_t lo, uint32_t hi)
 {
 	struct tcs_cmd cmd[2] = { { 0 } };
 
-	cmd[0].data = (sleep_val >> 32) & PDC_TIME_UPPER_MASK;
+	cmd[0].data =  hi & PDC_TIME_UPPER_MASK;
 	cmd[0].data |= 1 << PDC_TIME_VALID_SHIFT;
-	cmd[1].data = sleep_val & 0xFFFFFFFF;
+	cmd[1].data = lo;
 
 	return rpmh_write_control(rpmh_client, cmd, ARRAY_SIZE(cmd));
+}
+
+static int system_sleep_update_wakeup(bool from_idle)
+{
+	uint32_t lo = ~0U, hi = ~0U;
+
+	/* Read the hardware to get the most accurate value */
+	arch_timer_mem_get_cval(&lo, &hi);
+
+	return setup_wakeup(lo, hi);
 }
 
 /**
  * system_sleep_allowed() - Returns if its okay to enter system low power modes
  */
-bool system_sleep_allowed(void)
+static bool system_sleep_allowed(void)
 {
 	return (rpmh_ctrlr_idle(rpmh_client) == 0);
 }
-EXPORT_SYMBOL(system_sleep_allowed);
 
 /**
  * system_sleep_enter() - Activties done when entering system low power modes
  *
- * @sleep_val: The sleep duration in us.
- *
- * Returns 0 for success or error values from writing the timer value in the
- * hardware block.
+ * Returns 0 for success or error values from writing the sleep/wake values to
+ * the hardware block.
  */
-extern u32 get_virtual_timer_tval(struct clock_event_device *clk);
-int system_sleep_enter(uint64_t sleep_val)
+static int system_sleep_enter(struct cpumask *mask)
 {
-	int ret;
-	u32 vtimer_tval;
-	if (IS_ERR_OR_NULL(rpmh_client))
-		return -EFAULT;
-
-	ret = rpmh_flush(rpmh_client);
-	if (ret)
-		return ret;
-
-	/*
-	 * Set up the wake up value offset from the current time.
-	 * Convert us to ns to allow div by 19.2 Mhz tick timer.
-	 */
-	if (sleep_val) {
-		sleep_val *= NSEC_PER_USEC;
-		do_div(sleep_val, NSEC_PER_SEC/ARCH_TIMER_HZ);
-		vtimer_tval = get_virtual_timer_tval(tick_get_broadcast_device()->evtdev);
-		if(sleep_val > vtimer_tval && vtimer_tval < 0x7FFFFFFF)
-			sleep_val = vtimer_tval - 0x20;
-
-		sleep_val += arch_counter_get_cntvct();
-	} else {
-		sleep_val = ~0ULL;
-	}
-
-	return setup_wakeup(sleep_val);
+	gic_v3_dist_save();
+	return rpmh_flush(rpmh_client);
 }
-EXPORT_SYMBOL(system_sleep_enter);
 
 /**
  * system_sleep_exit() - Activities done when exiting system low power modes
  */
-void system_sleep_exit(void)
+static void system_sleep_exit(void)
 {
+	msm_rpmh_master_stats_update();
+	gic_v3_dist_restore();
 }
-EXPORT_SYMBOL(system_sleep_exit);
+
+static struct system_pm_ops pm_ops = {
+	.enter = system_sleep_enter,
+	.exit = system_sleep_exit,
+	.update_wakeup = system_sleep_update_wakeup,
+	.sleep_allowed = system_sleep_allowed,
+};
 
 static int sys_pm_probe(struct platform_device *pdev)
 {
@@ -99,7 +95,7 @@ static int sys_pm_probe(struct platform_device *pdev)
 	if (IS_ERR_OR_NULL(rpmh_client))
 		return PTR_ERR(rpmh_client);
 
-	return 0;
+	return register_system_pm_ops(&pm_ops);
 }
 
 static const struct of_device_id sys_pm_drv_match[] = {
@@ -111,6 +107,7 @@ static struct platform_driver sys_pm_driver = {
 	.probe = sys_pm_probe,
 	.driver = {
 		.name = KBUILD_MODNAME,
+		.suppress_bind_attrs = true,
 		.of_match_table = sys_pm_drv_match,
 	},
 };

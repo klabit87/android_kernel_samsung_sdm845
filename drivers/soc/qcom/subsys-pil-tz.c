@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -49,6 +49,12 @@
 #define desc_to_data(d) container_of(d, struct pil_tz_data, desc)
 #define subsys_to_data(d) container_of(d, struct pil_tz_data, subsys_desc)
 
+struct pil_map_fw_info {
+	void *region;
+	unsigned long attrs;
+	phys_addr_t base_addr;
+	struct device *dev;
+};
 extern void ext_dcc_disable(void);
 
 /**
@@ -591,7 +597,8 @@ static void pil_remove_proxy_vote(struct pil_desc *pil)
 extern struct device *pil_mdata_buf_dev;
 
 static int pil_init_image_trusted(struct pil_desc *pil,
-		const u8 *metadata, size_t size)
+		const u8 *metadata, size_t size, phys_addr_t mdata_phys,
+		void *region)
 {
 	struct pil_tz_data *d = desc_to_data(pil);
 	struct pas_init_image_req {
@@ -600,11 +607,15 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 	} request;
 	u32 scm_ret = 0;
 	void *mdata_buf;
-	dma_addr_t mdata_phys;
 	int ret;
-	unsigned long attrs = 0;
-	struct device dev = {0};
 	struct scm_desc desc = {0};
+	struct pil_map_fw_info map_fw_info = {
+		.attrs = pil->attrs,
+		.region = region,
+		.base_addr = mdata_phys,
+		.dev = pil->dev,
+	};
+	void *map_data = pil->map_data ? pil->map_data : &map_fw_info;
 
 	if (d->subsys_desc.no_auth)
 		return 0;
@@ -613,20 +624,10 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 	if (ret)
 		return ret;
 
-	if (pil_mdata_buf_dev)
-		dev = *pil_mdata_buf_dev;
 
-	arch_setup_dma_ops(&dev, 0, 0, NULL, 0);
-
-	dev.coherent_dma_mask =
-		DMA_BIT_MASK(sizeof(dma_addr_t) * 8);
-	attrs |= DMA_ATTR_STRONGLY_ORDERED;
-	mdata_buf = dma_alloc_attrs(&dev, size, &mdata_phys, GFP_KERNEL,
-					attrs);
-	pr_err("[%s] mdata_buf : %p, mdata_phys : %lx\n", __func__, mdata_buf, (unsigned long)mdata_phys);
-
+	mdata_buf = pil->map_fw_mem(mdata_phys, size, map_data);
 	if (!mdata_buf) {
-		pr_err("scm-pas: Allocation for metadata failed.\n");
+		dev_err(pil->dev, "Failed to map memory for metadata.\n");
 		scm_pas_disable_bw();
 		return -ENOMEM;
 	}
@@ -648,7 +649,7 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 		scm_ret = desc.ret[0];
 	}
 
-	dma_free_attrs(&dev, size, mdata_buf, mdata_phys, attrs);
+	pil->unmap_fw_mem(mdata_buf, size, map_data);
 	scm_pas_disable_bw();
 	if (ret)
 		return ret;
@@ -891,9 +892,6 @@ static void log_failure_reason(const struct pil_tz_data *d)
 	if (!strcmp(name, "slpi") && (strstr(reason, "force_reset") != NULL))
 		subsys_set_ssr_reason(d->subsys, SSR_WITHOUT_PANIC);
 #endif
-
-	smem_reason[0] = '\0';
-	wmb();
 }
 
 static int subsys_shutdown(const struct subsys_desc *subsys, bool force_stop)
@@ -937,7 +935,7 @@ static int subsys_ramdump(int enable, const struct subsys_desc *subsys)
 	if (!enable)
 		return 0;
 
-	return pil_do_ramdump(&d->desc, d->ramdump_dev);
+	return pil_do_ramdump(&d->desc, d->ramdump_dev, NULL);
 }
 
 static void subsys_free_memory(const struct subsys_desc *subsys)
@@ -1093,7 +1091,8 @@ static int pil_tz_driver_probe(struct platform_device *pdev)
 {
 	struct pil_tz_data *d;
 	struct resource *res;
-	u32 proxy_timeout;
+	struct device_node *crypto_node;
+	u32 proxy_timeout, crypto_id;
 	int len, rc;
 
 	d = devm_kzalloc(&pdev->dev, sizeof(*d), GFP_KERNEL);
@@ -1149,7 +1148,17 @@ static int pil_tz_driver_probe(struct platform_device *pdev)
 									rc);
 			return rc;
 		}
-		scm_pas_init(MSM_BUS_MASTER_CRYPTO_CORE_0);
+
+		crypto_id = MSM_BUS_MASTER_CRYPTO_CORE_0;
+		crypto_node = of_parse_phandle(pdev->dev.of_node,
+						"qcom,mas-crypto", 0);
+		if (!IS_ERR_OR_NULL(crypto_node)) {
+			of_property_read_u32(crypto_node, "cell-id",
+				&crypto_id);
+			of_node_put(crypto_node);
+		}
+
+		scm_pas_init((int)crypto_id);
 	}
 
 	rc = pil_desc_init(&d->desc);

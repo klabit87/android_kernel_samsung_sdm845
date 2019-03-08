@@ -70,6 +70,7 @@ struct sec_param_data {
 	char api_gpio_test_result[256];
 	char reboot_recovery_cause[256];
 	unsigned int user_partition_flashed;
+	unsigned int force_upload_flag;
 };
 
 struct sec_param_data_s {

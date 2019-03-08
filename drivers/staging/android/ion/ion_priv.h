@@ -26,6 +26,7 @@
 #include <linux/rbtree.h>
 #include <linux/seq_file.h>
 
+#include "msm_ion_priv.h"
 #include <linux/sched.h>
 #include <linux/shrinker.h>
 #include <linux/types.h>
@@ -406,6 +407,11 @@ void ion_system_heap_destroy(struct ion_heap *);
 struct ion_heap *ion_system_contig_heap_create(struct ion_platform_heap *);
 void ion_system_contig_heap_destroy(struct ion_heap *);
 
+#ifdef CONFIG_ION_RBIN_HEAP
+struct ion_heap *ion_rbin_heap_create(struct ion_platform_heap *);
+void ion_rbin_heap_destroy(struct ion_heap *);
+#endif
+
 struct ion_heap *ion_carveout_heap_create(struct ion_platform_heap *);
 void ion_carveout_heap_destroy(struct ion_heap *);
 
@@ -483,6 +489,8 @@ struct ion_page_pool {
 struct ion_page_pool *ion_page_pool_create(struct device *dev, gfp_t gfp_mask,
 					   unsigned int order);
 void ion_page_pool_destroy(struct ion_page_pool *);
+struct page *ion_page_pool_remove(struct ion_page_pool *pool, bool high);
+void *ion_page_pool_only_alloc(struct ion_page_pool *a);
 void *ion_page_pool_alloc(struct ion_page_pool *a, bool *from_pool);
 void *ion_page_pool_alloc_pool_only(struct ion_page_pool *a);
 void ion_page_pool_free(struct ion_page_pool *a, struct page *b);

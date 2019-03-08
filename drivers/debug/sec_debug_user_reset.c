@@ -56,13 +56,16 @@ char *klog_buf;
 uint32_t klog_size;
 char *klog_read_buf;
 struct debug_reset_header *klog_info;
+static DEFINE_MUTEX(klog_mutex);
 
 char *summary_buf;
 struct debug_reset_header *summary_info;
+static DEFINE_MUTEX(summary_mutex);
 static unsigned reset_reason = 0xFFEEFFEE;
 
 char *tzlog_buf;
 struct debug_reset_header *tzlog_info;
+static DEFINE_MUTEX(tzlog_mutex);
 
 static int reset_write_cnt = -1;
 
@@ -446,20 +449,27 @@ static ssize_t sec_reset_summary_info_proc_read(struct file *file,
 	loff_t pos = *offset;
 	ssize_t count;
 
-	if (sec_reset_summary_info_init() < 0)
+	mutex_lock(&summary_mutex);
+	if (sec_reset_summary_info_init() < 0) {
+		mutex_unlock(&summary_mutex);
 		return -ENOENT;
+	}
 
 	if ((pos >= summary_info->summary_size) || (pos >= SEC_DEBUG_RESET_SUMMARY_SIZE)) {
 		pr_info("%s : pos %lld, size %d\n", __func__, pos, summary_info->summary_size);
 		sec_reset_summary_completed();
+		mutex_unlock(&summary_mutex);
 		return 0;
 	}
 
 	count = min(len, (size_t)(summary_info->summary_size - pos));
-	if (copy_to_user(buf, summary_buf + pos, count))
+	if (copy_to_user(buf, summary_buf + pos, count)) {
+		mutex_unlock(&summary_mutex);
 		return -EFAULT;
+	}
 
 	*offset += count;
+	mutex_unlock(&summary_mutex);
 	return count;
 }
 
@@ -545,20 +555,27 @@ static ssize_t sec_reset_klog_proc_read(struct file *file, char __user *buf,
 	loff_t pos = *offset;
 	ssize_t count;
 
-	if (sec_reset_klog_init() < 0)
+	mutex_lock(&klog_mutex);
+	if (sec_reset_klog_init() < 0) {
+		mutex_unlock(&klog_mutex);
 		return -ENOENT;
+	}
 
 	if (pos >= klog_size) {
 		pr_info("%s : pos %lld, size %d\n", __func__, pos, klog_size);
 		sec_reset_klog_completed();
+		mutex_unlock(&klog_mutex);
 		return 0;
 	}
 
 	count = min(len, (size_t)(klog_size - pos));
-	if (copy_to_user(buf, klog_buf + pos, count))
+	if (copy_to_user(buf, klog_buf + pos, count)) {
+		mutex_unlock(&klog_mutex);
 		return -EFAULT;
+	}
 
 	*offset += count;
+	mutex_unlock(&klog_mutex);
 	return count;
 }
 
@@ -630,20 +647,27 @@ static ssize_t sec_reset_tzlog_proc_read(struct file *file, char __user *buf,
 	loff_t pos = *offset;
 	ssize_t count;
 
-	if (sec_reset_tzlog_init() < 0)
+	mutex_lock(&tzlog_mutex);
+	if (sec_reset_tzlog_init() < 0) {
+		mutex_unlock(&tzlog_mutex);
 		return -ENOENT;
+	}
 
 	if (pos >= SEC_DEBUG_RESET_TZLOG_SIZE) {
 		pr_info("%s : pos %lld, size %d\n", __func__, pos, SEC_DEBUG_RESET_TZLOG_SIZE);
 		sec_reset_tzlog_completed();
+		mutex_unlock(&tzlog_mutex);
 		return 0;
 	}
 
 	count = min(len, (size_t)(SEC_DEBUG_RESET_TZLOG_SIZE - pos));
-	if (copy_to_user(buf, tzlog_buf + pos, count))
+	if (copy_to_user(buf, tzlog_buf + pos, count)) {
+		mutex_unlock(&tzlog_mutex);
 		return -EFAULT;
+	}
 
 	*offset += count;
+	mutex_unlock(&tzlog_mutex);
 	return count;
 }
 

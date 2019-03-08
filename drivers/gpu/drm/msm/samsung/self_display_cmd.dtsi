@@ -217,6 +217,15 @@
 			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
 		];
 
+		samsung,self_mask_on_factory = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
+			29 01 00 00 00 00 10 7A
+								01 0B 90 0C 25
+								0C 26 0C BB 09
+								0F 00 00 00 00
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
+		];
+
 		samsung,self_mask_off = [
 			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable  */
 			29 01 00 00 00 00 02 7A 00		/* SM_MASK_EN(0)	*/

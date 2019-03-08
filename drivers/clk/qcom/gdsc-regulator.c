@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,11 +29,16 @@
 #include <linux/reset.h>
 #include <linux/mfd/syscon.h>
 #include <linux/clk/qcom.h>
+#include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 
 /* GDSCR */
 #define PWR_ON_MASK		BIT(31)
 #define CLK_DIS_WAIT_MASK	(0xF << 12)
 #define CLK_DIS_WAIT_SHIFT	(12)
+#define EN_FEW_WAIT_MASK	(0xF << 16)
+#define EN_FEW_WAIT_SHIFT	(16)
+#define EN_REST_WAIT_MASK	(0xF << 20)
+#define EN_REST_WAIT_SHIFT	(20)
 #define SW_OVERRIDE_MASK	BIT(2)
 #define HW_CONTROL_MASK		BIT(1)
 #define SW_COLLAPSE_MASK	BIT(0)
@@ -68,6 +73,7 @@ struct gdsc {
 	struct regmap           *hw_ctrl;
 	struct regmap           *sw_reset;
 	struct clk		**clocks;
+	struct regulator	*parent_regulator;
 	struct reset_control	**reset_clocks;
 	bool			toggle_mem;
 	bool			toggle_periph;
@@ -194,6 +200,17 @@ static int gdsc_enable(struct regulator_dev *rdev)
 	uint32_t regval, cfg_regval, hw_ctrl_regval = 0x0;
 	int i, ret = 0;
 
+	if (sc->parent_regulator) {
+		ret = regulator_set_voltage(sc->parent_regulator,
+				RPMH_REGULATOR_LEVEL_LOW_SVS, INT_MAX);
+		if (ret) {
+			dev_warn(&rdev->dev,
+				"Unable to set the voltage on parent for %s\n",
+				sc->rdesc.name);
+			return ret;
+		}
+	}
+
 	mutex_lock(&gdsc_seq_lock);
 
 	if (sc->root_en || sc->force_root_en)
@@ -204,6 +221,9 @@ static int gdsc_enable(struct regulator_dev *rdev)
 		dev_warn(&rdev->dev, "Invalid enable while %s is under HW control\n",
 				sc->rdesc.name);
 		mutex_unlock(&gdsc_seq_lock);
+
+		if (sc->parent_regulator)
+			regulator_set_voltage(sc->parent_regulator, 0, INT_MAX);
 		return -EBUSY;
 	}
 
@@ -292,6 +312,11 @@ static int gdsc_enable(struct regulator_dev *rdev)
 						regval, hw_ctrl_regval);
 
 					mutex_unlock(&gdsc_seq_lock);
+
+					if (sc->parent_regulator)
+						regulator_set_voltage(
+							sc->parent_regulator,
+							 0, INT_MAX);
 					return ret;
 				}
 			} else {
@@ -317,6 +342,10 @@ static int gdsc_enable(struct regulator_dev *rdev)
 				}
 				mutex_unlock(&gdsc_seq_lock);
 
+				if (sc->parent_regulator)
+					regulator_set_voltage(
+						sc->parent_regulator,
+						0, INT_MAX);
 				return ret;
 			}
 		}
@@ -435,6 +464,9 @@ static int gdsc_disable(struct regulator_dev *rdev)
 
 	mutex_unlock(&gdsc_seq_lock);
 
+	if (sc->parent_regulator)
+		regulator_set_voltage(sc->parent_regulator, 0, INT_MAX);
+
 	return ret;
 }
 
@@ -535,6 +567,7 @@ static int gdsc_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct gdsc *sc;
 	uint32_t regval, clk_dis_wait_val = 0;
+	uint32_t en_few_wait_val, en_rest_wait_val;
 	bool retain_mem, retain_periph, support_hw_trigger, prop_val;
 	int i, ret;
 	u32 timeout;
@@ -631,6 +664,19 @@ static int gdsc_probe(struct platform_device *pdev)
 	if (prop_val)
 		sc->flags |= TOGGLE_SW_COLLAPSE_IN_DISABLE;
 
+	if (of_find_property(pdev->dev.of_node, "vdd_parent-supply", NULL)) {
+		sc->parent_regulator = devm_regulator_get(&pdev->dev,
+							"vdd_parent");
+		if (IS_ERR(sc->parent_regulator)) {
+			ret = PTR_ERR(sc->parent_regulator);
+			if (ret != -EPROBE_DEFER)
+				dev_err(&pdev->dev,
+				"Unable to get vdd_parent regulator, err: %d\n",
+					ret);
+			return ret;
+		}
+	}
+
 	for (i = 0; i < sc->clock_count; i++) {
 		const char *clock_name;
 
@@ -679,6 +725,22 @@ static int gdsc_probe(struct platform_device *pdev)
 		/* Configure wait time between states. */
 		regval &= ~(CLK_DIS_WAIT_MASK);
 		regval |= clk_dis_wait_val;
+	}
+
+	if (!of_property_read_u32(pdev->dev.of_node, "qcom,en-few-wait-val",
+				  &en_few_wait_val)) {
+		en_few_wait_val <<= EN_FEW_WAIT_SHIFT;
+
+		regval &= ~(EN_FEW_WAIT_MASK);
+		regval |= en_few_wait_val;
+	}
+
+	if (!of_property_read_u32(pdev->dev.of_node, "qcom,en-rest-wait-val",
+				  &en_rest_wait_val)) {
+		en_rest_wait_val <<= EN_REST_WAIT_SHIFT;
+
+		regval &= ~(EN_REST_WAIT_MASK);
+		regval |= en_rest_wait_val;
 	}
 
 	regmap_write(sc->regmap, REG_OFFSET, regval);

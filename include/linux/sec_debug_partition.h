@@ -159,6 +159,7 @@ struct lcd_debug_t {
 	struct lcd_debug_ftout ftout;
 };
 
+
 #define DEBUG_PARTITION_NAME	"/dev/block/bootdevice/by-name/debug"	/* debug block */
 
 #define DEBUG_PARTITION_MAGIC	0x41114729

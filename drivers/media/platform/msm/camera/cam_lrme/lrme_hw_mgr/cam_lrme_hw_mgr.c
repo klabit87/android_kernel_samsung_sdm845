@@ -104,7 +104,7 @@ static int cam_lrme_mgr_util_packet_validate(struct cam_packet *packet)
 		return -EINVAL;
 	}
 
-	CAM_DBG(CAM_LRME, "Packet request=%d, op_code=0x%x, size=%d, flags=%d",
+	CAM_DBG(CAM_LRME, "Packet request=%lld, op_code=0x%x, size=%d, flags=%d",
 		packet->header.request_id, packet->header.op_code,
 		packet->header.size, packet->header.flags);
 	CAM_DBG(CAM_LRME,

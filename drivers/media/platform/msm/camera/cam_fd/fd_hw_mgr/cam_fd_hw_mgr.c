@@ -38,7 +38,7 @@ static int cam_fd_mgr_util_packet_validate(struct cam_packet *packet)
 	if (!packet)
 		return -EINVAL;
 
-	CAM_DBG(CAM_FD, "Packet request=%d, op_code=0x%x, size=%d, flags=%d",
+	CAM_DBG(CAM_FD, "Packet request=%lld, op_code=0x%x, size=%d, flags=%d",
 		packet->header.request_id, packet->header.op_code,
 		packet->header.size, packet->header.flags);
 	CAM_DBG(CAM_FD,
@@ -611,7 +611,7 @@ static int cam_fd_mgr_util_prepare_io_buf_info(int32_t iommu_hdl,
 				cpu_addr[plane] += io_cfg[i].offsets[plane];
 			}
 
-			CAM_DBG(CAM_FD, "IO Address[%d][%d] : %pK, %pK",
+			CAM_DBG(CAM_FD, "IO Address[%d][%d] : 0x%lldK, 0x%lldK",
 				io_cfg[i].direction, plane, io_addr[plane],
 				cpu_addr[plane]);
 		}
@@ -1679,7 +1679,7 @@ static int cam_fd_mgr_hw_config(void *hw_mgr_priv, void *hw_config_args)
 	frame_req->num_hw_update_entries = config->num_hw_update_entries;
 	for (i = 0; i < config->num_hw_update_entries; i++) {
 		frame_req->hw_update_entries[i] = config->hw_update_entries[i];
-		CAM_DBG(CAM_FD, "PreStart HWEntry[%d] : %d %d %d %d %pK",
+		CAM_DBG(CAM_FD, "PreStart HWEntry[%d] : %d %d %d %lldK",
 			frame_req->hw_update_entries[i].handle,
 			frame_req->hw_update_entries[i].offset,
 			frame_req->hw_update_entries[i].len,

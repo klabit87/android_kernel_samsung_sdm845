@@ -26,7 +26,7 @@ Properties:
 		    addresses are specified in the reg property.
 
 - qcom,mx-turbo-freq
-	Usage:      required if qcom,mx-turbo-freq is specified
+	Usage:      optional
 	Value type: <array>
 	Definition: List of frequencies for the 3 clock domains (following the
 		    order of L3, power, and performance clusters) that denote
@@ -38,7 +38,7 @@ Properties:
 	Definition: Phandle to the MX active-only regulator device.
 
 - vdd_pwrcl_mx_ao-supply
-	Usage:      required
+	Usage:      required if qcom,mx-turbo-freq is specified
 	Value type: <phandle>
 	Definition: Phandle to the MX active-only regulator device.
 

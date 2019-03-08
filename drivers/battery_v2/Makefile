@@ -1,4 +1,5 @@
 obj-$(CONFIG_BATTERY_SAMSUNG)	+= sec_battery.o
+obj-$(CONFIG_BATTERY_SAMSUNG)	+= sec_battery_sysfs.o
 obj-$(CONFIG_OF)				+= sec_adc.o
 obj-$(CONFIG_MULTI_CHARGING)	+= sec_multi_charger.o
 obj-$(CONFIG_STEP_CHARGING)	+= sec_step_charging.o

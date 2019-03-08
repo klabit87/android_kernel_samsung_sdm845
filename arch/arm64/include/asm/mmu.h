@@ -21,7 +21,7 @@
 
 #ifndef __ASSEMBLY__
 
-#include <asm/percpu.h>
+#include <linux/percpu.h>
 
 typedef struct {
 	atomic64_t	id;
@@ -38,7 +38,7 @@ typedef struct {
 static inline bool arm64_kernel_unmapped_at_el0(void)
 {
 	return IS_ENABLED(CONFIG_UNMAP_KERNEL_AT_EL0) &&
-	       cpus_have_cap(ARM64_UNMAP_KERNEL_AT_EL0);
+	       cpus_have_const_cap(ARM64_UNMAP_KERNEL_AT_EL0);
 }
 
 typedef void (*bp_hardening_cb_t)(void);
@@ -55,7 +55,7 @@ DECLARE_PER_CPU_READ_MOSTLY(struct bp_hardening_data, bp_hardening_data);
 
 static inline struct bp_hardening_data *arm64_get_bp_hardening_data(void)
 {
-	return raw_cpu_ptr(&bp_hardening_data);
+	return this_cpu_ptr(&bp_hardening_data);
 }
 
 static inline void arm64_apply_bp_hardening(void)

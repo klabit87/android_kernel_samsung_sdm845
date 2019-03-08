@@ -27,7 +27,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_flowring.c 735999 2017-12-13 07:18:24Z $
+ * $Id: dhd_flowring.c 765580 2018-06-04 17:19:56Z $
  */
 
 #include <typedefs.h>
@@ -93,8 +93,9 @@ dhd_flow_ring_node(dhd_pub_t *dhdp, uint16 flowid)
 
 	ASSERT(dhdp != (dhd_pub_t*)NULL);
 	ASSERT(flowid < dhdp->num_flow_rings);
-	if (flowid < dhdp->num_flow_rings)
+	if (flowid >= dhdp->num_flow_rings) {
 		return NULL;
+	}
 
 	flow_ring_node = &(((flow_ring_node_t*)(dhdp->flow_ring_table))[flowid]);
 
@@ -640,6 +641,15 @@ dhd_flowid_alloc(dhd_pub_t *dhdp, uint8 ifindex, uint8 prio, char *sa, char *da)
 
 	DHD_INFO(("%s: allocated flowid %d\n", __FUNCTION__, fl_hash_node->flowid));
 
+	if (fl_hash_node->flowid >= dhdp->num_flow_rings) {
+		DHD_ERROR(("%s: flowid=%d num_flow_rings=%d ifindex=%d prio=%d role=%d\n",
+			__FUNCTION__, fl_hash_node->flowid, dhdp->num_flow_rings,
+			ifindex, prio, if_flow_lkup[ifindex].role));
+		dhd_prhex("da", (uchar *)da, ETHER_ADDR_LEN, DHD_ERROR_VAL);
+		dhd_prhex("sa", (uchar *)sa, ETHER_ADDR_LEN, DHD_ERROR_VAL);
+		return FLOWID_INVALID;
+	}
+
 	return fl_hash_node->flowid;
 } /* dhd_flowid_alloc */
 
@@ -685,6 +695,9 @@ dhd_flowid_lookup(dhd_pub_t *dhdp, uint8 ifindex,
 		if (!ETHER_ISMULTI(da) &&
 		    ((if_flow_lkup[ifindex].role == WLC_E_IF_ROLE_AP) ||
 		    (FALSE) ||
+#ifdef WL_NAN
+		    (if_flow_lkup[ifindex].role == WLC_E_IF_ROLE_NAN) ||
+#endif /* WL_NAN */
 		    (if_flow_lkup[ifindex].role == WLC_E_IF_ROLE_P2P_GO)) &&
 		    (!is_sta_assoc)) {
 			DHD_ERROR_RLMT(("Attempt to send pkt with out peer/scb addition\n"));
@@ -716,6 +729,10 @@ dhd_flowid_lookup(dhd_pub_t *dhdp, uint8 ifindex,
 		flow_ring_node->active = TRUE;
 		flow_ring_node->status = FLOW_RING_STATUS_CREATE_PENDING;
 
+#ifdef TX_STATUS_LATENCY_STATS
+		flow_ring_node->flow_info.num_tx_status = 0;
+		flow_ring_node->flow_info.cum_tx_status_latency = 0;
+#endif /* TX_STATUS_LATENCY_STATS */
 		DHD_FLOWRING_UNLOCK(flow_ring_node->lock, flags);
 
 		/* Create and inform device about the new flow */

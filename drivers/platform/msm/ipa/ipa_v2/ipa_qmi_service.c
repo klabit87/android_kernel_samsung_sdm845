@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -514,6 +514,14 @@ int qmi_filter_request_send(struct ipa_install_fltr_rule_req_msg_v01 *req)
 	int rc;
 	int i;
 
+	/* check if modem up */
+	if (!qmi_indication_fin ||
+		!qmi_modem_init_fin ||
+		!ipa_q6_clnt) {
+		IPAWANDBG("modem QMI haven't up yet\n");
+		return -EINVAL;
+	}
+
 	/* check if the filter rules from IPACM is valid */
 	if (req->filter_spec_list_len == 0) {
 		IPAWANDBG("IPACM pass zero rules to Q6\n");
@@ -706,7 +714,9 @@ int qmi_filter_notify_send(struct ipa_fltr_installed_notif_req_msg_v01 *req)
 				req->filter_index_list[i].filter_handle,
 				req->filter_index_list[i].filter_index);
 		return -EINVAL;
-	} else if (req->install_status != IPA_QMI_RESULT_SUCCESS_V01) {
+	}
+
+	if (req->install_status != IPA_QMI_RESULT_SUCCESS_V01) {
 		IPAWANERR(" UL filter rule for pipe %d install_status = %d\n",
 			req->source_pipe_index, req->install_status);
 		return -EINVAL;
@@ -1029,7 +1039,7 @@ int ipa_qmi_service_init(uint32_t wan_platform_type)
 	qmi_indication_fin = false;
 	atomic_set(&workqueues_stopped, 0);
 
-	if (atomic_read(&ipa_qmi_initialized == 0))
+	if (atomic_read(&ipa_qmi_initialized) == 0)
 		ipa_qmi_service_init_worker();
 	return 0;
 }

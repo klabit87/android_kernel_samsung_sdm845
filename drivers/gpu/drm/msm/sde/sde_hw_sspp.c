@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -336,8 +336,8 @@ static void sde_hw_sspp_setup_format(struct sde_hw_pipe *ctx,
 			alpha_en_mask = const_alpha_en ? BIT(31) : 0;
 #endif
 			SDE_REG_WRITE(c, SSPP_UBWC_STATIC_CTRL,
-					alpha_en_mask | (ctx->mdp->ubwc_swizzle) |
-					(ctx->mdp->highest_bank_bit << 4));
+				alpha_en_mask | (ctx->mdp->ubwc_swizzle) |
+				(ctx->mdp->highest_bank_bit << 4));
 		}
 	}
 
@@ -380,19 +380,24 @@ static void sde_hw_sspp_setup_secure(struct sde_hw_pipe *ctx,
 
 	c = &ctx->hw;
 
-	if (enable) {
-		if ((rect_mode == SDE_SSPP_RECT_SOLO)
-				|| (rect_mode == SDE_SSPP_RECT_0))
-			secure_bit_mask =
-				(rect_mode == SDE_SSPP_RECT_SOLO) ? 0xF : 0x5;
-		else
-			secure_bit_mask = 0xA;
+	if ((rect_mode == SDE_SSPP_RECT_SOLO)
+			|| (rect_mode == SDE_SSPP_RECT_0))
+		secure_bit_mask =
+			(rect_mode == SDE_SSPP_RECT_SOLO) ? 0xF : 0x5;
+	else
+		secure_bit_mask = 0xA;
 
-		secure = SDE_REG_READ(c, SSPP_SRC_ADDR_SW_STATUS + idx);
+	secure = SDE_REG_READ(c, SSPP_SRC_ADDR_SW_STATUS + idx);
+
+	if (enable)
 		secure |= secure_bit_mask;
-	}
+	else
+		secure &= ~secure_bit_mask;
 
 	SDE_REG_WRITE(c, SSPP_SRC_ADDR_SW_STATUS + idx, secure);
+
+	/* multiple planes share same sw_status register */
+	wmb();
 }
 
 
@@ -860,12 +865,14 @@ static void sde_hw_sspp_setup_ts_prefill(struct sde_hw_pipe *ctx,
 		ts_offset = SSPP_TRAFFIC_SHAPER_REC1;
 		ts_prefill_offset = SSPP_TRAFFIC_SHAPER_REC1_PREFILL;
 	} else {
+		pr_err("%s: unexpected idx:%d\n", __func__, index);
 		return;
 	}
 
 	if (cfg->time) {
-		ts_bytes = mult_frac(TS_CLK * 1000000ULL, cfg->size,
-				cfg->time);
+		u64 temp = DIV_ROUND_UP_ULL(TS_CLK * 1000000ULL, cfg->time);
+
+		ts_bytes = temp * cfg->size;
 		if (ts_bytes > SSPP_TRAFFIC_SHAPER_BPC_MAX)
 			ts_bytes = SSPP_TRAFFIC_SHAPER_BPC_MAX;
 	}
@@ -893,10 +900,14 @@ static void sde_hw_sspp_setup_cdp(struct sde_hw_pipe *ctx,
 	if (_sspp_subblk_offset(ctx, SDE_SSPP_SRC, &idx))
 		return;
 
-	if (index == SDE_SSPP_RECT_SOLO || index == SDE_SSPP_RECT_0)
+	if (index == SDE_SSPP_RECT_SOLO || index == SDE_SSPP_RECT_0) {
 		cdp_cntl_offset = SSPP_CDP_CNTL;
-	else
+	} else if (index == SDE_SSPP_RECT_1) {
 		cdp_cntl_offset = SSPP_CDP_CNTL_REC1;
+	} else {
+		pr_err("%s: unexpected idx:%d\n", __func__, index);
+		return;
+	}
 
 	if (cfg->enable)
 		cdp_cntl |= BIT(0);

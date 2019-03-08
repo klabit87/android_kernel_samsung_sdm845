@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -348,7 +348,7 @@ void msm_dma_unmap_sg(struct device *dev, struct scatterlist *sgl, int nents,
 	}
 
 	if (dir != iommu_map->dir)
-		WARN(1, "%s: (%p) dir:%d differs from original dir:%d\n",
+		WARN(1, "%s: (%pK) dir:%d differs from original dir:%d\n",
 		     __func__, dma_buf, dir, iommu_map->dir);
 
 	kref_put(&iommu_map->ref, msm_iommu_map_release);

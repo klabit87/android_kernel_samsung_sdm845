@@ -105,7 +105,7 @@ static int cam_vfe_top_set_hw_clk_rate(
 	if (max_clk_rate == top_priv->hw_clk_rate)
 		return 0;
 
-	CAM_DBG(CAM_ISP, "VFE: Clock name=%s idx=%d clk=%lld",
+	CAM_INFO(CAM_ISP, "VFE: Clock name=%s idx=%d clk=%lu",
 		soc_info->clk_name[soc_info->src_clk_idx],
 		soc_info->src_clk_idx, max_clk_rate);
 
@@ -213,12 +213,12 @@ static int cam_vfe_top_set_axi_bw_vote(
 		apply_bw_update = true;
 	}
 
-	CAM_DBG(CAM_ISP,
-		"counter=%d, apply_bw_update=%d",
-		top_priv->counter_to_update_axi_vote,
-		apply_bw_update);
-
 	if (apply_bw_update == true) {
+		CAM_INFO(CAM_ISP, "apply_bw_update=%d compressed_bw:%llu uncompressed_bw:%llu",
+			apply_bw_update,
+			top_priv->to_be_applied_axi_vote.compressed_bw,
+			top_priv->to_be_applied_axi_vote.uncompressed_bw);
+
 		rc = cam_cpas_update_axi_vote(
 			soc_private->cpas_handle,
 			&top_priv->to_be_applied_axi_vote);

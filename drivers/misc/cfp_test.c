@@ -18,7 +18,7 @@ unsigned long ret_addr = 0x8888;
 
 #ifdef CONFIG_RKP_CFP_ROPP
 
-
+#ifdef CONFIG_RKP_CFP_ROPP_SYSREGKEY
 static void ropp_readbvr(void)
 {
 	unsigned long bcr_val = 0xcccc;
@@ -39,6 +39,17 @@ static void ropp_writebvr(void)
 
 	ropp_readbvr();
 }
+#else
+static void ropp_readbvr(void)
+{
+	printk(KERN_INFO "ROPP does not use system register\n");
+}
+
+static void ropp_writebvr(void)
+{
+	printk(KERN_INFO "ROPP does not use system register\n");
+}
+#endif
 
 static void traversal_thread_group(struct task_struct *tsk)
 {

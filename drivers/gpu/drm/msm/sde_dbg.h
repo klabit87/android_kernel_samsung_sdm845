@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -86,7 +86,7 @@ enum sde_dbg_dump_flag {
 #define SDE_EVTLOG_PRINT_ENTRY	(256 * 4)
 
 #undef SDE_EVTLOG_ENTRY
-#define SDE_EVTLOG_ENTRY	SDE_EVTLOG_PRINT_ENTRY
+#define SDE_EVTLOG_ENTRY	(SDE_EVTLOG_PRINT_ENTRY * 2)
 #endif
 
 struct sde_dbg_power_ctrl {
@@ -166,6 +166,13 @@ extern struct sde_dbg_evtlog *sde_dbg_base_evtlog;
  *		the dumping work has completed.
  */
 #define SDE_DBG_DUMP_WQ(...) sde_dbg_dump(true, __func__, ##__VA_ARGS__, \
+		SDE_DBG_DUMP_DATA_LIMITER)
+
+/**
+ * SDE_DBG_EVT_CTRL - trigger a different driver events
+ *  event: event that trigger different behavior in the driver
+ */
+#define SDE_DBG_CTRL(...) sde_dbg_ctrl(__func__, ##__VA_ARGS__, \
 		SDE_DBG_DUMP_DATA_LIMITER)
 
 #if defined(CONFIG_DEBUG_FS)
@@ -266,6 +273,15 @@ void sde_dbg_destroy(void);
 void sde_dbg_dump(bool queue_work, const char *name, ...);
 
 /**
+ * sde_dbg_ctrl - trigger specific actions for the driver with debugging
+ *		purposes. Those actions need to be enabled by the debugfs entry
+ *		so the driver executes those actions in the corresponding calls.
+ * @va_args:	list of actions to trigger
+ * Returns:	none
+ */
+void sde_dbg_ctrl(const char *name, ...);
+
+/**
  * sde_dbg_reg_register_base - register a hw register address section for later
  *	dumping. call this before calling sde_dbg_reg_register_dump_range
  *	to be able to specify sub-ranges within the base hw range.
@@ -345,8 +361,10 @@ void sde_rsc_debug_dump(u32 mux_sel);
 
 /**
  * dsi_ctrl_debug_dump - dump dsi debug dump status
+ * @entries:	array of debug bus control values
+ * @size:	size of the debug bus control array
  */
-void dsi_ctrl_debug_dump(void);
+void dsi_ctrl_debug_dump(u32 *entries, u32 size);
 
 #else
 static inline struct sde_dbg_evtlog *sde_evtlog_init(void)
@@ -403,6 +421,10 @@ static inline void sde_dbg_dump(bool queue_work, const char *name, ...)
 {
 }
 
+static inline void sde_dbg_ctrl(const char *name, ...)
+{
+}
+
 static inline int sde_dbg_reg_register_base(const char *name,
 		void __iomem *base, size_t max_offset)
 {
@@ -434,7 +456,7 @@ static inline void sde_rsc_debug_dump(u32 mux_sel)
 {
 }
 
-static inline void dsi_ctrl_debug_dump(void)
+static inline void dsi_ctrl_debug_dump(u32 entries, u32 size)
 {
 }
 

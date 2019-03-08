@@ -25,7 +25,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: nan.h 736626 2017-12-17 10:08:43Z $
+ * $Id: nan.h 758133 2018-04-17 19:07:15Z $
  */
 #ifndef _NAN_H_
 #define _NAN_H_
@@ -37,7 +37,7 @@
 #include <packed_section_start.h>
 
 /* WiFi NAN OUI values */
-#define NAN_OUI			WFA_OUI     /* WiFi OUI */
+#define NAN_OUI			"\x50\x6F\x9A"     /* WFA OUI. WiFi-Alliance OUI */
 /* For oui_type field identifying the type and version of the NAN IE. */
 #define NAN_OUI_TYPE		0x13        /* Type/Version */
 #define NAN_AF_OUI_TYPE		0x18        /* Type/Version */
@@ -120,6 +120,17 @@
 #define NAN_AVAIL_ENTRY_LEN_RES1 5      /* Avail entry len in FAM attribute for resolution 32TU */
 #define NAN_AVAIL_ENTRY_LEN_RES2 4      /* Avail entry len in FAM attribute for resolution 64TU */
 
+/* map id field */
+#define NAN_MAPID_SPECIFIC_MAP_MASK	0x01 /* apply to specific map */
+#define NAN_MAPID_MAPID_MASK		0x1E
+#define NAN_MAPID_MAPID_SHIFT		1
+#define NAN_MAPID_SPECIFIC_MAP(_mapid)	((_mapid) & NAN_MAPID_SPECIFIC_MAP_MASK)
+#define NAN_MAPID_ALL_MAPS(_mapid)	(!NAN_MAPID_SPECIFIC_MAP(_mapid))
+#define NAN_MAPID_MAPID(_mapid)		(((_mapid) & NAN_MAPID_MAPID_MASK) \
+		>> NAN_MAPID_MAPID_SHIFT)
+#define NAN_MAPID_SET_SPECIFIC_MAPID(map_id)	((((map_id) << NAN_MAPID_MAPID_SHIFT) \
+		& NAN_MAPID_MAPID_MASK) | NAN_MAPID_SPECIFIC_MAP_MASK)
+
 /* Vendor-specific public action frame for NAN */
 typedef BWL_PRE_PACKED_STRUCT struct nan_pub_act_frame_s {
 	/* NAN_PUB_AF_CATEGORY 0x04 */
@@ -178,10 +189,11 @@ enum {
 	NAN_ATTR_MCAST_SCHED_OWNER_CHANGE = 38,
 	NAN_ATTR_PUBLIC_AVAILABILITY = 39,
 	NAN_ATTR_SUB_SVC_ID_LIST = 40,
+	NAN_ATTR_NDPE = 41,
 	/* change NAN_ATTR_MAX_ID to max ids + 1, excluding NAN_ATTR_VENDOR_SPECIFIC.
 	 * This is used in nan_parse.c
 	 */
-	NAN_ATTR_MAX_ID		= NAN_ATTR_SUB_SVC_ID_LIST + 1,
+	NAN_ATTR_MAX_ID		= NAN_ATTR_NDPE + 1,
 
 	NAN_ATTR_VENDOR_SPECIFIC = 221
 };
@@ -610,7 +622,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_channel_entry_s {
 #define NAN_AVAIL_ENTRY_CTRL_USAGE_SHIFT 3
 #define NAN_AVAIL_ENTRY_CTRL_USAGE(_flags) (((_flags) & NAN_AVAIL_ENTRY_CTRL_USAGE_MASK) \
 	>> NAN_AVAIL_ENTRY_CTRL_USAGE_SHIFT)
-#define NAN_AVAIL_ENTRY_CTRL_UTIL_MASK 0x1E0
+#define NAN_AVAIL_ENTRY_CTRL_UTIL_MASK 0xE0
 #define NAN_AVAIL_ENTRY_CTRL_UTIL_SHIFT 5
 #define NAN_AVAIL_ENTRY_CTRL_UTIL(_flags) (((_flags) & NAN_AVAIL_ENTRY_CTRL_UTIL_MASK) \
 	>> NAN_AVAIL_ENTRY_CTRL_UTIL_SHIFT)
@@ -932,6 +944,9 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_dev_cap_s {
 #define NAN_DEV_CAP_RX_ANT_SHIFT		4
 #define NAN_DEV_CAP_TX_ANT_MASK			0x0F
 #define NAN_DEV_CAP_RX_ANT_MASK			0xF0
+#define NAN_DEV_CAP_TX_ANT(_ant)		((_ant) & NAN_DEV_CAP_TX_ANT_MASK)
+#define NAN_DEV_CAP_RX_ANT(_ant)		(((_ant) & NAN_DEV_CAP_RX_ANT_MASK) \
+		>> NAN_DEV_CAP_RX_ANT_SHIFT)
 
 /* Device capabilities */
 
@@ -941,6 +956,9 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_dev_cap_s {
 /* extended iv cap */
 #define NAN_DEV_CAP_EXT_KEYID_MASK		0x02
 #define NAN_DEV_CAP_EXT_KEYID_SHIFT		1
+/* NDPE attribute support */
+#define	NAN_DEV_CAP_NDPE_ATTR_SUPPORT_MASK	0x08
+#define NAN_DEV_CAP_NDPE_ATTR_SUPPORT(_cap)	((_cap) & NAN_DEV_CAP_NDPE_ATTR_SUPPORT_MASK)
 
 /* Band IDs */
 enum {
@@ -952,6 +970,10 @@ enum {
 	NAN_BAND_ID_60G			= 5
 };
 typedef uint8 nan_band_id_t;
+
+/* NAN supported band in device capability */
+#define NAN_DEV_CAP_SUPPORTED_BANDS_2G	(1 << NAN_BAND_ID_2G)
+#define NAN_DEV_CAP_SUPPORTED_BANDS_5G	(1 << NAN_BAND_ID_5G)
 
 /*
  * Unaligned schedule attribute section 10.7.19.6 spec. ver r15
@@ -1022,6 +1044,7 @@ typedef BWL_PRE_PACKED_STRUCT struct nan2_pub_act_frame_s {
 /* NAN Action Frame Subtypes */
 /* Subtype-0 is Reserved */
 #define NAN_MGMT_FRM_SUBTYPE_RESERVED		0
+#define NAN_MGMT_FRM_SUBTYPE_INVALID		0
 /* NAN Ranging Request */
 #define NAN_MGMT_FRM_SUBTYPE_RANGING_REQ	1
 /* NAN Ranging Response */
@@ -1079,9 +1102,9 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_ndp_qos_s {
 #define NAN_NDP_CTRL_SPEC_INFO_PRESENT		0x20
 #define NAN_NDP_CTRL_RESERVED			0xA0
 
-/* NDP Attribute */
+/* Used for both NDP Attribute and NDPE Attribute, since the structures are identical */
 typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_ndp_attr_s {
-	uint8 id;		/* 0x10 */
+	uint8 id;		/* NDP: 0x10, NDPE: 0x29 */
 	uint16 len;		/* length */
 	uint8 dialog_token;	/* dialog token */
 	uint8 type_status;	/* bits 0-3 type, 4-7 status */

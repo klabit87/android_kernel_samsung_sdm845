@@ -216,7 +216,6 @@ struct usb_bam_pipe_connect {
  *		can work at in bam2bam mode when connected to HS host.
  * @max_mbps_superspeed: Maximum Mbits per seconds that the USB core
  *		can work at in bam2bam mode when connected to SS host.
- * @enable_hsusb_bam_on_boot: Enable HSUSB BAM (non-NDP) on bootup itself
  */
 struct msm_usb_bam_data {
 	u8 max_connections;
@@ -229,7 +228,6 @@ struct msm_usb_bam_data {
 	u32 override_threshold;
 	u32 max_mbps_highspeed;
 	u32 max_mbps_superspeed;
-	bool enable_hsusb_bam_on_boot;
 	enum usb_ctrl bam_type;
 };
 
@@ -245,10 +243,13 @@ struct msm_usb_bam_data {
  *
  * @bam_pipe_idx - allocated pipe index.
  *
+ * @iova - IPA address of USB peer BAM (i.e. QDSS BAM)
+ *
  * @return 0 on success, negative value on error
  *
  */
-int usb_bam_connect(enum usb_ctrl bam_type, int idx, u32 *bam_pipe_idx);
+int usb_bam_connect(enum usb_ctrl bam_type, int idx, u32 *bam_pipe_idx,
+						unsigned long iova);
 
 /**
  * Connect USB-to-IPA SPS connection.
@@ -423,19 +424,22 @@ int usb_bam_get_pipe_type(enum usb_ctrl bam_type,
  *
  * @return true when producer granted, false when prodcuer is released.
  */
-bool usb_bam_get_prod_granted(enum usb_ctrl bam_type, u8 idx);
+bool usb_bam_get_prod_granted(enum usb_ctrl bam_type);
 
 /* Allocates memory for data fifo and descriptor fifos. */
 int usb_bam_alloc_fifos(enum usb_ctrl cur_bam, u8 idx);
 
 /* Frees memory for data fifo and descriptor fifos. */
 int usb_bam_free_fifos(enum usb_ctrl cur_bam, u8 idx);
-
+int get_qdss_bam_info(enum usb_ctrl cur_bam, u8 idx,
+			phys_addr_t *p_addr, u32 *bam_size);
 bool msm_bam_hsic_lpm_ok(void);
 bool msm_bam_hsic_host_pipe_empty(void);
 bool msm_usb_bam_enable(enum usb_ctrl ctrl, bool bam_enable);
+int msm_do_bam_disable_enable(enum usb_ctrl ctrl);
 #else
-static inline int usb_bam_connect(enum usb_ctrl bam, u8 idx, u32 *bam_pipe_idx)
+static inline int usb_bam_connect(enum usb_ctrl bam, u8 idx, u32 *bam_pipe_idx,
+							unsigned long iova)
 {
 	return -ENODEV;
 }
@@ -514,7 +518,7 @@ static inline int usb_bam_get_pipe_type(enum usb_ctrl bam_type, u8 idx,
 	return -ENODEV;
 }
 
-static inline bool usb_bam_get_prod_granted(enum usb_ctrl bam_type, u8 idx)
+static inline bool usb_bam_get_prod_granted(enum usb_ctrl bam_type)
 {
 	return false;
 }
@@ -529,10 +533,16 @@ int usb_bam_free_fifos(enum usb_ctrl cur_bam, u8 idx)
 	return false;
 }
 
+static int get_qdss_bam_info(enum usb_ctrl cur_bam, u8 idx,
+				phys_addr_t *p_addr, u32 *bam_size)
+{
+	return false;
+}
 static inline bool msm_bam_hsic_lpm_ok(void) { return true; }
 static inline bool msm_bam_hsic_host_pipe_empty(void) { return true; }
 static inline bool msm_usb_bam_enable(enum usb_ctrl ctrl, bool bam_enable)
 { return true; }
+int msm_do_bam_disable_enable(enum usb_ctrl ctrl) { return true; }
 
 #endif
 

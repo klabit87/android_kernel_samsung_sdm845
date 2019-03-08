@@ -511,7 +511,7 @@ void input_booster(struct input_dev *dev)
 {
 	int i, j, iTouchID = -1, iTouchSlot = -1/*,lcdoffcounter = 0*/;
 
-	for (i = 0; i < input_count; i++) {
+	for (i = 0; i < input_count && i < MAX_EVENTS; i++) {
 		if (input_events[i].type == EV_KEY) {
 			switch (input_events[i].code) {
 			case BTN_TOUCH:
@@ -577,39 +577,41 @@ void input_booster(struct input_dev *dev)
 		} else if (input_events[i].type == EV_ABS) {
 			if (input_events[i].code == ABS_MT_TRACKING_ID) {
 				iTouchID = i;
-				if (input_events[iTouchSlot].value < MAX_MULTI_TOUCH_EVENTS && input_events[iTouchSlot].value >= 0 && iTouchID < MAX_EVENTS && iTouchSlot >= 0 && iTouchSlot <= MAX_EVENTS) {
-					if (TouchIDs[input_events[iTouchSlot].value] < 0 && input_events[iTouchID].value >= 0) {
-						TouchIDs[input_events[iTouchSlot].value] = input_events[iTouchID].value;
-						if ((input_events[iTouchSlot].value >= 0 && touch_booster.multi_events <= 0) || (input_events[iTouchSlot].value == 0 && TouchIDs[1] < 0)) {
-							touch_booster.multi_events = 0;
-							pr_booster("[Input Booster] TOUCH EVENT - PRESS - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
-							RUN_BOOSTER(touch, BOOSTER_ON);
-						} else {
-							pr_booster("[Input Booster] MULTI-TOUCH EVENT - PRESS - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
-							touch_booster.multi_events++;
-							RUN_BOOSTER(multitouch, BOOSTER_ON);
+				if (iTouchSlot >= 0 && iTouchSlot <= MAX_EVENTS) {
+					if (input_events[iTouchSlot].value < MAX_MULTI_TOUCH_EVENTS && input_events[iTouchSlot].value >= 0 && iTouchID < MAX_EVENTS) {
+						if (TouchIDs[input_events[iTouchSlot].value] < 0 && input_events[iTouchID].value >= 0) {
+							TouchIDs[input_events[iTouchSlot].value] = input_events[iTouchID].value;
+							if ((input_events[iTouchSlot].value >= 0 && touch_booster.multi_events <= 0) || (input_events[iTouchSlot].value == 0 && TouchIDs[1] < 0)) {
+								touch_booster.multi_events = 0;
+								pr_booster("[Input Booster] TOUCH EVENT - PRESS - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
+								RUN_BOOSTER(touch, BOOSTER_ON);
+							} else {
+								pr_booster("[Input Booster] MULTI-TOUCH EVENT - PRESS - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
+								touch_booster.multi_events++;
+								RUN_BOOSTER(multitouch, BOOSTER_ON);
 #if defined(CONFIG_ARCH_EXYNOS)
-							if (delayed_work_pending(&touch_booster.input_booster_timeout_work[0])) {
-								int temp_hmp_boost = touch_booster.param[0].hmp_boost, temp_index = touch_booster.index;
-								pr_booster("[Input Booster] ****             cancel the pending touch booster workqueue\n");
-								cancel_delayed_work(&touch_booster.input_booster_timeout_work[0]);
-								touch_booster.param[0].hmp_boost = multitouch_booster.param[0].hmp_boost;
-								touch_booster.index = 1;
-								TIMEOUT_FUNC(touch)(NULL);
-								touch_booster.param[0].hmp_boost = temp_hmp_boost;
-								touch_booster.index = (temp_index >= 2 ? 1 : temp_index);
-							}
+								if (delayed_work_pending(&touch_booster.input_booster_timeout_work[0])) {
+									int temp_hmp_boost = touch_booster.param[0].hmp_boost, temp_index = touch_booster.index;
+									pr_booster("[Input Booster] ****             cancel the pending touch booster workqueue\n");
+									cancel_delayed_work(&touch_booster.input_booster_timeout_work[0]);
+									touch_booster.param[0].hmp_boost = multitouch_booster.param[0].hmp_boost;
+									touch_booster.index = 1;
+									TIMEOUT_FUNC(touch)(NULL);
+									touch_booster.param[0].hmp_boost = temp_hmp_boost;
+									touch_booster.index = (temp_index >= 2 ? 1 : temp_index);
+								}
 #endif
-						}
-					} else if (TouchIDs[input_events[iTouchSlot].value] >= 0 && input_events[iTouchID].value < 0) {
-						TouchIDs[input_events[iTouchSlot].value] = input_events[iTouchID].value;
-						if (touch_booster.multi_events <= 1) {
-							pr_booster("[Input Booster] TOUCH EVENT - RELEASE - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
-							RUN_BOOSTER(touch, BOOSTER_OFF);
-						} else {
-							pr_booster("[Input Booster] MULTI-TOUCH EVENT - RELEASE - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
-							touch_booster.multi_events--;
-							RUN_BOOSTER(multitouch, BOOSTER_OFF);
+							}
+						} else if (TouchIDs[input_events[iTouchSlot].value] >= 0 && input_events[iTouchID].value < 0) {
+							TouchIDs[input_events[iTouchSlot].value] = input_events[iTouchID].value;
+							if (touch_booster.multi_events <= 1) {
+								pr_booster("[Input Booster] TOUCH EVENT - RELEASE - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
+								RUN_BOOSTER(touch, BOOSTER_OFF);
+							} else {
+								pr_booster("[Input Booster] MULTI-TOUCH EVENT - RELEASE - ID: 0x%x, Slot: 0x%x, multi : %d\n", input_events[iTouchID].value, input_events[iTouchSlot].value, touch_booster.multi_events);
+								touch_booster.multi_events--;
+								RUN_BOOSTER(multitouch, BOOSTER_OFF);
+							}
 						}
 					}
 				}
@@ -828,6 +830,7 @@ void input_event(struct input_dev *dev,
 		 unsigned int type, unsigned int code, int value)
 {
 	unsigned long flags;
+	int idx;
 
 	if (is_event_supported(type, dev->evbit, EV_MAX)) {
 
@@ -841,14 +844,17 @@ void input_event(struct input_dev *dev,
 				pr_booster("[Input Booster1] ==============================================\n");
 				input_booster(dev);
 				input_count = 0;
-			} else {
+			} else if (input_count < MAX_EVENTS) {
 				pr_booster("[Input Booster1] type = %x, code = %x, value =%x\n", type, code, value);
-				input_events[input_count].type = type;
-				input_events[input_count].code = code;
-				input_events[input_count].value = value;
-				if (input_count < MAX_EVENTS) {
-					input_count++;
+				idx = input_count;
+				input_events[idx].type = type;
+				input_events[idx].code = code;
+				input_events[idx].value = value;
+				if (idx < MAX_EVENTS) {
+					input_count = idx + 1 ;
 				}
+			} else {
+				pr_booster("[Input Booster1] type = %x, code = %x, value =%x   Booster Event Exceeded\n", type, code, value);
 			}
 		}
 #endif  // Input Booster -
@@ -2185,7 +2191,7 @@ static int input_dev_suspend(struct device *dev)
 	 * Keys that are pressed now are unlikely to be
 	 * still pressed when we resume.
 	 */
-	input_dev_release_keys(input_dev);
+	/* input_dev_release_keys(input_dev); */
 
 	/* Turn off LEDs and sounds, if any are active. */
 	input_dev_toggle(input_dev, false);

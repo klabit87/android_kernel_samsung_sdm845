@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -664,7 +664,8 @@ void kgsl_device_snapshot(struct kgsl_device *device,
 	 */
 	if (device->snapshot != NULL) {
 		KGSL_DRV_ERR(device, "snapshot: device->snapshot is NULL\n");
-		if (!gmu_fault || !device->snapshot->recovered)
+		if (!device->prioritize_unrecoverable ||
+				!device->snapshot->recovered)
 			return;
 
 		/*
@@ -721,8 +722,6 @@ void kgsl_device_snapshot(struct kgsl_device *device,
 
 		if (device->ftbl->snapshot)
 			device->ftbl->snapshot(device, snapshot, context);
-		if (device->ftbl->snapshot_gmu)
-			device->ftbl->snapshot_gmu(device, snapshot);
 	}
 
 	/*
@@ -957,6 +956,28 @@ static ssize_t force_panic_store(struct kgsl_device *device, const char *buf,
 	return (ssize_t) ret < 0 ? ret : count;
 }
 
+/* Show the prioritize_unrecoverable status */
+static ssize_t prioritize_unrecoverable_show(
+		struct kgsl_device *device, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n",
+			device->prioritize_unrecoverable);
+}
+
+/* Store the priority value to prioritize unrecoverable */
+static ssize_t prioritize_unrecoverable_store(
+		struct kgsl_device *device, const char *buf, size_t count)
+{
+	unsigned int val = 0;
+	int ret = 0;
+
+	ret = kgsl_sysfs_store(buf, &val);
+	if (!ret && device)
+		device->prioritize_unrecoverable = (bool) val;
+
+	return (ssize_t) ret < 0 ? ret : count;
+}
+
 /* Show the snapshot_crashdumper request status */
 static ssize_t snapshot_crashdumper_show(struct kgsl_device *device, char *buf)
 {
@@ -1029,6 +1050,8 @@ struct kgsl_snapshot_attribute attr_##_name = { \
 static SNAPSHOT_ATTR(timestamp, 0444, timestamp_show, NULL);
 static SNAPSHOT_ATTR(faultcount, 0644, faultcount_show, faultcount_store);
 static SNAPSHOT_ATTR(force_panic, 0644, force_panic_show, force_panic_store);
+static SNAPSHOT_ATTR(prioritize_unrecoverable, 0644,
+		prioritize_unrecoverable_show, prioritize_unrecoverable_store);
 static SNAPSHOT_ATTR(snapshot_crashdumper, 0644, snapshot_crashdumper_show,
 	snapshot_crashdumper_store);
 static SNAPSHOT_ATTR(snapshot_legacy, 0644, snapshot_legacy_show,
@@ -1113,6 +1136,7 @@ int kgsl_device_snapshot_init(struct kgsl_device *device)
 	device->snapshot = NULL;
 	device->snapshot_faultcount = 0;
 	device->force_panic = 0;
+	device->prioritize_unrecoverable = true;
 	device->snapshot_crashdumper = 1;
 	device->snapshot_legacy = 0;
 
@@ -1135,6 +1159,11 @@ int kgsl_device_snapshot_init(struct kgsl_device *device)
 
 	ret  = sysfs_create_file(&device->snapshot_kobj,
 			&attr_force_panic.attr);
+	if (ret)
+		goto done;
+
+	ret = sysfs_create_file(&device->snapshot_kobj,
+			&attr_prioritize_unrecoverable.attr);
 	if (ret)
 		goto done;
 

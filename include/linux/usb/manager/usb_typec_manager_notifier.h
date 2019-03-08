@@ -56,9 +56,10 @@ typedef enum {
 	MANAGER_NOTIFY_CCIC_MUIC,
 	MANAGER_NOTIFY_CCIC_USB,
 	MANAGER_NOTIFY_CCIC_BATTERY,
-	MANAGER_NOTIFY_CCIC_PDIC,
-	MANAGER_NOTIFY_CCIC_CCIC,
 	MANAGER_NOTIFY_CCIC_DP,
+	MANAGER_NOTIFY_CCIC_USBDP,
+	MANAGER_NOTIFY_CCIC_SENSORHUB,
+	MANAGER_NOTIFY_CCIC_WACOM,
 
 /* VBUS */
 	MANAGER_NOTIFY_VBUS_USB = 30,
@@ -163,6 +164,7 @@ typedef struct _manager_data_t
 	int dp_is_connect;
 	int dp_hs_connect;
 	int dp_check_done;
+	struct notifier_block manager_external_notifier_nb;
 }manager_data_t;
 
 

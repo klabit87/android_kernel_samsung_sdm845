@@ -462,8 +462,13 @@ static DEVICE_ATTR(reactive_alert, 0664,
 	accel_reactive_show, accel_reactive_store);
 static DEVICE_ATTR(lowpassfilter, 0220,
 	NULL, accel_lowpassfilter_store);
+#ifdef CONFIG_SEC_FACTORY
+static DEVICE_ATTR(dhr_sensor_info, 0444,
+	accel_dhr_sensor_info_show, NULL);
+#else
 static DEVICE_ATTR(dhr_sensor_info, 0440,
 	accel_dhr_sensor_info_show, NULL);
+#endif
 
 static struct device_attribute *acc_attrs[] = {
 	&dev_attr_name,

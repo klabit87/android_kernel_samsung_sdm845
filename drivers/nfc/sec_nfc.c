@@ -151,8 +151,8 @@ static ssize_t sec_nfc_read(struct file *file, char __user *buf,
 	enum sec_nfc_irq irq;
 	int ret = 0;
 
-	NFC_LOG_DBG("info: %p, count: %zu\n",
-		info, count);
+	NFC_LOG_DBG("count: %zu\n",
+		count);
 
 #ifdef FEATURE_SEC_NFC_TEST
 	if (on_nfc_test)
@@ -242,8 +242,8 @@ static ssize_t sec_nfc_write(struct file *file, const char __user *buf,
 						struct sec_nfc_info, miscdev);
 	int ret = 0;
 
-	NFC_LOG_DBG("info: %p, count %d\n",
-		info, (u32)count);
+	NFC_LOG_DBG("count %d\n",
+		(u32)count);
 
 #ifdef FEATURE_SEC_NFC_TEST
 	if (on_nfc_test)
@@ -310,7 +310,7 @@ static unsigned int sec_nfc_poll(struct file *file, poll_table *wait)
 
 	int ret = 0;
 
-	NFC_LOG_DBG("info: %p\n", info);
+	NFC_LOG_DBG("++\n");
 
 	mutex_lock(&info->mutex);
 
@@ -382,7 +382,7 @@ int sec_nfc_i2c_probe(struct i2c_client *client)
 	struct sec_nfc_platform_data *pdata = info->pdata;
 	int ret;
 
-	NFC_LOG_INFO("start: %p\n", info);
+	NFC_LOG_INFO("start\n");
 
 	info->i2c_info.buflen = SEC_NFC_MAX_BUFFER_SIZE;
 	info->i2c_info.buf = kzalloc(SEC_NFC_MAX_BUFFER_SIZE, GFP_KERNEL);
@@ -548,8 +548,8 @@ static long sec_nfc_ioctl(struct file *file, unsigned int cmd,
 	unsigned int new = (unsigned int)arg;
 	int ret = 0;
 
-	NFC_LOG_DBG("info: %p, cmd: 0x%x\n",
-			info, cmd);
+	NFC_LOG_DBG("cmd: 0x%x\n",
+			cmd);
 
 	mutex_lock(&info->mutex);
 
@@ -631,7 +631,7 @@ static int sec_nfc_open(struct inode *inode, struct file *file)
 						struct sec_nfc_info, miscdev);
 	int ret = 0;
 
-	NFC_LOG_INFO("info : %p\n", info);
+	NFC_LOG_INFO("++\n");
 
 	mutex_lock(&info->mutex);
 	if (info->mode != SEC_NFC_MODE_OFF) {
@@ -653,7 +653,7 @@ static int sec_nfc_close(struct inode *inode, struct file *file)
 						struct sec_nfc_info, miscdev);
 
 	nfc_state_print(info);
-	NFC_LOG_INFO("info : %p\n", info);
+	NFC_LOG_INFO("++\n");
 
 	mutex_lock(&info->mutex);
 	sec_nfc_set_mode(info, SEC_NFC_MODE_OFF);
@@ -981,7 +981,7 @@ static int __sec_nfc_probe(struct device *dev)
 			NFC_LOG_ERR("NFC: failed to create attr_test\n");
 	}
 #endif
-	NFC_LOG_INFO("success info: %p, pdata %p\n", info, pdata);
+	NFC_LOG_INFO("success\n");
 
 	return 0;
 
@@ -1033,6 +1033,12 @@ static int sec_nfc_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
 {
 	int ret = 0;
+
+#if !defined(CONFIG_SEC_FACTORY) && defined(CONFIG_ESE_SECURE) && !defined(ENABLE_ESE_SPI_SECURED)
+	/* should not be here! */
+	pr_err("[error] ese support but not secured? check!!\n");
+	return -ENODEV;
+#endif
 
 	nfc_logger_init();
 

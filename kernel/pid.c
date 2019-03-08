@@ -322,8 +322,10 @@ struct pid *alloc_pid(struct pid_namespace *ns)
 	}
 
 	if (unlikely(is_child_reaper(pid))) {
-		if (pid_ns_prepare_proc(ns))
+		if (pid_ns_prepare_proc(ns)) {
+			disable_pid_allocation(ns);
 			goto out_free;
+		}
 	}
 
 	get_pid_ns(ns);
@@ -573,10 +575,12 @@ void __init pidhash_init(void)
 {
 	unsigned int i, pidhash_size;
 
+	set_memsize_kernel_type(MEMSIZE_KERNEL_PIDHASH);
 	pid_hash = alloc_large_system_hash("PID", sizeof(*pid_hash), 0, 18,
 					   HASH_EARLY | HASH_SMALL,
 					   &pidhash_shift, NULL,
 					   0, 4096);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 	pidhash_size = 1U << pidhash_shift;
 
 	for (i = 0; i < pidhash_size; i++)

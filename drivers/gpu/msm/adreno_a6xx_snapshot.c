@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -239,6 +239,11 @@ static const unsigned int a6xx_vbif_ver_20xxxxxx_registers[] = {
 	0x3410, 0x3410, 0x3800, 0x3801,
 };
 
+static const unsigned int a6xx_gbif_registers[] = {
+	/* GBIF */
+	0x3C00, 0X3C0B, 0X3C40, 0X3C47, 0X3CC0, 0X3CD1, 0xE3A, 0xE3A,
+};
+
 static const unsigned int a6xx_gmu_gx_registers[] = {
 	/* GMU GX */
 	0x1A800, 0x1A800, 0x1A810, 0x1A813, 0x1A816, 0x1A816, 0x1A818, 0x1A81B,
@@ -371,6 +376,7 @@ enum a6xx_debugbus_id {
 	A6XX_DBGBUS_CX           = 0x17,
 	A6XX_DBGBUS_GMU_GX       = 0x18,
 	A6XX_DBGBUS_TPFCHE       = 0x19,
+	A6XX_DBGBUS_GBIF_GX      = 0x1a,
 	A6XX_DBGBUS_GPC          = 0x1d,
 	A6XX_DBGBUS_LARC         = 0x1e,
 	A6XX_DBGBUS_HLSQ_SPTP    = 0x1f,
@@ -1159,11 +1165,15 @@ static size_t a6xx_snapshot_dbgc_debugbus_block(struct kgsl_device *device,
 	}
 
 	header->id = block->block_id;
+	if ((block->block_id == A6XX_DBGBUS_VBIF) &&
+		adreno_has_gbif(adreno_dev))
+		header->id = A6XX_DBGBUS_GBIF_GX;
 	header->count = dwords * 2;
 
 	block_id = block->block_id;
 	/* GMU_GX data is read using the GMU_CX block id on A630 */
-	if (adreno_is_a630(adreno_dev) &&
+	if ((adreno_is_a630(adreno_dev) || adreno_is_a615(adreno_dev) ||
+		adreno_is_a616(adreno_dev)) &&
 		(block_id == A6XX_DBGBUS_GMU_GX))
 		block_id = A6XX_DBGBUS_GMU_CX;
 
@@ -1403,13 +1413,21 @@ static void a6xx_snapshot_debugbus(struct kgsl_device *device,
 			snapshot, a6xx_snapshot_dbgc_debugbus_block,
 			(void *) &a6xx_dbgc_debugbus_blocks[i]);
 	}
-
-	/* Skip if GPU has GBIF */
-	if (!adreno_has_gbif(adreno_dev))
+	/*
+	 * GBIF has same debugbus as of other GPU blocks hence fall back to
+	 * default path if GPU uses GBIF.
+	 * GBIF uses exactly same ID as of VBIF so use it as it is.
+	 */
+	if (adreno_has_gbif(adreno_dev))
 		kgsl_snapshot_add_section(device,
-				KGSL_SNAPSHOT_SECTION_DEBUGBUS,
-				snapshot, a6xx_snapshot_vbif_debugbus_block,
-				(void *) &a6xx_vbif_debugbus_blocks);
+			KGSL_SNAPSHOT_SECTION_DEBUGBUS,
+			snapshot, a6xx_snapshot_dbgc_debugbus_block,
+			(void *) &a6xx_vbif_debugbus_blocks);
+	else
+		kgsl_snapshot_add_section(device,
+			KGSL_SNAPSHOT_SECTION_DEBUGBUS,
+			snapshot, a6xx_snapshot_vbif_debugbus_block,
+			(void *) &a6xx_vbif_debugbus_blocks);
 
 	/* Dump the CX debugbus data if the block exists */
 	if (adreno_is_cx_dbgc_register(device, A6XX_CX_DBGC_CFG_DBGBUS_SEL_A)) {
@@ -1419,6 +1437,17 @@ static void a6xx_snapshot_debugbus(struct kgsl_device *device,
 				snapshot, a6xx_snapshot_cx_dbgc_debugbus_block,
 				(void *) &a6xx_cx_dbgc_debugbus_blocks[i]);
 		}
+		/*
+		 * Get debugbus for GBIF CX part if GPU has GBIF block
+		 * GBIF uses exactly same ID as of VBIF so use
+		 * it as it is.
+		 */
+		if (adreno_has_gbif(adreno_dev))
+			kgsl_snapshot_add_section(device,
+				KGSL_SNAPSHOT_SECTION_DEBUGBUS,
+				snapshot,
+				a6xx_snapshot_cx_dbgc_debugbus_block,
+				(void *) &a6xx_vbif_debugbus_blocks);
 	}
 }
 
@@ -1453,6 +1482,8 @@ void a6xx_snapshot_gmu(struct adreno_device *adreno_dev,
 				a6xx_gmu_gx_registers,
 				ARRAY_SIZE(a6xx_gmu_gx_registers) / 2);
 	}
+
+	a6xx_snapshot_debugbus(device, snapshot);
 }
 
 /* a6xx_snapshot_sqe() - Dump SQE data in snapshot */
@@ -1562,6 +1593,10 @@ void a6xx_snapshot(struct adreno_device *adreno_dev,
 		adreno_snapshot_vbif_registers(device, snapshot,
 			a6xx_vbif_snapshot_registers,
 			ARRAY_SIZE(a6xx_vbif_snapshot_registers));
+	else
+		adreno_snapshot_registers(device, snapshot,
+			a6xx_gbif_registers,
+			ARRAY_SIZE(a6xx_gbif_registers) / 2);
 
 	/* Try to run the crash dumper */
 	if (sptprac_on)
@@ -1609,8 +1644,6 @@ void a6xx_snapshot(struct adreno_device *adreno_dev,
 		/* registers dumped through DBG AHB */
 		a6xx_snapshot_dbgahb_regs(device, snapshot);
 	}
-
-	a6xx_snapshot_debugbus(device, snapshot);
 
 }
 

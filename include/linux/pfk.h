@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,8 +19,22 @@ struct ice_crypto_setting;
 
 #ifdef CONFIG_PFK
 
+/*
+ * Default key for inline encryption.
+ *
+ * For now only AES-256-XTS is supported, so this is a fixed length.  But if
+ * ever needed, this should be made variable-length with a 'mode' and 'size'.
+ * (Remember to update pfk_allow_merge_bio() when doing so!)
+ */
+#define BLK_ENCRYPTION_KEY_SIZE_AES_256_XTS 64
+
+struct blk_encryption_key {
+	u8 raw[BLK_ENCRYPTION_KEY_SIZE_AES_256_XTS];
+};
+
 int pfk_load_key_start(const struct bio *bio,
-		struct ice_crypto_setting *ice_setting, bool *is_pfe, bool);
+		struct ice_crypto_setting *ice_setting,
+		bool *is_pfe, bool async, int ice_rev);
 int pfk_load_key_end(const struct bio *bio, bool *is_pfe);
 int pfk_remove_key(const unsigned char *key, size_t key_size);
 bool pfk_allow_merge_bio(const struct bio *bio1, const struct bio *bio2);
@@ -28,7 +42,8 @@ void pfk_clear_on_reset(void);
 
 #else
 static inline int pfk_load_key_start(const struct bio *bio,
-	struct ice_crypto_setting *ice_setting, bool *is_pfe, bool async)
+	struct ice_crypto_setting *ice_setting, bool *is_pfe,
+	bool async, int ice_rev)
 {
 	return -ENODEV;
 }
