@@ -246,6 +246,17 @@ struct audio_client {
 	struct shared_io_config config;
 };
 
+struct q6asm_cal_info {
+	int topology_id;
+	int app_type;
+};
+
+struct audio_session {
+	struct audio_client *ac;
+	spinlock_t session_lock;
+	struct mutex mutex_lock_per_session;
+};
+
 void q6asm_audio_client_free(struct audio_client *ac);
 
 struct audio_client *q6asm_audio_client_alloc(app_cb cb, void *priv);
@@ -683,4 +694,9 @@ uint8_t q6asm_get_stream_id_from_token(uint32_t token);
 int q6asm_adjust_session_clock(struct audio_client *ac,
 		uint32_t adjust_time_lsw,
 		uint32_t adjust_time_msw);
+
+#ifdef CONFIG_SEC_SND_ADAPTATION
+struct audio_session *q6asm_get_audio_session(void);
+#endif /* CONFIG_SEC_SND_ADAPTATION */
+
 #endif /* __Q6_ASM_H__ */

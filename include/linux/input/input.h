@@ -778,22 +778,26 @@ SYSFS_DEVICE(level, (buf, "%d\n", level), 1)
 SYSFS_DEVICE(freq, (buf, "%d %u %u %u %u\n", level, cpu_freq, ddr_freq, hmp_boost, lpm_bias), 5)
 SYSFS_DEVICE(time, (buf, "%d %u %u\n", level, head_time, tail_time), 3)
 #endif //______________________________________________________________________________
+void input_booster_run_booster_on(void);
+void input_booster_run_booster_off(void);
 static ssize_t input_booster_sysfs_device_store_control(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
-	struct t_input_booster_device_tree_gender *dt_gender = dev_get_drvdata(dev);
-	struct t_input_booster *dt_booster = (dt_gender) ? dt_gender->pBooster : NULL;
 	int value;
-	unsigned int type;
 
-	if (dt_booster == NULL) {
-		return count;
-	}
-	if (sscanf(buf, "%u %d", &type, &value) != 2) {
+	if (sscanf(buf, "%u", &value) != 1) {
 		pr_booster("### Keep this format : [type value] (Ex: 2 1 ###\n");
 		return count;
 	}
-	dt_booster->event_type = value;
-	schedule_work(&dt_booster->input_booster_set_booster_work);
+
+	pr_booster("[Input Booster8] %s buf : %s\n", __FUNCTION__, buf);
+
+	if(value == 1) { 
+		input_booster_run_booster_on();
+	}
+
+	if(value == 0) { 
+		input_booster_run_booster_off();
+	}
 
 	return count;
 }
@@ -865,5 +869,16 @@ void input_booster_idle_state(void *__this, int input_booster_event);
 void input_booster_press_state(void *__this, int input_booster_event);
 void input_booster(struct input_dev *dev);
 void input_booster_init(void);
+
+void input_booster_run_booster_on(void)
+{
+	touch_booster.input_booster_state = input_booster_idle_state;
+	RUN_BOOSTER(touch, BOOSTER_ON); 
+}
+
+void input_booster_run_booster_off(void)
+{
+	RUN_BOOSTER(touch, BOOSTER_OFF); 
+}
 #endif
 #endif // Input Booster -

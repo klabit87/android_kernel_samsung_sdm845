@@ -448,7 +448,6 @@ int msm_property_atomic_set(struct msm_property_info *info,
 					val = blob->base.id;
 				}
 
-				/* save blob - need to clear previous ref */
 				/* save the new blob */
 				property_state->values[property_idx].blob =
 					blob;

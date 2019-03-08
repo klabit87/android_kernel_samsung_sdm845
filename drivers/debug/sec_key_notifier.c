@@ -43,6 +43,22 @@ int sec_kn_unregister_notifier(struct notifier_block *nb)
 	return atomic_notifier_chain_unregister(&sec_kn_notifier_list, nb);
 }
 
+static inline bool is_event_supported(unsigned int event_type,
+		unsigned int event_code)
+{
+	if (event_type != EV_KEY)
+		return false;
+
+	switch (event_code) {
+	case KEY_ESC ... KEY_RECENT:
+	case KEY_RESET:
+	case KEY_WINK:
+		return true;
+	}
+
+	return false;
+}
+
 static void sec_kn_event(struct input_handle *handle, unsigned int event_type,
 		unsigned int event_code, int value)
 {
@@ -50,14 +66,13 @@ static void sec_kn_event(struct input_handle *handle, unsigned int event_type,
 		.keycode = event_code,
 		.down = value,
 	};
-	int rc;
 
 	spin_lock(&sec_kn_event_lock);
 
-	if (event_type != EV_KEY || (event_code > 254 && event_code != KEY_WINK))
+	if (!is_event_supported(event_type, event_code))
 		goto out;
 
-	rc = atomic_notifier_call_chain(&sec_kn_notifier_list, 0, &param);
+	atomic_notifier_call_chain(&sec_kn_notifier_list, 0, &param);
 
 out:
 	spin_unlock(&sec_kn_event_lock);

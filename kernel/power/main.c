@@ -219,9 +219,6 @@ static int suspend_stats_show(struct seq_file *s, void *unused)
 				suspend_stats.failed_steps[index]));
 	}
 
-#ifdef CONFIG_SEC_PM_SUSPEND_STATS_EX
-	suspend_stats_ex_print_failed(s);
-#endif
 	return 0;
 }
 

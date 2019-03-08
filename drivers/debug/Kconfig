@@ -218,3 +218,15 @@ config SEC_NAD
 	default n
 	help
 	  Samsung NAD Feature, to test chipset quality
+
+choice
+	prompt "Version of GAF structure"
+	depends on SEC_DEBUG
+	default SEC_DEBUG_GAF_V4
+
+	config SEC_DEBUG_GAF_V4
+		bool "Use GAF structure version 4"
+		help
+		  Default option for FIVE-enabled kernel
+endchoice
+

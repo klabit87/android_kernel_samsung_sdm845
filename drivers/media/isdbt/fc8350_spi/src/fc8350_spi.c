@@ -50,7 +50,7 @@ static int fc8350_spi_probe(struct spi_device *spi)
 {
 	s32 ret = 0;
 
-	ISDB_PR_ERR("%s spi : 0x%p\n", __func__, spi);
+	ISDB_PR_ERR("%s spi\n", __func__);
 
 	if (spi == NULL) {
 		ISDB_PR_ERR("%s spi == NULL\n", __func__);

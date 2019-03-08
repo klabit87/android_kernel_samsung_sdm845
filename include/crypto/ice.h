@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -49,6 +49,25 @@ struct ice_data_setting {
 	bool				encr_bypass;
 };
 
+/* MSM ICE Crypto Data Unit of target DUN of Transfer Request */
+enum ice_crypto_data_unit {
+	ICE_CRYPTO_DATA_UNIT_512_B          = 0,
+	ICE_CRYPTO_DATA_UNIT_1_KB           = 1,
+	ICE_CRYPTO_DATA_UNIT_2_KB           = 2,
+	ICE_CRYPTO_DATA_UNIT_4_KB           = 3,
+	ICE_CRYPTO_DATA_UNIT_8_KB           = 4,
+	ICE_CRYPTO_DATA_UNIT_16_KB          = 5,
+	ICE_CRYPTO_DATA_UNIT_32_KB          = 6,
+	ICE_CRYPTO_DATA_UNIT_64_KB          = 7,
+};
+
+enum ice_capability_index {
+	ICE_CRYPTO_MODE_XTS_128 = 0,
+	ICE_CRYPTO_MODE_CBC_128 = 1,
+	ICE_CRYPTO_MODE_XTS_256 = 3,
+	ICE_CRYPTO_MODE_CBC_256 = 4
+};
+
 typedef void (*ice_error_cb)(void *, u32 error);
 
 struct qcom_ice_variant_ops *qcom_ice_get_variant_ops(struct device_node *node);
@@ -56,8 +75,16 @@ struct platform_device *qcom_ice_get_pdevice(struct device_node *node);
 
 #ifdef CONFIG_CRYPTO_DEV_QCOM_ICE
 int qcom_ice_setup_ice_hw(const char *storage_type, int enable);
+void qcom_ice_set_fde_flag(int flag);
+int qcom_ice_set_fde_conf(sector_t strt, sector_t size, int idx, int mode);
 #else
 static inline int qcom_ice_setup_ice_hw(const char *storage_type, int enable)
+{
+	return 0;
+}
+static inline void qcom_ice_set_fde_flag(int flag) {}
+static inline int qcom_ice_set_fde_conf(sector_t strt, sector_t size, int idx,
+					int mode)
 {
 	return 0;
 }

@@ -214,7 +214,7 @@ static void sec_multi_chg_check_input_current(struct sec_multi_charger_info *cha
 	union power_supply_propval value;
 	bool sub_is_charging = charger->sub_is_charging;
 
-	if (!sub_is_charging || charger->cable_type == SEC_BATTERY_CABLE_NONE) {
+	if (!sub_is_charging || is_nocharge_type(charger->cable_type)) {
 		pr_info("%s: does not need that check input current when sub charger is off.", __func__);
 		return;
 	}
@@ -398,7 +398,7 @@ static int sec_multi_chg_set_property(struct power_supply *psy,
 			psp, value);
 
 		psy_do_property(charger->pdata->main_charger_name, get, POWER_SUPPLY_PROP_ONLINE, get_value);
-		if (get_value.intval != SEC_BATTERY_CABLE_NONE) {
+		if (!is_nocharge_type(get_value.intval)) {
 			if (val->intval != SEC_BAT_CHG_MODE_CHARGING) {
 				psy_do_property(charger->pdata->sub_charger_name, set,
 					psp, value);
@@ -415,7 +415,7 @@ static int sec_multi_chg_set_property(struct power_supply *psy,
 			psp, value);
 
 		/* INIT */
-		if (val->intval == SEC_BATTERY_CABLE_NONE) {
+		if (is_nocharge_type(val->intval)) {
 			charger->sub_is_charging = false;
 			charger->main_current.input_current_limit = 0;
 			charger->main_current.fast_charging_current = 0;

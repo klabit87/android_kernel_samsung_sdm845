@@ -102,13 +102,16 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 	else
 		map_ver = e_ctrl->cal_data.mapdata[REAR_CAM_MAP_VERSION_ADDR];
 
-	CAM_INFO(CAM_EEPROM, "subdev_id: %d, map version = %c [0x%x]", e_ctrl->soc_info.index, map_ver, map_ver);
+	if(!isalnum(map_ver))
+		CAM_INFO(CAM_EEPROM, "subdev_id: %d, map version = 0x%x", e_ctrl->soc_info.index, map_ver);
+	else
+		CAM_INFO(CAM_EEPROM, "subdev_id: %d, map version = %c [0x%x]", e_ctrl->soc_info.index, map_ver, map_ver);
 
 	if (e_ctrl->soc_info.index == 1) {
 		/* front sensor id */
 		memcpy(front_sensor_id, &e_ctrl->cal_data.mapdata[FROM_FRONT_SENSOR_ID_ADDR], FROM_SENSOR_ID_SIZE);
 		front_sensor_id[FROM_SENSOR_ID_SIZE] = '\0';
-		CAM_DBG(CAM_EEPROM,
+		CAM_INFO(CAM_EEPROM,
 			"front sensor id = %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
 			front_sensor_id[0], front_sensor_id[1], front_sensor_id[2], front_sensor_id[3],
 			front_sensor_id[4], front_sensor_id[5], front_sensor_id[6], front_sensor_id[7],
@@ -118,7 +121,7 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 		/* front module id */
 		memcpy(front_module_id, &e_ctrl->cal_data.mapdata[FROM_MODULE_ID_ADDR], FROM_MODULE_ID_SIZE);
 		front_module_id[FROM_MODULE_ID_SIZE] = '\0';
-		CAM_DBG(CAM_EEPROM, "front_module_id = %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+		CAM_INFO(CAM_EEPROM, "front_module_id = %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
 			front_module_id[0], front_module_id[1], front_module_id[2], front_module_id[3],
 			front_module_id[4], front_module_id[5], front_module_id[6], front_module_id[7],
 			front_module_id[8], front_module_id[9]);
@@ -265,21 +268,21 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 			rear_fw_ver[5], rear_fw_ver[6], rear_fw_ver[7], rear_fw_ver[8], rear_fw_ver[9],
 			rear_fw_ver[10]);
 
+		/* temp phone version */
+		snprintf(rear_phone_fw_ver, FROM_MODULE_FW_INFO_SIZE+1, "%s%s%s%s", hw_phone_info, sw_phone_info, vendor_phone_info, process_phone_info);
 		rear_phone_fw_ver[FROM_MODULE_FW_INFO_SIZE] = '\0';
-		CAM_DBG(CAM_EEPROM,
+		CAM_INFO(CAM_EEPROM,
 			"rear rear_phone_fw_ver info = %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
 			rear_phone_fw_ver[0], rear_phone_fw_ver[1], rear_phone_fw_ver[2], rear_phone_fw_ver[3], rear_phone_fw_ver[4],
 			rear_phone_fw_ver[5], rear_phone_fw_ver[6], rear_phone_fw_ver[7], rear_phone_fw_ver[8], rear_phone_fw_ver[9],
 			rear_phone_fw_ver[10]);
 
-		/* temp phone version */
-
-		snprintf(rear_phone_fw_ver, FROM_MODULE_FW_INFO_SIZE+1, "%s%s%s%s", hw_phone_info, sw_phone_info, vendor_phone_info, process_phone_info);
-
+#ifdef CAM_EEPROM_DBG
 		CAM_INFO(CAM_EEPROM, "rear rear_phone_fw_ver info = %c %c %c %c %c %c %c %c %c %c %c",
 			rear_phone_fw_ver[0], rear_phone_fw_ver[1], rear_phone_fw_ver[2], rear_phone_fw_ver[3], rear_phone_fw_ver[4],
 			rear_phone_fw_ver[5], rear_phone_fw_ver[6], rear_phone_fw_ver[7], rear_phone_fw_ver[8], rear_phone_fw_ver[9],
 			rear_phone_fw_ver[10]);
+#endif
 
 		/* temp load version */
 
@@ -625,7 +628,10 @@ int32_t cam_eeprom_check_firmware_cal(uint32_t camera_cal_crc, uint8_t cal_map_v
 
 	/* 3-2. fail case: update CMD_ACK on sysfs (load fw) */
 	// If not QC module, return NG.
-	CAM_INFO(CAM_EEPROM, "ISP Ver : %c", version_isp);
+	if(!isalnum(version_isp))
+		CAM_INFO(CAM_EEPROM, "ISP Ver : 0x%x", version_isp);
+	else
+		CAM_INFO(CAM_EEPROM, "ISP Ver : %c", version_isp);
 
 	if (version_isp != 'Q' && version_isp != 'U' && version_isp != 'A') {
 		CAM_ERR(CAM_EEPROM, "This is not Qualcomm module!");
@@ -668,10 +674,10 @@ int32_t cam_eeprom_check_firmware_cal(uint32_t camera_cal_crc, uint8_t cal_map_v
 	/* 5. update module maker ver check on sysfs checkfw_user, checkfw_factory*/
 	if (idx == CAM_EEPROM_IDX_BACK) {
 		CAM_INFO(CAM_EEPROM,
-			"version_module_maker: %c, MODULE_VER_ON_PVR: %c, MODULE_VER_ON_SRA: %c",
+			"version_module_maker: 0x%x, MODULE_VER_ON_PVR: 0x%x, MODULE_VER_ON_SRA: 0x%x",
 			version_module_maker_ver, MODULE_VER_ON_PVR, MODULE_VER_ON_SRA);
 		CAM_INFO(CAM_EEPROM,
-			"cal_map_version: %c vs FROM_CAL_MAP_VERSION: %c",
+			"cal_map_version: 0x%x vs FROM_CAL_MAP_VERSION: 0x%x",
 			cal_map_version, FROM_CAL_MAP_VERSION);
 
 		if ((isQCmodule == TRUE) && ((isValid_EEPROM_data == FALSE) || (cal_map_version < FROM_CAL_MAP_VERSION)
@@ -695,10 +701,10 @@ int32_t cam_eeprom_check_firmware_cal(uint32_t camera_cal_crc, uint8_t cal_map_v
 		}
 	} else {
 		CAM_INFO(CAM_EEPROM,
-			"front_version_module_maker: %c, FRONT_MODULE_VER_ON_PVR: %c, FRONT_MODULE_VER_ON_SRA: %c",
+			"front_version_module_maker: 0x%x, FRONT_MODULE_VER_ON_PVR: 0x%x, FRONT_MODULE_VER_ON_SRA: 0x%x",
 			version_module_maker_ver, FRONT_MODULE_VER_ON_PVR, FRONT_MODULE_VER_ON_SRA);
 		CAM_INFO(CAM_EEPROM,
-			"front_cal_map_version: %c vs FRONT_FROM_CAL_MAP_VERSION: %c",
+			"front_cal_map_version: 0x%x vs FRONT_FROM_CAL_MAP_VERSION: 0x%x",
 			cal_map_version, FRONT_FROM_CAL_MAP_VERSION);
 
 		if ((isQCmodule == TRUE) && ((isValid_EEPROM_data == FALSE) || (cal_map_version < FRONT_FROM_CAL_MAP_VERSION)
@@ -797,7 +803,10 @@ static uint32_t cam_eeprom_match_crc(struct cam_eeprom_memory_block_t *data, uin
 	else
 		map_ver = data->mapdata[REAR_CAM_MAP_VERSION_ADDR];
 
-	CAM_INFO(CAM_EEPROM, "map subdev_id = %d, version = %c [0x%x]", subdev_id, map_ver, map_ver);
+	if(!isalnum(map_ver))
+		CAM_INFO(CAM_EEPROM, "map subdev_id = %d, version = 0x%x", subdev_id, map_ver);
+	else
+		CAM_INFO(CAM_EEPROM, "map subdev_id = %d, version = %c [0x%x]", subdev_id, map_ver, map_ver);
 }
 #endif
 
@@ -812,11 +821,11 @@ static uint32_t cam_eeprom_match_crc(struct cam_eeprom_memory_block_t *data, uin
 		if (!map[j].mem.valid_size || !map[j+1].mem.valid_size)
 			continue;
 
-		if (map[j+1].mem.valid_size != sizeof(uint32_t)) {
-			CAM_ERR(CAM_EEPROM, "malformatted data mapping");
+		if (map[j+1].mem.valid_size < sizeof(uint32_t)) {
+			CAM_ERR(CAM_EEPROM, "[%d : size 0x%X] malformatted data mapping", j+1, map[j+1].mem.valid_size);
 			return -EINVAL;
 		}
-		sum = (uint32_t *) (memptr_crc);
+		sum = (uint32_t *) (memptr_crc + map[j+1].mem.valid_size - sizeof(uint32_t));
 		rc = cam_eeprom_verify_sum(memptr, map[j].mem.valid_size, *sum, 0);
 
 		if (!rc)
@@ -877,8 +886,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_sensor_i2c_reg_array    i2c_reg_array;
 	struct cam_eeprom_memory_map_t    *emap = block->map;
 	struct cam_eeprom_soc_private     *eb_info;
-	uint8_t                           *memptr = block->mapdata;
-	uint8_t                           *dummy;
+	uint8_t                           *memptr = NULL;
 	uint32_t                          total_size, read_size, addr;
 
 	if (!e_ctrl) {
@@ -950,15 +958,24 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 		}
 
 		if (emap[j].mem.valid_size) {
-			CAM_DBG(CAM_EEPROM, "memptr = %p, addr = 0x%X, size = 0x%X, subdev = %d",
-				memptr, emap[j].mem.addr, emap[j].mem.valid_size, e_ctrl->soc_info.index);
+			addr = emap[j].mem.addr;
+			memptr = block->mapdata + addr;
+
+			CAM_DBG(CAM_EEPROM, "[%d / %d] memptr = %p, addr = 0x%X, size = 0x%X, subdev = %d",
+				j, block->num_map, memptr, emap[j].mem.addr, emap[j].mem.valid_size, e_ctrl->soc_info.index);
 
 			CAM_DBG(CAM_EEPROM, "addr_type = %d, data_type = %d, device_type = %d",
 				emap[j].mem.addr_type, emap[j].mem.data_type, e_ctrl->eeprom_device_type);
 
-			addr = emap[j].mem.addr;
-			dummy = memptr;
-			read_size = MAX_READ_SIZE;
+			if (e_ctrl->eeprom_device_type == MSM_CAMERA_SPI_DEVICE) {
+				read_size = MAX_READ_SIZE;
+			} else if (e_ctrl->eeprom_device_type == MSM_CAMERA_I2C_DEVICE) {
+				read_size = I2C_REG_DATA_MAX;
+			} else {
+				CAM_ERR(CAM_EEPROM, "invalid eeprom device type");
+				read_size = emap[j].mem.valid_size;
+			}
+
 			for (total_size = 0; total_size < emap[j].mem.valid_size; ) {
 				if ((total_size + read_size) > emap[j].mem.valid_size)
 					read_size = emap[j].mem.valid_size - total_size;
@@ -971,8 +988,6 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 					CAM_DBG(CAM_EEPROM,
 						"skipping read as data_type 0, skipped:%d",
 						read_size);
-					addr += read_size;
-					memptr += read_size;
 					continue;
 				}
 
@@ -984,6 +999,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 					CAM_ERR(CAM_EEPROM, "read failed rc %d", rc);
 					return rc;
 				}
+
 				addr += read_size;
 				memptr += read_size;
 			}
@@ -1367,7 +1383,6 @@ static int32_t cam_eeprom_parse_memory_map(
 		cmd_buf += cmd_length_in_bytes / sizeof(int32_t);
 		processed_size +=
 			cmd_length_in_bytes;
-		data->num_data += map[num_map].mem.valid_size;
 		break;
 	case CAMERA_SENSOR_CMD_TYPE_WAIT:
 		i2c_poll = (struct cam_cmd_conditional_wait *)cmd_buf;
@@ -1681,6 +1696,55 @@ static int32_t cam_eeprom_parse_write_memory_packet(struct cam_packet *csl_packe
 
 	CAM_ERR(CAM_EEPROM, "VR::Done");
 	return rc;
+}
+
+/**
+ * cam_eeprom_calc_calmap_size - Calculate cal array size based on the cal map
+ * @e_ctrl:       ctrl structure
+ *
+ * Returns size of cal array
+ */
+static int32_t cam_eeprom_calc_calmap_size(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+	struct cam_eeprom_memory_map_t    *map = NULL;
+	uint32_t minMap, maxMap, minLocal, maxLocal;
+	int32_t i;
+	int32_t calmap_size = 0;
+
+	if (e_ctrl == NULL ||
+		(e_ctrl->cal_data.num_map == 0) ||
+		(e_ctrl->cal_data.map == NULL)) {
+		CAM_INFO(CAM_EEPROM, "cal size is wrong");
+		return calmap_size;
+	}
+
+	map = e_ctrl->cal_data.map;
+	minMap = minLocal = 0xFFFFFFFF;
+	maxMap = maxLocal = 0x00;
+
+	for (i = 0; i < e_ctrl->cal_data.num_map; i++) {
+		minLocal = map[i].mem.addr;
+		maxLocal = minLocal + map[i].mem.valid_size;
+
+		if(minMap > minLocal)
+		{
+			minMap = minLocal;
+		}
+
+		if(maxMap < maxLocal)
+		{
+			maxMap = maxLocal;
+		}
+
+		CAM_DBG(CAM_EEPROM, "[%d / %d] minLocal = 0x%X, minMap = 0x%X, maxLocal = 0x%X, maxMap = 0x%X",
+			i+1, e_ctrl->cal_data.num_map, minLocal, minMap, maxLocal, maxMap);
+	}
+	calmap_size = maxMap - minMap;
+
+	CAM_INFO(CAM_EEPROM, "calmap_size = 0x%X, minMap = 0x%X, maxMap = 0x%X",
+		calmap_size, minMap, maxMap);
+
+	return calmap_size;
 }
 
 /**
@@ -2123,6 +2187,14 @@ static int32_t cam_eeprom_pkt_parse(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 				return rc;
 			}
 
+			e_ctrl->cal_data.num_data = cam_eeprom_calc_calmap_size(e_ctrl);
+
+			if (e_ctrl->cal_data.num_data == 0) {
+				rc = -ENOMEM;
+				CAM_ERR(CAM_EEPROM, "failed");
+				goto error;
+			}
+
 			e_ctrl->cal_data.mapdata =
 				vmalloc(e_ctrl->cal_data.num_data);
 			if (!e_ctrl->cal_data.mapdata) {
@@ -2130,10 +2202,10 @@ static int32_t cam_eeprom_pkt_parse(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 				CAM_ERR(CAM_EEPROM, "failed");
 				goto error;
 			}
-			memset(e_ctrl->cal_data.mapdata, 0x00, e_ctrl->cal_data.num_data);
+			memset(e_ctrl->cal_data.mapdata, 0xFF, e_ctrl->cal_data.num_data);
 
 			rc = cam_eeprom_power_up(e_ctrl,
-				&soc_private->power_info);
+				power_info);
 			if (rc) {
 				CAM_ERR(CAM_EEPROM, "failed rc %d", rc);
 				goto memdata_free;
@@ -2221,7 +2293,7 @@ static int32_t cam_eeprom_pkt_parse(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 
 		CAM_INFO(CAM_EEPROM, "VR:: cam_eeprom_power_up");
 		rc = cam_eeprom_power_up(e_ctrl,
-			&soc_private->power_info);
+			power_info);
 		if (rc) {
 			CAM_ERR(CAM_EEPROM, "failed power up rc %d", rc);
 			goto memdata_free;
@@ -2267,8 +2339,6 @@ power_down:
 memdata_free:
 	vfree(e_ctrl->cal_data.mapdata);
 error:
-	kfree(power_info->power_setting);
-	kfree(power_info->power_down_setting);
 	vfree(e_ctrl->cal_data.map);
 	e_ctrl->cal_data.num_data = 0;
 	e_ctrl->cal_data.num_map = 0;
@@ -2302,8 +2372,15 @@ void cam_eeprom_shutdown(struct cam_eeprom_ctrl_t *e_ctrl)
 		e_ctrl->bridge_intf.link_hdl = -1;
 		e_ctrl->bridge_intf.session_hdl = -1;
 
-		kfree(power_info->power_setting);
-		kfree(power_info->power_down_setting);
+		if (NULL != power_info->power_setting) {
+			kfree(power_info->power_setting);
+			power_info->power_setting = NULL;
+		}
+
+		if (NULL != power_info->power_down_setting) {
+			kfree(power_info->power_down_setting);
+			power_info->power_down_setting = NULL;
+		}
 	}
 
 	e_ctrl->cam_eeprom_state = CAM_EEPROM_INIT;

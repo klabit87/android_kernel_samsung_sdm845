@@ -243,6 +243,7 @@ static void vmpressure_work_fn(struct work_struct *work)
 	spin_unlock(&vmpr->sr_lock);
 
 	pressure = vmpressure_calc_pressure(scanned, reclaimed);
+	vmpr->pressure = pressure;
 	level = vmpressure_level(pressure);
 
 	do {
@@ -423,7 +424,7 @@ static void vmpressure_global(gfp_t gfp, unsigned long scanned,
 void vmpressure(gfp_t gfp, struct mem_cgroup *memcg, bool tree,
 		unsigned long scanned, unsigned long reclaimed)
 {
-	if (!memcg)
+	if (!memcg && tree)
 		vmpressure_global(gfp, scanned, reclaimed);
 
 	if (IS_ENABLED(CONFIG_MEMCG))

@@ -892,7 +892,6 @@ static struct platform_driver s2mpb02_led_driver = {
 	.driver		= {
 		.name	= "s2mpb02-led",
 		.owner	= THIS_MODULE,
-		.suppress_bind_attrs = true,
 	},
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -67,6 +67,9 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 	ctrl->ops.error_intr_ctrl = dsi_ctrl_hw_cmn_error_intr_ctrl;
 	ctrl->ops.get_error_mask = dsi_ctrl_hw_cmn_get_error_mask;
 	ctrl->ops.get_hw_version = dsi_ctrl_hw_cmn_get_hw_version;
+	ctrl->ops.wait_for_cmd_mode_mdp_idle =
+		dsi_ctrl_hw_cmn_wait_for_cmd_mode_mdp_idle;
+	ctrl->ops.set_continuous_clk = dsi_ctrl_hw_cmn_set_continuous_clk;
 
 	switch (version) {
 	case DSI_CTRL_VERSION_1_4:
@@ -83,6 +86,7 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 			dsi_ctrl_hw_14_reg_dump_to_buffer;
 		ctrl->ops.schedule_dma_cmd = NULL;
 		ctrl->ops.get_cont_splash_status = NULL;
+		ctrl->ops.kickoff_command_non_embedded_mode = NULL;
 		break;
 	case DSI_CTRL_VERSION_2_0:
 		ctrl->ops.setup_lane_map = dsi_ctrl_hw_20_setup_lane_map;
@@ -97,6 +101,7 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 		ctrl->ops.clamp_disable = NULL;
 		ctrl->ops.schedule_dma_cmd = NULL;
 		ctrl->ops.get_cont_splash_status = NULL;
+		ctrl->ops.kickoff_command_non_embedded_mode = NULL;
 		break;
 	case DSI_CTRL_VERSION_2_2:
 		ctrl->ops.phy_reset_config = dsi_ctrl_hw_22_phy_reset_config;
@@ -113,6 +118,8 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 		ctrl->ops.clamp_enable = NULL;
 		ctrl->ops.clamp_disable = NULL;
 		ctrl->ops.schedule_dma_cmd = dsi_ctrl_hw_22_schedule_dma_cmd;
+		ctrl->ops.kickoff_command_non_embedded_mode =
+			dsi_ctrl_hw_kickoff_non_embedded_mode;
 		break;
 	default:
 		break;
@@ -208,7 +215,9 @@ static void dsi_catalog_phy_3_0_init(struct dsi_phy_hw *phy)
 	phy->ops.ulps_ops.is_lanes_in_ulps =
 		dsi_phy_hw_v3_0_is_lanes_in_ulps;
 	phy->ops.phy_timing_val = dsi_phy_hw_timing_val_v3_0;
+	phy->ops.clamp_ctrl = dsi_phy_hw_v3_0_clamp_ctrl;
 	phy->ops.phy_lane_reset = dsi_phy_hw_v3_0_lane_reset;
+	phy->ops.toggle_resync_fifo = dsi_phy_hw_v3_0_toggle_resync_fifo;
 }
 
 /**

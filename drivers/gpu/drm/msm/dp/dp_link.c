@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -730,24 +730,6 @@ end:
 	return ret;
 }
 
-static char *dp_link_get_test_name(u32 test_requested)
-{
-	switch (test_requested) {
-	case DP_TEST_LINK_TRAINING:
-		return DP_LINK_ENUM_STR(DP_TEST_LINK_TRAINING);
-	case DP_TEST_LINK_VIDEO_PATTERN:
-		return DP_LINK_ENUM_STR(DP_TEST_LINK_VIDEO_PATTERN);
-	case DP_TEST_LINK_EDID_READ:
-		return DP_LINK_ENUM_STR(DP_TEST_LINK_EDID_READ);
-	case DP_TEST_LINK_PHY_TEST_PATTERN:
-		return DP_LINK_ENUM_STR(DP_TEST_LINK_PHY_TEST_PATTERN);
-	case DP_TEST_LINK_AUDIO_PATTERN:
-		return DP_LINK_ENUM_STR(DP_TEST_LINK_AUDIO_PATTERN);
-	default:
-		return "unknown";
-	}
-}
-
 /**
  * dp_link_is_video_audio_test_requested() - checks for audio/video link request
  * @link: link requested by the sink
@@ -1335,15 +1317,18 @@ bool secdp_check_link_stable(struct dp_link *dp_link)
 		goto exit;
 	}
 
-	if (!get_link_status(link->link_status, DP_SINK_STATUS) & DP_RECEIVE_PORT_0_STATUS) {
+	if (!(get_link_status(link->link_status, DP_SINK_STATUS) & DP_RECEIVE_PORT_0_STATUS)) {
+		pr_err("[205h] port0: out of sync\n");
 		goto exit;
 	}
-	/*
-	   if (!(get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_LINK_STATUS_UPDATED)) {
-	   goto exit;
-	   }
-	 */
-	if (!get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_INTERLANE_ALIGN_DONE) {
+/*
+	if (!(get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_LINK_STATUS_UPDATED)) {
+		pr_err("[204h] link_status_updated is zero!\n");
+		goto exit;
+	}
+*/
+	if (!(get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_INTERLANE_ALIGN_DONE)) {
+		pr_err("[204h] interlane_align_done is zero!\n");
 		goto exit;
 	}
 

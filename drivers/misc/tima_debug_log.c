@@ -9,19 +9,13 @@
 #include <linux/io.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
-
-#ifdef CONFIG_TIMA_RKP
-#include <linux/rkp_entry.h>
-#endif
+#include <linux/slab.h>
 
 #define DEBUG_LOG_START (0x9f900000)
 #define	DEBUG_LOG_SIZE	(1<<20)
 #define	DEBUG_LOG_MAGIC	(0xaabbccdd)
 #define	DEBUG_LOG_ENTRY_SIZE	128
 
-#ifdef CONFIG_TIMA_RKP
-#define DEBUG_RKP_LOG_START	TIMA_DEBUG_LOG_START
-#endif
 struct debug_log_entry_s {
 	uint32_t	timestamp;          /* timestamp at which log entry was made*/
 	uint32_t	logger_id;          /* id is 1 for tima, 2 for lkmauth app  */
@@ -39,49 +33,35 @@ struct debug_log_header_s {
 
 #define DRIVER_DESC   "A kernel module to read tima debug log"
 
-unsigned long *tima_log_addr;
-unsigned long *tima_debug_log_addr;
-#ifdef CONFIG_TIMA_RKP
-unsigned long *tima_debug_rkp_log_addr;
-#endif
+unsigned long *tima_debug_log_addr = 0;
 
 ssize_t	tima_read(struct file *filep, char __user *buf, size_t size, loff_t *offset)
 {
+    char *localbuf = NULL;
 	mm_segment_t old_fs = get_fs();
 	/* First check is to get rid of integer overflow exploits */
 	if (size > DEBUG_LOG_SIZE || (*offset) + size > DEBUG_LOG_SIZE) {
 		pr_err("Extra read\n");
 		return -EINVAL;
 	}
-	if (!strcmp(filep->f_path.dentry->d_iname, "tima_debug_log")) {
-		tima_log_addr = tima_debug_log_addr;
-		set_fs(KERNEL_DS);
-		memcpy_fromio(buf, (const char *)tima_log_addr + (*offset), size);
-		set_fs(old_fs);
-		*offset += size;
-		return size;
-	}
-#ifdef CONFIG_TIMA_RKP
-	else if (!strcmp(filep->f_path.dentry->d_iname, "rkp_log")) {
-		if (*offset >= TIMA_DEBUG_LOG_SIZE)
-			return -EINVAL;
-		else if (*offset + size > TIMA_DEBUG_LOG_SIZE)
-			size = (TIMA_DEBUG_LOG_SIZE) - *offset;
 
-		tima_log_addr = tima_debug_rkp_log_addr;
-		set_fs(KERNEL_DS);
-		if (copy_to_user(buf, (const char *)tima_log_addr + (*offset), size)) {
-			set_fs(old_fs);
-			pr_err("Copy to user failed\n");
-			return -1;
-		}
+    localbuf = kzalloc(size, GFP_KERNEL);
+    if(localbuf == NULL)
+        return -ENOMEM;
+
+	set_fs(KERNEL_DS);
+	memcpy_fromio(localbuf, (const char *)tima_debug_log_addr + (*offset), size);
+	if (copy_to_user(buf, localbuf, size)) {
+		set_fs(old_fs);
+		pr_err("Copy to user failed\n");
+		kfree(localbuf);
+		return -1;
+	} else {
 		set_fs(old_fs);
 		*offset += size;
+		kfree(localbuf);
 		return size;
 	}
-#endif
-	pr_err("NO tima*log\n");
-	return -1;
 }
 
 static const struct file_operations tima_proc_fops = {
@@ -101,9 +81,7 @@ static int __init tima_debug_log_read_init(void)
 	}
 	pr_info("%s: Registering /proc/tima_debug_log Interface\n", __func__);
 	tima_debug_log_addr = (unsigned long *)ioremap(DEBUG_LOG_START, DEBUG_LOG_SIZE);
-#ifdef CONFIG_TIMA_RKP
-	tima_debug_rkp_log_addr  = (unsigned long *)phys_to_virt(DEBUG_RKP_LOG_START);
-#endif
+
 	if (tima_debug_log_addr == NULL) {
 		pr_err("%s: ioremap Failed\n", __func__);
 		goto ioremap_failed;

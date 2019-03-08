@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -374,7 +374,7 @@ static void spcom_link_state_notif_cb(struct glink_link_state_cb_info *cb_info,
 
 	switch (cb_info->link_state) {
 	case GLINK_LINK_STATE_UP:
-		pr_info("GLINK_LINK_STATE_UP.\n");
+		pr_debug("GLINK_LINK_STATE_UP.\n");
 		spcom_create_predefined_channels_chardev();
 		break;
 	case GLINK_LINK_STATE_DOWN:
@@ -840,6 +840,8 @@ static int spcom_close(struct spcom_channel *ch)
 	ch->glink_state = GLINK_LOCAL_DISCONNECTED;
 	ch->txn_id = INITIAL_TXN_ID; /* use non-zero nonce for debug */
 	ch->pid = 0;
+	ch->actual_rx_size = 0;
+	ch->glink_rx_buf = NULL;
 
 	pr_debug("Channel closed [%s].\n", ch->name);
 
@@ -940,8 +942,8 @@ static int spcom_rx(struct spcom_channel *ch,
 
 	/* check for already pending data */
 	if (ch->actual_rx_size) {
-		pr_debug("already pending data size [%zu]\n",
-			 ch->actual_rx_size);
+		pr_debug("already pending data size [%zu] ch [%s]\n",
+			 ch->actual_rx_size, ch->name);
 		goto copy_buf;
 	}
 
@@ -949,24 +951,27 @@ static int spcom_rx(struct spcom_channel *ch,
 	reinit_completion(&ch->rx_done);
 
 	/* Wait for Rx response */
-	pr_debug("Wait for Rx done.\n");
+	pr_debug("Wait for Rx done, ch [%s].\n", ch->name);
 	if (timeout_msec)
 		timeleft = wait_for_completion_timeout(&ch->rx_done, jiffies);
 	else
 		wait_for_completion(&ch->rx_done);
 
 	if (timeleft == 0) {
-		pr_err("rx_done timeout [%d] msec expired.\n", timeout_msec);
+		pr_err("rx_done timeout [%d] msec expired, ch [%s]\n",
+			timeout_msec, ch->name);
 		mutex_unlock(&ch->lock);
 		return -ETIMEDOUT;
 	} else if (ch->rx_abort) {
 		mutex_unlock(&ch->lock);
-		pr_err("rx_abort, probably remote side reset (SSR).\n");
+		pr_err("rx_abort, probably remote side reset (SSR), ch [%s].\n",
+			ch->name);
 		return -ERESTART; /* probably SSR */
 	} else if (ch->actual_rx_size) {
-		pr_debug("actual_rx_size is [%zu]\n", ch->actual_rx_size);
+		pr_debug("actual_rx_size is [%zu], ch [%s]\n",
+			ch->actual_rx_size, ch->name);
 	} else {
-		pr_err("actual_rx_size is zero.\n");
+		pr_err("actual_rx_size is zero, ch [%s].\n", ch->name);
 		goto exit_err;
 	}
 
@@ -980,7 +985,7 @@ copy_buf:
 	size = min_t(int, ch->actual_rx_size, size);
 	memcpy(buf, ch->glink_rx_buf, size);
 
-	pr_debug("copy size [%d].\n", (int) size);
+	pr_debug("copy size [%d] , ch [%s].\n", (int) size, ch->name);
 
 	/* free glink buffer after copy to spcom buffer */
 	glink_rx_done(ch->glink_handle, ch->glink_rx_buf, false);
@@ -993,7 +998,8 @@ copy_buf:
 		pr_err("glink_queue_rx_intent() failed, ret [%d]", ret);
 		goto exit_err;
 	} else {
-		pr_debug("queue rx_buf, size [%zu]\n", ch->rx_buf_size);
+		pr_debug("queue rx_buf, size [%zu], ch [%s]\n",
+			ch->rx_buf_size, ch->name);
 	}
 
 	mutex_unlock(&ch->lock);
@@ -1038,7 +1044,7 @@ static int spcom_get_next_request_size(struct spcom_channel *ch)
 	mutex_lock(&ch->lock); /* re-lock after waiting */
 	/* Check Rx Abort on SP reset */
 	if (ch->rx_abort) {
-		pr_err("rx aborted.\n");
+		pr_err("rx aborted, ch [%s].\n", ch->name);
 		goto exit_error;
 	}
 
@@ -1085,13 +1091,14 @@ static void spcom_rx_abort_pending_server(void)
 		if (!ch->is_server)
 			continue;
 
-		/* The server might not be connected to a client.
-		 * Don't check if connected, only if open.
+		/* The ch REMOTE_DISCONNECT notification happens before
+		 * the LINK_DOWN notification,
+		 * so the channel is already closed.
 		 */
-		if (!spcom_is_channel_open(ch) || (ch->rx_abort))
+		if (ch->rx_abort)
 			continue;
 
-		pr_debug("rx-abort server ch [%s].\n", ch->name);
+		pr_err("rx-abort server ch [%s].\n", ch->name);
 		ch->rx_abort = true;
 		complete_all(&ch->rx_done);
 	}
@@ -1163,7 +1170,7 @@ struct spcom_client *spcom_register_client(struct spcom_client_info *info)
 		kfree(client);
 		client = NULL;
 	} else {
-		pr_info("remote side connect to channel [%s].\n", name);
+		pr_debug("remote side connect to channel [%s].\n", name);
 	}
 
 	return client;
@@ -2003,6 +2010,11 @@ static int spcom_handle_write(struct spcom_channel *ch,
 
 	pr_debug("cmd_id [0x%x] cmd_name [%s].\n", cmd_id, cmd_name);
 
+	if (!ch && cmd_id != SPCOM_CMD_CREATE_CHANNEL) {
+		pr_err("channel context is null\n");
+		return -EINVAL;
+	}
+
 	switch (cmd_id) {
 	case SPCOM_CMD_SEND:
 		ret = spcom_handle_send_command(ch, buf, buf_size);
@@ -2335,8 +2347,12 @@ static ssize_t spcom_device_write(struct file *filp,
 
 	ch = filp->private_data;
 	if (!ch) {
-		pr_err("invalid ch pointer, command not allowed.\n");
-		return -EINVAL;
+		if (strcmp(name, DEVICE_NAME) == 0) {
+			pr_debug("control device - no channel context.\n");
+		} else {
+			pr_err("NULL ch pointer, command not allowed.\n");
+			return -EINVAL;
+		}
 	} else {
 		/* Check if remote side connect */
 		if (!spcom_is_channel_connected(ch)) {
@@ -2748,7 +2764,7 @@ static int spcom_probe(struct platform_device *pdev)
 	ret = spcom_register_chardev();
 	if (ret) {
 		pr_err("create character device failed.\n");
-		goto fail_reg_chardev;
+		goto fail_while_chardev_reg;
 	}
 
 	link_info.glink_link_state_notif_cb = spcom_link_state_notif_cb;
@@ -2777,7 +2793,7 @@ static int spcom_probe(struct platform_device *pdev)
 		goto fail_ion_client;
 	}
 
-	pr_info("Driver Initialization ok.\n");
+	pr_debug("Driver Initialization ok.\n");
 
 	return 0;
 
@@ -2786,6 +2802,7 @@ fail_ion_client:
 fail_reg_chardev:
 	pr_err("Failed to init driver.\n");
 	spcom_unregister_chrdev();
+fail_while_chardev_reg:
 	kfree(dev);
 	spcom_dev = NULL;
 
@@ -2814,7 +2831,7 @@ static int __init spcom_init(void)
 {
 	int ret;
 
-	pr_info("spcom driver version 1.2 23-Aug-2017.\n");
+	pr_debug("spcom driver version 1.4 30-Apr-2018.\n");
 
 	ret = platform_driver_register(&spcom_driver);
 	if (ret)

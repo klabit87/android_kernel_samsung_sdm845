@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,13 +19,6 @@
 };
 
 &sdhc_2 {
-	/* It's defined in sdm845.dts
-	qcom,bus-bw-vectors-bps = <0 400000 20000000 25000000 50000000
-				   100000000 200000000 4294967295>;
-	qcom,clk-rates = <400000 20000000 25000000 50000000
-			  100000000 200000000>;
-	qcom,devfreq,freq-table = <50000000 200000000>;
-	*/
 	/delete-property/ qcom,sdr104-wa;
 };
 
@@ -62,6 +55,7 @@
 			compatible = "qcom,memshare-peripheral";
 			qcom,peripheral-size = <0x500000>;
 			qcom,client-id = <1>;
+			/* qcom,allocate-on-request; */
 			label = "modem";
 		};
 	};
@@ -440,7 +434,7 @@
 			1766400 160
 		>;
 		idle-cost-data = <
-			22 18 14 12
+			10 8 6 4
 		>;
 	};
 	CPU_COST_1: core-cost1 {
@@ -479,6 +473,8 @@
 			2764800 30000
 			2784000 35000
 			2803200 40000
+			2841600 50000
+			2956800 60000
 		>;
 		idle-cost-data = <
 			100 80 60 40
@@ -545,6 +541,8 @@
 			2764800 160
 			2784000 165
 			2803200 170
+			2841600 180
+			2956800 190
 		>;
 		idle-cost-data = <
 			4 3 2 1

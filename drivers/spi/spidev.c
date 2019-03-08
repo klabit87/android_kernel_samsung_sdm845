@@ -90,7 +90,11 @@ struct spidev_data {
 static LIST_HEAD(device_list);
 static DEFINE_MUTEX(device_list_lock);
 
+#if defined(CONFIG_SENSORS_QBT1000) && !defined(ENABLE_SENSORS_FPRINT_SECURE)
+static unsigned bufsiz = 4096*16;
+#else
 static unsigned bufsiz = 4096;
+#endif
 module_param(bufsiz, uint, S_IRUGO);
 MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
@@ -696,6 +700,10 @@ static struct class *spidev_class;
 static const struct of_device_id spidev_dt_ids[] = {
 	{ .compatible = "rohm,dh2228fv" },
 	{ .compatible = "lineartechnology,ltc2488" },
+	{ .compatible = "qcom,spi-msm-slave" },
+#if defined(CONFIG_SENSORS_QBT1000) && !defined(ENABLE_SENSORS_FPRINT_SECURE)
+	{ .compatible = "qbtspi" },
+#endif
 	{},
 };
 MODULE_DEVICE_TABLE(of, spidev_dt_ids);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -152,7 +152,23 @@ struct sde_hw_ctl_ops {
 	void (*setup_intf_cfg)(struct sde_hw_ctl *ctx,
 		struct sde_hw_intf_cfg *cfg);
 
+	/**
+	 * Update the interface selection with input WB config
+	 * @ctx       : ctl path ctx pointer
+	 * @cfg       : pointer to input wb config
+	 * @enable    : set if true, clear otherwise
+	 */
+	void (*update_wb_cfg)(struct sde_hw_ctl *ctx,
+		struct sde_hw_intf_cfg *cfg, bool enable);
+
 	int (*reset)(struct sde_hw_ctl *c);
+
+	/**
+	 * get_reset - check ctl reset status bit
+	 * @ctx    : ctl path ctx pointer
+	 * Returns: current value of ctl reset status
+	 */
+	u32 (*get_reset)(struct sde_hw_ctl *ctx);
 
 	/**
 	 * hard_reset - force reset on ctl_path

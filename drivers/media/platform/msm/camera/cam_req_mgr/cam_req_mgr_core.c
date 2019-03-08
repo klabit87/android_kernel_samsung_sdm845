@@ -907,7 +907,7 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 		if (link->trigger_mask == link->subscribe_event) {
 			slot->status = CRM_SLOT_STATUS_REQ_APPLIED;
 			link->trigger_mask = 0;
-			CAM_DBG(CAM_CRM, "req %d is applied on link %d",
+			CAM_DBG(CAM_CRM, "req %lld is applied on link %d",
 				slot->req_id,
 				link->link_hdl);
 			idx = in_q->rd_idx;
@@ -1466,9 +1466,8 @@ int cam_req_mgr_process_flush_req(void *priv, void *data)
 		if (device->ops && device->ops->flush_req)
 			rc = device->ops->flush_req(&flush_req);
 	}
-	mutex_unlock(&link->req.lock);
-
 	complete(&link->workq_comp);
+	mutex_unlock(&link->req.lock);
 end:
 	return rc;
 }

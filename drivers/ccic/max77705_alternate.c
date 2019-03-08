@@ -362,7 +362,7 @@ static int max77705_vdm_process_discover_svids(void *data, char *vdm_data, int l
 	if (usbpd_data->SVID_0 == TypeC_DP_SUPPORT) {
 		if (usbpd_data->is_host == HOST_ON) {
 			timeleft = wait_event_interruptible_timeout(usbpd_data->host_turn_on_wait_q,
-				usbpd_data->host_turn_on_event, (usbpd_data->host_turn_on_wait_time)*HZ);
+				usbpd_data->host_turn_on_event && !usbpd_data->detach_done_wait, (usbpd_data->host_turn_on_wait_time)*HZ);
 			msg_maxim("%s host turn on wait = %d\n", __func__, timeleft);
 			msg_maxim("%s reinit suspend wait start\n", __func__);
 			reinit_completion(&usbpd_data->suspend_wait);
@@ -412,19 +412,19 @@ static int max77705_vdm_process_discover_svids(void *data, char *vdm_data, int l
 		 * can support SS
 		 */
 		 usbpd_data->dp_hs_connect = 1;
-
 #if 1
-		max77705_ccic_event_work(usbpd_data,
-				CCIC_NOTIFY_DEV_DP, CCIC_NOTIFY_ID_DP_CONNECT,
-				CCIC_NOTIFY_ATTACH, usbpd_data->Vendor_ID, usbpd_data->Product_ID);
 #if defined(CONFIG_USB_HOST_NOTIFY)
 		if (o_notify) {
 			inc_hw_param(o_notify, USB_CCIC_DP_USE_COUNT);
 			timeleft = wait_event_interruptible_timeout(usbpd_data->host_turn_on_wait_q,
 				usbpd_data->host_turn_on_event, (usbpd_data->host_turn_on_wait_time)*HZ);
-			msg_maxim("%s host turn on wait = %d\n", __func__, timeleft);
+			msg_maxim("%s host turn on wait = %d", __func__, timeleft);
 		}
 #endif
+		max77705_ccic_event_work(usbpd_data,
+				CCIC_NOTIFY_DEV_DP, CCIC_NOTIFY_ID_DP_CONNECT,
+				CCIC_NOTIFY_ATTACH, usbpd_data->Vendor_ID, usbpd_data->Product_ID);
+
 		max77705_ccic_event_work(usbpd_data,
 			CCIC_NOTIFY_DEV_USB_DP, CCIC_NOTIFY_ID_USB_DP,
 			usbpd_data->dp_is_connect /*attach*/, usbpd_data->dp_hs_connect, 0);
@@ -1077,9 +1077,11 @@ void max77705_set_host_turn_on_event(int mode)
 
 	pr_info("%s : current_set is %d!\n", __func__, mode);
 	if (mode) {
+		usbpd_data->detach_done_wait = 0;
 		usbpd_data->host_turn_on_event = 1;
 		wake_up_interruptible(&usbpd_data->host_turn_on_wait_q);
 	} else {
+		usbpd_data->detach_done_wait = 0;
 		usbpd_data->host_turn_on_event = 0;
 	}
 }
@@ -1160,18 +1162,11 @@ void max77705_set_enable_alternate_mode(int mode)
 					max77705_vdm_process_set_samsung_alternate_mode(usbpd_data,
 						MAXIM_ENABLE_ALTERNATE_SRC_VDM);
 					msg_maxim("[NO BOOTING TIME] !!!alternate mode is started!");
-					if (usbpd_data->cc_data->current_pr == SNK && !(usbpd_data->send_vdm_identity)
-						&& (pd_data->current_dr == DFP)) {
-						usbpd_data->send_vdm_identity = 1;
-						max77705_vdm_process_set_identity_req(usbpd_data);
-						msg_maxim("[NO BOOTING TIME] SEND THE PACKET (DEX HUB) ");
-					}
 
 				} else if (mode & ALTERNATE_MODE_STOP) {
 					max77705_vdm_process_set_samsung_alternate_mode(usbpd_data,
 						MAXIM_ENABLE_ALTERNATE_SRCCAP);
 					msg_maxim("[NO BOOTING TIME] alternate mode is stopped!");
-					usbpd_data->send_vdm_identity = 0;
 				}
 
 				break;
@@ -1200,12 +1195,6 @@ void max77705_set_enable_alternate_mode(int mode)
 						status[3], status[4], status[5], status[6]);
 					msg_maxim("UIC_INT_M:0x%x, CC_INT_M:0x%x, PD_INT_M:0x%x, VDM_INT_M:0x%x",
 						status[7], status[8], status[9], status[10]);
-					if (usbpd_data->cc_data->current_pr == SNK && !(usbpd_data->send_vdm_identity)
-						&& (pd_data->current_dr == DFP) && usbpd_data->is_first_booting) {
-						usbpd_data->send_vdm_identity = 1;
-						max77705_vdm_process_set_identity_req(usbpd_data);
-						msg_maxim("[ON BOOTING TIME] SEND THE PACKET (DEX HUB)  ");
-					}
 					max77705_write_reg(usbpd_data->muic, REG_VDM_INT_M, 0xF0);
 					max77705_write_reg(usbpd_data->muic, REG_PD_INT_M, 0x0);
 					max77705_read_reg(usbpd_data->muic, MAX77705_USBC_REG_PD_INT_M, &status[9]);

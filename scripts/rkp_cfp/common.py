@@ -116,7 +116,7 @@ skip_blr=set([
 
 skip_magic=set([
     'ropp_enable_backtrace',
-    'rkp_call',
+    'uh_call',
 
     # do_execve
     'try_to_run_init_process',

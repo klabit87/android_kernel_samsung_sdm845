@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,14 +20,18 @@
 #include <linux/mutex.h>
 #include <linux/list.h>
 #include <linux/dma-mapping.h>
+#include <linux/dma-contiguous.h>
 #include <linux/dma-buf.h>
 #include <linux/iommu.h>
 #include <linux/platform_device.h>
 #include <ipc/apr.h>
 #include <linux/of_device.h>
 #include <linux/export.h>
+#include <linux/cma.h>
 #include <asm/dma-iommu.h>
 #include <dsp/msm_audio_ion.h>
+#include <soc/qcom/scm.h>
+#include <asm/cacheflush.h>
 
 #define MSM_AUDIO_ION_PROBED (1 << 0)
 
@@ -39,9 +43,24 @@
 
 #define MSM_AUDIO_SMMU_SID_OFFSET 32
 
+/* mem protection defines */
+#define TZBSP_MEM_PROTECT_AUDIO_CMD_ID 0x00000016
+#define MEM_PROTECT_VMID_HLOS 0x3
+#define MEM_PROTECT_VMID_MSS_MSA 0xF
+#define MEM_PROTECT_PERM_READ 0x4
+#define MEM_PROTECT_PERM_WRITE 0x2
+#define MEM_PROTECT_MAX_DEST 2
+
+#ifdef CONFIG_ARM64
+
+/* functions not defined on arm64 */
+#define outer_flush_range(x, y)
+#define __cpuc_flush_dcache_area __flush_dcache_area
+
+#endif
+
 struct msm_audio_ion_private {
 	bool smmu_enabled;
-	bool audioheap_enabled;
 	struct device *cb_dev;
 	struct dma_iommu_mapping *mapping;
 	u8 device_status;
@@ -60,6 +79,25 @@ struct msm_audio_alloc_data {
 	struct sg_table *table;
 	struct list_head list;
 };
+
+struct msm_audio_mem_prot_info {
+	u64 addr;
+	u64 size;
+};
+
+struct msm_audio_dest_vm_and_perm_info {
+	u32 vm;
+	u32 perm;
+	u64 ctx;
+	u32 ctx_size;
+};
+
+struct msm_audio_protect_mem {
+	struct msm_audio_mem_prot_info mem_info;
+	u32 source_vm;
+	struct msm_audio_dest_vm_and_perm_info dest_info[MEM_PROTECT_MAX_DEST];
+};
+
 
 static struct msm_audio_ion_private msm_audio_ion_data = {0,};
 
@@ -112,26 +150,23 @@ int msm_audio_ion_alloc(const char *name, struct ion_client **client,
 		goto err;
 	}
 
-	*handle = ion_alloc(*client, bufsz, SZ_4K,
-			ION_HEAP(ION_AUDIO_HEAP_ID), 0);
-	if (IS_ERR_OR_NULL((void *) (*handle))) {
-		if (msm_audio_ion_data.smmu_enabled == true) {
-			pr_debug("system heap is used");
-			msm_audio_ion_data.audioheap_enabled = 0;
-			*handle = ion_alloc(*client, bufsz, SZ_4K,
-					ION_HEAP(ION_SYSTEM_HEAP_ID), 0);
-		}
-		if (IS_ERR_OR_NULL((void *) (*handle))) {
-			if (IS_ERR((void *)(*handle)))
-				err_ion_ptr = PTR_ERR((int *)(*handle));
-			pr_err("%s:ION alloc fail err ptr=%ld, smmu_enabled=%d\n",
-			__func__, err_ion_ptr, msm_audio_ion_data.smmu_enabled);
-			rc = -ENOMEM;
-			goto err_ion_client;
-		}
+	if (msm_audio_ion_data.smmu_enabled == true) {
+		pr_debug("%s: system heap is used\n", __func__);
+		*handle = ion_alloc(*client, bufsz, SZ_4K,
+				    ION_HEAP(ION_SYSTEM_HEAP_ID), 0);
 	} else {
-		pr_debug("audio heap is used");
-		msm_audio_ion_data.audioheap_enabled = 1;
+		pr_debug("%s: audio heap is used\n", __func__);
+		*handle = ion_alloc(*client, bufsz, SZ_4K,
+				    ION_HEAP(ION_AUDIO_HEAP_ID), 0);
+	}
+	if (IS_ERR_OR_NULL((void *)(*handle))) {
+		if (IS_ERR((void *)(*handle)))
+			err_ion_ptr = PTR_ERR((int *)(*handle));
+
+		pr_err("%s:ION alloc fail err ptr=%ld, smmu_enabled=%d\n",
+		       __func__, err_ion_ptr, msm_audio_ion_data.smmu_enabled);
+		rc = -ENOMEM;
+		goto err_ion_client;
 	}
 
 	rc = msm_audio_ion_get_phys(*client, *handle, paddr, pa_len);
@@ -718,13 +753,65 @@ u32 msm_audio_populate_upper_32_bits(ion_phys_addr_t pa)
 		return upper_32_bits(pa);
 }
 
+static void msm_audio_protect_memory_region(struct device *dev)
+{
+	int ret = 0;
+	struct scm_desc desc = {0};
+	struct msm_audio_protect_mem scm_buffer;
+
+	scm_buffer.mem_info.addr = cma_get_base(dev_get_cma_area(dev));
+	scm_buffer.mem_info.size = cma_get_size(dev_get_cma_area(dev));
+
+	pr_debug("%s: cma_audio_mem_addr %pK with size %llu\n",
+		 __func__, &(scm_buffer.mem_info.addr),
+		 scm_buffer.mem_info.size);
+
+	scm_buffer.dest_info[0].vm = MEM_PROTECT_VMID_MSS_MSA;
+	scm_buffer.dest_info[0].perm =
+				MEM_PROTECT_PERM_READ|MEM_PROTECT_PERM_WRITE;
+	scm_buffer.dest_info[0].ctx = 0;
+	scm_buffer.dest_info[0].ctx_size = 0;
+	scm_buffer.dest_info[1].vm = MEM_PROTECT_VMID_HLOS;
+	scm_buffer.dest_info[1].perm =
+				MEM_PROTECT_PERM_READ|MEM_PROTECT_PERM_WRITE;
+	scm_buffer.dest_info[1].ctx = 0;
+	scm_buffer.dest_info[1].ctx_size = 0;
+
+	scm_buffer.source_vm = MEM_PROTECT_VMID_HLOS;
+
+	/* flush cache required by scm_call2 */
+	__cpuc_flush_dcache_area(&scm_buffer, sizeof(scm_buffer));
+	outer_flush_range(virt_to_phys(&scm_buffer),
+			  virt_to_phys(&scm_buffer) + sizeof(scm_buffer));
+
+	desc.args[0] = virt_to_phys(&(scm_buffer.mem_info));
+	desc.args[1] = sizeof(scm_buffer.mem_info); /*array size of args[0] */
+	desc.args[2] = virt_to_phys(&(scm_buffer.source_vm)); /*source*/
+	desc.args[3] = sizeof(scm_buffer.source_vm); /*array size of args[2] */
+	desc.args[4] = virt_to_phys(&(scm_buffer.dest_info)); /*destination */
+	desc.args[5] = sizeof(scm_buffer.dest_info); /*array size of args[4] */
+	desc.args[6] = 0; /*reserved*/
+
+	desc.arginfo = SCM_ARGS(7, SCM_RO, SCM_VAL, SCM_RO, SCM_VAL, SCM_RO,
+				SCM_VAL, SCM_VAL);
+
+	ret = scm_call2(SCM_SIP_FNID(SCM_SVC_MP,
+			TZBSP_MEM_PROTECT_AUDIO_CMD_ID), &desc);
+
+	if (ret < 0)
+		pr_err("%s: SCM call2 failed, ret %d scm_resp %llu\n",
+		       __func__, ret, desc.ret[0]);
+}
+
 static int msm_audio_ion_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 	const char *msm_audio_ion_dt = "qcom,smmu-enabled";
 	const char *msm_audio_ion_smmu = "qcom,smmu-version";
+	const char *mdm_audio_ion_scm = "qcom,scm-mp-enabled";
 	const char *msm_audio_ion_smmu_sid_mask = "qcom,smmu-sid-mask";
 	bool smmu_enabled;
+	bool scm_mp_enabled;
 	enum apr_subsys_state q6_state;
 	struct device *dev = &pdev->dev;
 
@@ -735,6 +822,9 @@ static int msm_audio_ion_probe(struct platform_device *pdev)
 		msm_audio_ion_data.smmu_enabled = 0;
 		return 0;
 	}
+
+	scm_mp_enabled = of_property_read_bool(dev->of_node,
+					mdm_audio_ion_scm);
 
 	smmu_enabled = of_property_read_bool(dev->of_node,
 					     msm_audio_ion_dt);
@@ -764,6 +854,9 @@ static int msm_audio_ion_probe(struct platform_device *pdev)
 
 	dev_dbg(dev, "%s: SMMU is %s\n", __func__,
 		(smmu_enabled) ? "Enabled" : "Disabled");
+
+	if (scm_mp_enabled)
+		msm_audio_protect_memory_region(dev);
 
 	if (smmu_enabled) {
 		u64 smmu_sid = 0;
@@ -832,6 +925,7 @@ static struct platform_driver msm_audio_ion_driver = {
 		.name = "msm-audio-ion",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_audio_ion_dt_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = msm_audio_ion_probe,
 	.remove = msm_audio_ion_remove,

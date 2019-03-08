@@ -106,6 +106,15 @@ config NFC_PN547_ESE_SUPPORT
 	  It is used by many services. NFC is fully controlled using I2C
 	  to communicate the AP chip.
 
+config NFC_FEATURE_SN100U
+	bool "NXP SN100U Feature"
+	default n
+	help
+	  NXP SN100U Near Field Communication controller support
+	  This option enables device driver support for the NFC.
+	  It is used by many services. NFC is fully controlled using I2C
+	  to communicate the AP chip.
+
 config ESE_SECURE
         bool "ese driver"
         depends on !SEC_FACTORY

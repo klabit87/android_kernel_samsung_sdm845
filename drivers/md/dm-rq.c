@@ -866,6 +866,13 @@ int dm_old_init_request_queue(struct mapped_device *md)
 	if (!blk_init_allocated_queue(md->queue, dm_old_request_fn, NULL))
 		return -EINVAL;
 
+#ifdef CONFIG_IOSCHED_NOOP
+	if (elevator_change(md->queue, "noop")) {
+		DMWARN("failed to swith noop-io scheduler for %s", 
+			dm_device_name(md));
+	}
+#endif
+
 	/* disable dm_old_request_fn's merge heuristic by default */
 	md->seq_rq_merge_deadline_usecs = 0;
 

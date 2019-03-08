@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -37,6 +37,9 @@
  *				   and transfer it.
  * @DSI_CTRL_CMD_LAST_COMMAND:     Trigger the DMA cmd transfer if this is last
  *				   command in the batch.
+ * @DSI_CTRL_CMD_NON_EMBEDDED_MODE:Trasfer cmd packets in non embedded mode.
+ * @DSI_CTRL_CMD_CUSTOM_DMA_SCHED: Use the dma scheduling line number defined in
+ *				   display panel dtsi file instead of default.
  */
 #define DSI_CTRL_CMD_READ             0x1
 #define DSI_CTRL_CMD_BROADCAST        0x2
@@ -45,12 +48,30 @@
 #define DSI_CTRL_CMD_FIFO_STORE       0x10
 #define DSI_CTRL_CMD_FETCH_MEMORY     0x20
 #define DSI_CTRL_CMD_LAST_COMMAND     0x40
+#define DSI_CTRL_CMD_NON_EMBEDDED_MODE 0x80
+#define DSI_CTRL_CMD_CUSTOM_DMA_SCHED  0x100
+
+/* DSI embedded mode fifo size
+ * If the command is greater than 256 bytes it is sent in non-embedded mode.
+ */
+#define DSI_EMBEDDED_MODE_DMA_MAX_SIZE_BYTES 256
 
 /* max size supported for dsi cmd transfer using TPG */
 #define DSI_CTRL_MAX_CMD_FIFO_STORE_SIZE 64
 
 /* max size supported for dsi cmd transfer using DMA */
 #define DSI_CTRL_MAX_CMD_FET_MEMORY_SIZE 200
+/**
+ * enum dsi_channel_id - defines dsi channel id.
+ * @DSI_CTRL_LEFT:    DSI 0 channel
+ * @DSI_CTRL_RIGHT:   DSI 1 channel
+ * @DSI_CTRL_MAX:  Maximum value.
+ */
+enum dsi_channel_id {
+	DSI_CTRL_LEFT = 0,
+	DSI_CTRL_RIGHT,
+	DSI_CTRL_MAX,
+};
 
 /**
  * enum dsi_power_state - defines power states for dsi controller.
@@ -93,7 +114,8 @@ struct dsi_ctrl_power_info {
 /**
  * struct dsi_ctrl_clk_info - clock information for DSI controller
  * @core_clks:          Core clocks needed to access DSI controller registers.
- * @link_clks:          Link clocks required to transmit data over DSI link.
+ * @hs_link_clks:       Clocks required to transmit high speed data over DSI
+ * @lp_link_clks:       Clocks required to perform low power ops over DSI
  * @rcg_clks:           Root clock generation clocks generated in MMSS_CC. The
  *			output of the PLL is set as parent for these root
  *			clocks. These clocks are specific to controller
@@ -107,7 +129,8 @@ struct dsi_ctrl_power_info {
 struct dsi_ctrl_clk_info {
 	/* Clocks parsed from DT */
 	struct dsi_core_clk_info core_clks;
-	struct dsi_link_clk_info link_clks;
+	struct dsi_link_hs_clk_info hs_link_clks;
+	struct dsi_link_lp_clk_info lp_link_clks;
 	struct dsi_clk_link_set rcg_clks;
 
 	/* Clocks set by DSI Manager */
@@ -200,6 +223,7 @@ struct dsi_ctrl_interrupts {
  * @cmd_buffer_size:     Size of command buffer.
  * @vaddr:               CPU virtual address of cmd buffer.
  * @secure_mode:         Indicates if secure-session is in progress
+ * @esd_check_underway:  Indicates if esd status check is in progress
  * @debugfs_root:        Root for debugfs entries.
  * @misr_enable:         Frame MISR enable/disable
  * @misr_cache:          Cached Frame MISR value
@@ -207,6 +231,7 @@ struct dsi_ctrl_interrupts {
  *                          dsi controller and run only dsi controller.
  * @null_insertion_enabled:  A boolean property to allow dsi controller to
  *                           insert null packet.
+ * @modeupdated:	  Boolean to send new roi if mode is updated.
  */
 struct dsi_ctrl {
 	struct platform_device *pdev;
@@ -243,7 +268,8 @@ struct dsi_ctrl {
 	u32 cmd_buffer_iova;
 	u32 cmd_len;
 	void *vaddr;
-	u32 secure_mode;
+	bool secure_mode;
+	bool esd_check_underway;
 
 	/* Debug Information */
 	struct dentry *debugfs_root;
@@ -254,6 +280,7 @@ struct dsi_ctrl {
 
 	bool phy_isolation_enabled;
 	bool null_insertion_enabled;
+	bool modeupdated;
 };
 
 /**
@@ -543,6 +570,16 @@ int dsi_ctrl_set_cmd_engine_state(struct dsi_ctrl *dsi_ctrl,
 				  enum dsi_engine_state state);
 
 /**
+ * dsi_ctrl_validate_host_state() - validate DSI ctrl host state
+ * @dsi_ctrl:            DSI Controller handle.
+ *
+ * Validate DSI cotroller host state
+ *
+ * Return: boolean indicating whether host is not initalized.
+ */
+bool dsi_ctrl_validate_host_state(struct dsi_ctrl *dsi_ctrl);
+
+/**
  * dsi_ctrl_set_vid_engine_state() - set video engine state
  * @dsi_ctrl:            DSI Controller handle.
  * @state:               Engine state.
@@ -684,11 +721,37 @@ int dsi_ctrl_get_hw_version(struct dsi_ctrl *dsi_ctrl);
 int dsi_ctrl_vid_engine_en(struct dsi_ctrl *dsi_ctrl, bool on);
 
 /**
+ * @dsi_ctrl:        DSI controller handle.
+ * cmd_len:	     Length of command.
+ * flags:	     Config mode flags.
+ */
+void dsi_message_setup_tx_mode(struct dsi_ctrl *dsi_ctrl, u32 cmd_len,
+		u32 *flags);
+
+/**
+ * @dsi_ctrl:        DSI controller handle.
+ * cmd_len:	     Length of command.
+ * flags:	     Config mode flags.
+ */
+int dsi_message_validate_tx_mode(struct dsi_ctrl *dsi_ctrl, u32 cmd_len,
+		u32 *flags);
+
+/**
  * dsi_ctrl_isr_configure() - API to register/deregister dsi isr
  * @dsi_ctrl:              DSI controller handle.
  * @enable:		   variable to control register/deregister isr
  */
 void dsi_ctrl_isr_configure(struct dsi_ctrl *dsi_ctrl, bool enable);
+
+/**
+ * dsi_ctrl_mask_error_status_interrupts() - API to mask dsi ctrl error status
+ *                                           interrupts
+ * @dsi_ctrl:              DSI controller handle.
+ * @idx:                   id indicating which interrupts to enable/disable.
+ * @mask_enable:           boolean to enable/disable masking.
+ */
+void dsi_ctrl_mask_error_status_interrupts(struct dsi_ctrl *dsi_ctrl, u32 idx,
+						bool mask_enable);
 
 /**
  * dsi_ctrl_irq_update() - Put a irq vote to process DSI error
@@ -697,4 +760,29 @@ void dsi_ctrl_isr_configure(struct dsi_ctrl *dsi_ctrl, bool enable);
  * @enable:		   variable to control enable/disable irq line
  */
 void dsi_ctrl_irq_update(struct dsi_ctrl *dsi_ctrl, bool enable);
+
+/**
+ * dsi_ctrl_get_host_engine_init_state() - Return host init state
+ */
+int dsi_ctrl_get_host_engine_init_state(struct dsi_ctrl *dsi_ctrl,
+		bool *state);
+
+/**
+ * dsi_ctrl_update_host_init_state() - Set the host initialization state
+ */
+int dsi_ctrl_update_host_init_state(struct dsi_ctrl *dsi_ctrl, bool en);
+
+/**
+ * dsi_ctrl_wait_for_cmd_mode_mdp_idle() - Wait for command mode engine not to
+ *				     be busy sending data from display engine.
+ * @dsi_ctrl:                     DSI controller handle.
+ */
+int dsi_ctrl_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl *dsi_ctrl);
+
+/**
+ * dsi_ctrl_set_continuous_clk() - API to set/unset force clock lane HS request.
+ * @dsi_ctrl:                      DSI controller handle.
+ * @enable:			   variable to control continuous clock.
+ */
+void dsi_ctrl_set_continuous_clk(struct dsi_ctrl *dsi_ctrl, bool enable);
 #endif /* _DSI_CTRL_H_ */

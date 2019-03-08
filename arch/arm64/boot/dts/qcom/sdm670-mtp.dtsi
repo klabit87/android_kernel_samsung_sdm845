@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,7 +14,10 @@
 #include "sdm670-pmic-overlay.dtsi"
 #include "sdm670-sde-display.dtsi"
 #include "sdm670-camera-sensor-mtp.dtsi"
+
+&qupv3_se10_i2c {
 #include "smb1355.dtsi"
+};
 
 &ufsphy_mem {
 	compatible = "qcom,ufs-phy-qmp-v3";
@@ -95,13 +98,13 @@
 &sdhc_1 {
 	vdd-supply = <&pm660l_l4>;
 	qcom,vdd-voltage-level = <2960000 2960000>;
-	qcom,vdd-current-level = <200 570000>;
+	qcom,vdd-current-level = <0 570000>;
 
 	vdd-io-supply = <&pm660_l8>;
 	qcom,vdd-io-always-on;
 	qcom,vdd-io-lpm-sup;
 	qcom,vdd-io-voltage-level = <1800000 1800000>;
-	qcom,vdd-io-current-level = <200 325000>;
+	qcom,vdd-io-current-level = <0 325000>;
 
 	pinctrl-names = "active", "sleep";
 	pinctrl-0 = <&sdc1_clk_on  &sdc1_cmd_on &sdc1_data_on &sdc1_rclk_on>;
@@ -113,11 +116,11 @@
 &sdhc_2 {
 	vdd-supply = <&pm660l_l5>;
 	qcom,vdd-voltage-level = <2960000 2960000>;
-	qcom,vdd-current-level = <200 800000>;
+	qcom,vdd-current-level = <0 800000>;
 
 	vdd-io-supply = <&pm660l_l2>;
 	qcom,vdd-io-voltage-level = <1800000 2960000>;
-	qcom,vdd-io-current-level = <200 22000>;
+	qcom,vdd-io-current-level = <0 22000>;
 
 	pinctrl-names = "active", "sleep";
 	pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
@@ -138,6 +141,10 @@
 };
 
 &pm660_fg {
+	qcom,battery-data = <&mtp_batterydata>;
+};
+
+&pm660_charger {
 	qcom,battery-data = <&mtp_batterydata>;
 };
 
@@ -198,7 +205,7 @@
 
 		cam_snapshot {
 			label = "cam_snapshot";
-			gpios = <&tlmm 91 0>;
+			gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
 			linux,code = <766>;
 			gpio-key,wakeup;
@@ -208,7 +215,7 @@
 
 		cam_focus {
 			label = "cam_focus";
-			gpios = <&tlmm 92 0>;
+			gpios = <&tlmm 92 GPIO_ACTIVE_HIGH>;
 			linux,input-type = <1>;
 			linux,code = <528>;
 			gpio-key,wakeup;
@@ -351,6 +358,17 @@
 	qcom,platform-te-gpio = <&tlmm 10 0>;
 };
 
+&dsi_hx8399_truly_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,platform-reset-gpio = <&tlmm 75 0>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,panel-mode-gpio = <&tlmm 76 0>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+};
+
 &dsi_dual_nt35597_truly_video_display {
 	qcom,dsi-display-active;
 };
@@ -365,10 +383,7 @@
 };
 
 &thermal_zones {
-	xo-therm-cpu-step {
-		status = "disabled";
-	};
-	xo-therm-mdm-step {
+	xo-therm-step {
 		status = "disabled";
 	};
 };

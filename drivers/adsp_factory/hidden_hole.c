@@ -56,10 +56,22 @@ struct {
 	int octa_id;
 	int data[EFS_SAVE_NUMS];
 } hidden_table[ID_INDEX_NUMS] = {
+#if defined(CONFIG_SEC_CROWNQLTE_PROJECT)
+	{180509, ID_UTYPE,
+	{2266, -170, 80, -290, 1000, 1112, 1370, 2300, 1000, 550, 9218} },
+	{180509, ID_BLACK,
+	{2266, -170, 80, -290, 1000, 1112, 1370, 2300, 1000, 550, 9218} },
+#elif defined(CONFIG_SEC_LYKANLTE_PROJECT)
+	{180719, ID_UTYPE,
+	{1130, -170, 80, -290, 1000, 1116, 1500, 2300, 1000, 550, 8216} },
+	{180719, ID_BLACK,
+	{1130, -170, 80, -290, 1000, 1116, 1500, 2300, 1000, 550, 8216} },
+#else
 	{171106, ID_UTYPE,
 	{2266, -170, 80, -290, 1000, 1116, 1500, 2300, 1000, 550, 9352} },
 	{171106, ID_BLACK,
 	{2266, -170, 80, -290, 1000, 1116, 1500, 2300, 1000, 550, 9352} },
+#endif
 };
 
 /*************************************************************************/
@@ -159,7 +171,7 @@ static int need_update_coef_efs(void)
 	set_fs(old_fs);
 
 	temp_version = tmd90x_strtok_first_dot(coef_version);
-	if (temp_version == NULL) {
+	if (temp_version == '\0') {
 		pr_err("[FACTORY] %s : Dot NULL.\n", __func__);
 		return false;
 	}
@@ -516,14 +528,15 @@ static ssize_t tmd490x_hh_ver_store(struct device *dev,
 	struct file *type_filp = NULL;
 	mm_segment_t old_fs;
 	int ret = 0;
-	char *temp_char;
+	char version[VERSION_FILE_NAME_LEN] = {0, };
 
-	if (buf[0] == '\0') {
-		pr_err("[FACTORY] %s: hh ver is NULL\n", __func__);
-		return size;
+	if ((size < 2) || (size > VERSION_FILE_NAME_LEN)) {
+		pr_err("[FACTORY] %s: size %d error\n", __func__, (int)size);
+		return -EINVAL;
 	}
-	temp_char = (char *)&buf[1];
-	pr_info("[FACTORY] %s: buf:%s:\n", __func__, buf);
+
+	strlcpy(version, &buf[1], size);
+	pr_info("[FACTORY] %s: buf: %s\n", __func__, version);
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
@@ -537,7 +550,7 @@ static ssize_t tmd490x_hh_ver_store(struct device *dev,
 		return size;
 	}
 
-	ret = vfs_write(type_filp, (char *)temp_char,
+	ret = vfs_write(type_filp, version,
 		VERSION_FILE_NAME_LEN * sizeof(char), &type_filp->f_pos);
 	if (ret < 0) {
 		pr_err("[FACTORY] %s: fd write fail:%d\n", __func__, ret);
@@ -548,7 +561,6 @@ static ssize_t tmd490x_hh_ver_store(struct device *dev,
 	set_fs(old_fs);
 
 	return size;
-
 }
 
 static ssize_t tmd490x_hh_ver_show(struct device *dev,

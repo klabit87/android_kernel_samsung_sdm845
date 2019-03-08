@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -552,6 +552,33 @@ static void sde_hw_rot_to_v4l2_buffer(u32 drm_pixfmt, u64 drm_modifier,
 }
 
 /**
+ * sde_hw_rot_adjust_prefill_bw - update prefill bw based on pipe config
+ * @hw: Pointer to rotator hardware driver
+ * @data: Pointer to command descriptor
+ * @prefill_bw: adjusted prefill bw (output)
+ * return: 0 if success; error code otherwise
+ */
+static int sde_hw_rot_adjust_prefill_bw(struct sde_hw_rot *hw,
+		struct sde_hw_rot_cmd *data, u64 *prefill_bw)
+{
+	if (!hw || !data || !prefill_bw) {
+		SDE_ERROR("invalid parameter(s)\n");
+		return -EINVAL;
+	}
+
+	/* adjust bw for scaling */
+	if (data->dst_rect_h) {
+		u64 temp;
+
+		temp = DIV_ROUND_UP_ULL(data->prefill_bw,
+				data->dst_rect_h);
+		*prefill_bw = temp * data->crtc_h;
+	}
+
+	return 0;
+}
+
+/**
  * sde_hw_rot_commit - commit/execute given rotator command
  * @hw: Pointer to rotator hardware driver
  * @data: Pointer to command descriptor
@@ -682,6 +709,8 @@ static int sde_hw_rot_commit(struct sde_hw_rot *hw, struct sde_hw_rot_cmd *data,
 				rot_cmd.dst_addr, rot_cmd.dst_len,
 				&rot_cmd.dst_planes);
 	}
+
+	sde_hw_rot_adjust_prefill_bw(hw, data, &rot_cmd.prefill_bw);
 
 	/* only process any command if client is master or for validation */
 	if (data->master || hw_cmd == SDE_HW_ROT_CMD_VALIDATE) {
@@ -918,6 +947,7 @@ struct sde_hw_rot *sde_hw_rot_init(enum sde_rot idx,
 	/* Assign ops */
 	c->idx = idx;
 	c->caps = cfg;
+	c->catalog = m;
 	_setup_rot_ops(&c->ops, c->caps->features);
 	snprintf(c->name, ARRAY_SIZE(c->name), "sde_rot_%d", idx - ROT_0);
 

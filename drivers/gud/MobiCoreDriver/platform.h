@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 TRUSTONIC LIMITED
+ * Copyright (c) 2013-2018 TRUSTONIC LIMITED
  * All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -84,6 +84,11 @@ static inline int smc_fastcall(void *fc_generic, size_t size)
 #ifndef CONFIG_TRUSTONIC_TEE_LPAE
 #define CONFIG_TRUSTONIC_TEE_LPAE
 #endif
+
+/*
+ * Do not start the TEE at driver init
+ */
+#define MC_DELAYED_TEE_START
 
 /*
  * Perform crypto clock enable/disable

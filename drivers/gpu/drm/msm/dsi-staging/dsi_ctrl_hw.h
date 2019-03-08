@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -158,7 +158,7 @@ enum dsi_status_int_type {
  * @DSI_EINT_DLN0_ESC_ENTRY_ERR:         Incorrect LP Rx escape entry.
  * @DSI_EINT_DLN0_ESC_SYNC_ERR:          LP Rx data is not byte aligned.
  * @DSI_EINT_DLN0_LP_CONTROL_ERR:        Incorrect LP Rx state sequence.
- * @DSI_EINT_PENDING_HS_TX_TIMEOUT:      Pending High-speed transfer timeout.
+ * @DSI_EINT_PANEL_SPECIFIC_ERR:         DSI Protocol violation error.
  * @DSI_EINT_INTERLEAVE_OP_CONTENTION:   Interleave operation contention.
  * @DSI_EINT_CMD_DMA_FIFO_UNDERFLOW:     Command mode DMA FIFO underflow.
  * @DSI_EINT_CMD_MDP_FIFO_UNDERFLOW:     Command MDP FIFO underflow (failed to
@@ -179,7 +179,6 @@ enum dsi_status_int_type {
  * @DSI_EINT_DLN1_LP1_CONTENTION:        PHY level contention while lane 1 high.
  * @DSI_EINT_DLN2_LP1_CONTENTION:        PHY level contention while lane 2 high.
  * @DSI_EINT_DLN3_LP1_CONTENTION:        PHY level contention while lane 3 high.
- * @DSI_EINT_PANEL_SPECIFIC_ERR:         DSI Protocol violation error.
  */
 enum dsi_error_int_index {
 	DSI_EINT_RDBK_SINGLE_ECC_ERR = 0,
@@ -194,7 +193,7 @@ enum dsi_error_int_index {
 	DSI_EINT_DLN0_ESC_ENTRY_ERR = 9,
 	DSI_EINT_DLN0_ESC_SYNC_ERR = 10,
 	DSI_EINT_DLN0_LP_CONTROL_ERR = 11,
-	DSI_EINT_PENDING_HS_TX_TIMEOUT = 12,
+	DSI_EINT_PANEL_SPECIFIC_ERR = 12,
 	DSI_EINT_INTERLEAVE_OP_CONTENTION = 13,
 	DSI_EINT_CMD_DMA_FIFO_UNDERFLOW = 14,
 	DSI_EINT_CMD_MDP_FIFO_UNDERFLOW = 15,
@@ -214,7 +213,6 @@ enum dsi_error_int_index {
 	DSI_EINT_DLN1_LP1_CONTENTION = 29,
 	DSI_EINT_DLN2_LP1_CONTENTION = 30,
 	DSI_EINT_DLN3_LP1_CONTENTION = 31,
-	DSI_EINT_PANEL_SPECIFIC_ERR = 32,
 
 	DSI_ERROR_INTERRUPT_COUNT
 };
@@ -233,7 +231,7 @@ enum dsi_error_int_index {
  * @DSI_DLN0_ESC_ENTRY_ERR:         Incorrect LP Rx escape entry.
  * @DSI_DLN0_ESC_SYNC_ERR:          LP Rx data is not byte aligned.
  * @DSI_DLN0_LP_CONTROL_ERR:        Incorrect LP Rx state sequence.
- * @DSI_PENDING_HS_TX_TIMEOUT:      Pending High-speed transfer timeout.
+ * @DSI_PANEL_SPECIFIC_ERR:         DSI Protocol violation.
  * @DSI_INTERLEAVE_OP_CONTENTION:   Interleave operation contention.
  * @DSI_CMD_DMA_FIFO_UNDERFLOW:     Command mode DMA FIFO underflow.
  * @DSI_CMD_MDP_FIFO_UNDERFLOW:     Command MDP FIFO underflow (failed to
@@ -254,7 +252,6 @@ enum dsi_error_int_index {
  * @DSI_DLN1_LP1_CONTENTION:        PHY level contention while lane 1 is high.
  * @DSI_DLN2_LP1_CONTENTION:        PHY level contention while lane 2 is high.
  * @DSI_DLN3_LP1_CONTENTION:        PHY level contention while lane 3 is high.
- * @DSI_PANEL_SPECIFIC_ERR:         DSI Protocol violation.
  */
 enum dsi_error_int_type {
 	DSI_RDBK_SINGLE_ECC_ERR = BIT(DSI_EINT_RDBK_SINGLE_ECC_ERR),
@@ -269,7 +266,7 @@ enum dsi_error_int_type {
 	DSI_DLN0_ESC_ENTRY_ERR = BIT(DSI_EINT_DLN0_ESC_ENTRY_ERR),
 	DSI_DLN0_ESC_SYNC_ERR = BIT(DSI_EINT_DLN0_ESC_SYNC_ERR),
 	DSI_DLN0_LP_CONTROL_ERR = BIT(DSI_EINT_DLN0_LP_CONTROL_ERR),
-	DSI_PENDING_HS_TX_TIMEOUT = BIT(DSI_EINT_PENDING_HS_TX_TIMEOUT),
+	DSI_PANEL_SPECIFIC_ERR = BIT(DSI_EINT_PANEL_SPECIFIC_ERR),
 	DSI_INTERLEAVE_OP_CONTENTION = BIT(DSI_EINT_INTERLEAVE_OP_CONTENTION),
 	DSI_CMD_DMA_FIFO_UNDERFLOW = BIT(DSI_EINT_CMD_DMA_FIFO_UNDERFLOW),
 	DSI_CMD_MDP_FIFO_UNDERFLOW = BIT(DSI_EINT_CMD_MDP_FIFO_UNDERFLOW),
@@ -289,13 +286,13 @@ enum dsi_error_int_type {
 	DSI_DLN1_LP1_CONTENTION = BIT(DSI_EINT_DLN1_LP1_CONTENTION),
 	DSI_DLN2_LP1_CONTENTION = BIT(DSI_EINT_DLN2_LP1_CONTENTION),
 	DSI_DLN3_LP1_CONTENTION = BIT(DSI_EINT_DLN3_LP1_CONTENTION),
-	DSI_PANEL_SPECIFIC_ERR = BIT(DSI_EINT_PANEL_SPECIFIC_ERR),
 };
 
 /**
  * struct dsi_ctrl_cmd_dma_info - command buffer information
  * @offset:        IOMMU VA for command buffer address.
  * @length:        Length of the command buffer.
+ * @datatype:      Datatype of cmd.
  * @en_broadcast:  Enable broadcast mode if set to true.
  * @is_master:     Is master in broadcast mode.
  * @use_lpm:       Use low power mode for command transmission.
@@ -303,6 +300,7 @@ enum dsi_error_int_type {
 struct dsi_ctrl_cmd_dma_info {
 	u32 offset;
 	u32 length;
+	u8  datatype;
 	bool en_broadcast;
 	bool is_master;
 	bool use_lpm;
@@ -455,8 +453,10 @@ struct dsi_ctrl_hw_ops {
 	/**
 	 * debug_bus() - get dsi debug bus status.
 	 * @ctrl:        Pointer to the controller host hardware.
+	 * @entries:     Array of dsi debug bus control values.
+	 * @size:        Size of dsi debug bus control array.
 	 */
-	void (*debug_bus)(struct dsi_ctrl_hw *ctrl);
+	void (*debug_bus)(struct dsi_ctrl_hw *ctrl, u32 *entries, u32 size);
 
 	/**
 	 * soft_reset() - perform a soft reset on DSI controller
@@ -493,6 +493,25 @@ struct dsi_ctrl_hw_ops {
 	 * transmit the command.
 	 */
 	void (*kickoff_command)(struct dsi_ctrl_hw *ctrl,
+				struct dsi_ctrl_cmd_dma_info *cmd,
+				u32 flags);
+
+	/**
+	 * kickoff_command_non_embedded_mode() - cmd in non embedded mode
+	 * @ctrl:          Pointer to the controller host hardware.
+	 * @cmd:           Command information.
+	 * @flags:         Modifiers for command transmission.
+	 *
+	 * If command length is greater than DMA FIFO size of 256 bytes we use
+	 * this non- embedded mode.
+	 * The controller hardware is programmed with address and size of the
+	 * command buffer. The transmission is kicked off if
+	 * DSI_CTRL_HW_CMD_WAIT_FOR_TRIGGER flag is not set. If this flag is
+	 * set, caller should make a separate call to trigger_command_dma() to
+	 * transmit the command.
+	 */
+
+	void (*kickoff_command_non_embedded_mode)(struct dsi_ctrl_hw *ctrl,
 				struct dsi_ctrl_cmd_dma_info *cmd,
 				u32 flags);
 
@@ -777,6 +796,20 @@ struct dsi_ctrl_hw_ops {
 	 * @ctrl:         Pointer to the controller host hardware.
 	 */
 	u32 (*get_hw_version)(struct dsi_ctrl_hw *ctrl);
+
+	/**
+	 * wait_for_cmd_mode_mdp_idle() - wait for command mode engine not to
+	 *                           be busy sending data from display engine
+	 * @ctrl:         Pointer to the controller host hardware.
+	 */
+	int (*wait_for_cmd_mode_mdp_idle)(struct dsi_ctrl_hw *ctrl);
+
+	/**
+	 * hw.ops.set_continuous_clk() - Set continuous clock
+	 * @ctrl:         Pointer to the controller host hardware.
+	 * @enable:	  Bool to control continuous clock request.
+	 */
+	void (*set_continuous_clk)(struct dsi_ctrl_hw *ctrl, bool enable);
 };
 
 /*

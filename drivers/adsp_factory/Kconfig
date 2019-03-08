@@ -94,3 +94,9 @@ config SUPPORT_MOBEAM
 	  request selftest to adsp_factory.
 	  receive test result from adsp_factory.
 
+config SUPPORT_DEVICE_MODE
+	tristate "Support device mode"
+	default n
+	help
+	  Support device mode
+

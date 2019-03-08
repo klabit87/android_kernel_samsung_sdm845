@@ -78,12 +78,6 @@ config SEC_PM_DEBUG
 	default n
 	help
 	  Samsung PowerManagement Debug Feature.
-
-config SEC_PM_SUSPEND_STATS_EX
-	bool "Samsung PowerManagement Debug Suspend stats"
-	default n
-	help
-	  show suspend failures
 endif
 
 comment "Samsung Rooting Restriction Feature"

@@ -123,6 +123,7 @@ extern char *kstrdup(const char *s, gfp_t gfp) __malloc;
 extern const char *kstrdup_const(const char *s, gfp_t gfp);
 extern char *kstrndup(const char *s, size_t len, gfp_t gfp);
 extern void *kmemdup(const void *src, size_t len, gfp_t gfp);
+extern char *kmemdup_nul(const char *s, size_t len, gfp_t gfp);
 
 extern char **argv_split(gfp_t gfp, const char *str, int *argcp);
 extern void argv_free(char **argv);
@@ -135,6 +136,16 @@ static inline int strtobool(const char *s, bool *res)
 }
 
 int match_string(const char * const *array, size_t n, const char *string);
+int __sysfs_match_string(const char * const *array, size_t n, const char *s);
+
+/**
+ * sysfs_match_string - matches given string in an array
+ * @_a: array of strings
+ * @_s: string to match with
+ *
+ * Helper for __sysfs_match_string(). Calculates the size of @a automatically.
+ */
+#define sysfs_match_string(_a, _s) __sysfs_match_string(_a, ARRAY_SIZE(_a), _s)
 
 #ifdef CONFIG_BINARY_PRINTF
 int vbin_printf(u32 *bin_buf, size_t size, const char *fmt, va_list args);
@@ -173,9 +184,16 @@ static inline const char *kbasename(const char *path)
 #define __RENAME(x) __asm__(#x)
 
 void fortify_panic(const char *name) __noreturn __cold;
+
+#ifdef CONFIG_FORTIFY_COMPILE_CHECK
 void __read_overflow(void) __compiletime_error("detected read beyond size of object passed as 1st parameter");
 void __read_overflow2(void) __compiletime_error("detected read beyond size of object passed as 2nd parameter");
 void __write_overflow(void) __compiletime_error("detected write beyond size of object passed as 1st parameter");
+#else
+#define __read_overflow(void) do { } while (0)
+#define __read_overflow2(void) do { } while (0)
+#define __write_overflow(void) do { } while (0)
+#endif
 
 #if !defined(__NO_FORTIFY) && defined(__OPTIMIZE__) && defined(CONFIG_FORTIFY_SOURCE)
 __FORTIFY_INLINE char *strncpy(char *p, const char *q, __kernel_size_t size)

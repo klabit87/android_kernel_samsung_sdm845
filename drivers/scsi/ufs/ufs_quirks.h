@@ -138,6 +138,11 @@ struct ufs_card_fix {
  */
 #define UFS_DEVICE_QUIRK_HS_G1_TO_HS_G3_SWITCH (1 << 8)
 
+/*
+ * Some UFS devices support the FATAL MODE
+ * to gether the debug info.
+ */
+#define UFS_DEVICE_QUIRK_SUPPORT_QUERY_FATAL_MODE	(1 << 9)
 
 struct ufs_hba;
 void ufs_advertise_fixup_device(struct ufs_hba *hba);

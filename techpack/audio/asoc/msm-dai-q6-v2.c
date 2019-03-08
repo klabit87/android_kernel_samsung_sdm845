@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -46,12 +46,15 @@
 
 enum {
 	ENC_FMT_NONE,
+	DEC_FMT_NONE = ENC_FMT_NONE,
 	ENC_FMT_SBC = ASM_MEDIA_FMT_SBC,
+	ENC_FMT_SSC = ASM_MEDIA_FMT_SSC,
 	ENC_FMT_AAC_V2 = ASM_MEDIA_FMT_AAC_V2,
 	ENC_FMT_APTX = ASM_MEDIA_FMT_APTX,
 	ENC_FMT_APTX_HD = ASM_MEDIA_FMT_APTX_HD,
 	ENC_FMT_CELT = ASM_MEDIA_FMT_CELT,
 	ENC_FMT_LDAC = ASM_MEDIA_FMT_LDAC,
+	ENC_FMT_SSHD = ASM_MEDIA_FMT_SSHD,
 };
 
 enum {
@@ -200,6 +203,7 @@ struct msm_dai_q6_dai_data {
 	u32 afe_in_channels;
 	u16 afe_in_bitformat;
 	struct afe_enc_config enc_config;
+	struct afe_dec_config dec_config;
 	union afe_port_config port_config;
 	u16 vi_feed_mono;
 };
@@ -1538,22 +1542,46 @@ static int msm_dai_q6_prepare(struct snd_pcm_substream *substream,
 		if (dai_data->enc_config.format != ENC_FMT_NONE) {
 			int bitwidth = 0;
 
-			if (dai_data->afe_in_bitformat ==
-			    SNDRV_PCM_FORMAT_S24_LE)
+			switch (dai_data->afe_in_bitformat) {
+			case SNDRV_PCM_FORMAT_S32_LE:
+				bitwidth = 32;
+				break;
+			case SNDRV_PCM_FORMAT_S24_LE:
 				bitwidth = 24;
-			else if (dai_data->afe_in_bitformat ==
-				 SNDRV_PCM_FORMAT_S16_LE)
+				break;
+			case SNDRV_PCM_FORMAT_S16_LE:
+			default:
 				bitwidth = 16;
+				break;
+			}
 			pr_debug("%s: calling AFE_PORT_START_V2 with enc_format: %d\n",
 				 __func__, dai_data->enc_config.format);
 			rc = afe_port_start_v2(dai->id, &dai_data->port_config,
 					       dai_data->rate,
 					       dai_data->afe_in_channels,
 					       bitwidth,
-					       &dai_data->enc_config);
+					       &dai_data->enc_config, NULL);
 			if (rc < 0)
 				pr_err("%s: afe_port_start_v2 failed error: %d\n",
 					__func__, rc);
+		} else if (dai_data->dec_config.format != DEC_FMT_NONE) {
+			/*
+			 * A dummy Tx session is established in LPASS to
+			 * get the link statistics from BTSoC.
+			 * Depacketizer extracts the bit rate levels and
+			 * transmits them to the encoder on the Rx path.
+			 * Since this is a dummy decoder - channels, bit
+			 * width are sent as 0 and encoder config is NULL.
+			 * This could be updated in the future if there is
+			 * a complete Tx path set up that uses this decoder.
+			 */
+			rc = afe_port_start_v2(dai->id, &dai_data->port_config,
+					       dai_data->rate, 0, 0, NULL,
+					       &dai_data->dec_config);
+			if (rc < 0) {
+				pr_err("%s: fail to open AFE port 0x%x\n",
+					__func__, dai->id);
+			}
 		} else {
 			rc = afe_port_start(dai->id, &dai_data->port_config,
 						dai_data->rate);
@@ -2233,7 +2261,7 @@ static int msm_dai_q6_afe_enc_cfg_get(struct snd_kcontrol *kcontrol,
 	if (dai_data) {
 		int format_size = sizeof(dai_data->enc_config.format);
 
-		pr_debug("%s:encoder config for %d format\n",
+		pr_debug("%s: encoder config for %d format\n",
 			 __func__, dai_data->enc_config.format);
 		memcpy(ucontrol->value.bytes.data,
 			&dai_data->enc_config.format,
@@ -2247,7 +2275,7 @@ static int msm_dai_q6_afe_enc_cfg_get(struct snd_kcontrol *kcontrol,
 		case ENC_FMT_AAC_V2:
 			memcpy(ucontrol->value.bytes.data + format_size,
 				&dai_data->enc_config.data,
-				sizeof(struct asm_aac_enc_cfg_v2_t));
+				sizeof(struct asm_aac_enc_cfg_t));
 			break;
 		case ENC_FMT_APTX:
 			memcpy(ucontrol->value.bytes.data + format_size,
@@ -2305,7 +2333,7 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 		case ENC_FMT_AAC_V2:
 			memcpy(&dai_data->enc_config.data,
 				ucontrol->value.bytes.data + format_size,
-				sizeof(struct asm_aac_enc_cfg_v2_t));
+				sizeof(struct asm_aac_enc_cfg_t));
 			break;
 		case ENC_FMT_APTX:
 			memcpy(&dai_data->enc_config.data,
@@ -2327,6 +2355,16 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 				ucontrol->value.bytes.data + format_size,
 				sizeof(struct asm_ldac_enc_cfg_t));
 			break;
+		case ENC_FMT_SSC:
+			memcpy(&dai_data->enc_config.data,
+				ucontrol->value.bytes.data + format_size,
+				sizeof(struct asm_custom_enc_cfg_ssc_t));
+			break;
+		case ENC_FMT_SSHD:
+			memcpy(&dai_data->enc_config.data,
+				ucontrol->value.bytes.data + format_size,
+				sizeof(struct asm_custom_enc_cfg_sshd_t));
+			break;
 		default:
 			pr_debug("%s: Ignore enc config for unknown format = %d\n",
 				 __func__, dai_data->enc_config.format);
@@ -2345,10 +2383,11 @@ static const struct soc_enum afe_input_chs_enum[] = {
 	SOC_ENUM_SINGLE_EXT(3, afe_input_chs_text),
 };
 
-static const char *const afe_input_bit_format_text[] = {"S16_LE", "S24_LE"};
+static const char *const afe_input_bit_format_text[] = {"S16_LE", "S24_LE",
+							"S32_LE"};
 
 static const struct soc_enum afe_input_bit_format_enum[] = {
-	SOC_ENUM_SINGLE_EXT(2, afe_input_bit_format_text),
+	SOC_ENUM_SINGLE_EXT(3, afe_input_bit_format_text),
 };
 
 static int msm_dai_q6_afe_input_channel_get(struct snd_kcontrol *kcontrol,
@@ -2391,6 +2430,9 @@ static int msm_dai_q6_afe_input_bit_format_get(
 	}
 
 	switch (dai_data->afe_in_bitformat) {
+	case SNDRV_PCM_FORMAT_S32_LE:
+		ucontrol->value.integer.value[0] = 2;
+		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
 		ucontrol->value.integer.value[0] = 1;
 		break;
@@ -2416,6 +2458,9 @@ static int msm_dai_q6_afe_input_bit_format_put(
 		return -EINVAL;
 	}
 	switch (ucontrol->value.integer.value[0]) {
+	case 2:
+		dai_data->afe_in_bitformat = SNDRV_PCM_FORMAT_S32_LE;
+		break;
 	case 1:
 		dai_data->afe_in_bitformat = SNDRV_PCM_FORMAT_S24_LE;
 		break;
@@ -2481,6 +2526,91 @@ static const struct snd_kcontrol_new afe_enc_config_controls[] = {
 		       0, 0, 1, 0,
 		       msm_dai_q6_afe_scrambler_mode_get,
 		       msm_dai_q6_afe_scrambler_mode_put),
+};
+
+static int  msm_dai_q6_afe_dec_cfg_info(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+	uinfo->count = sizeof(struct afe_dec_config);
+
+	return 0;
+}
+
+static int msm_dai_q6_afe_dec_cfg_get(struct snd_kcontrol *kcontrol,
+				      struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+	int format_size = 0;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+
+	format_size = sizeof(dai_data->dec_config.format);
+	memcpy(ucontrol->value.bytes.data,
+		&dai_data->dec_config.format,
+		format_size);
+	memcpy(ucontrol->value.bytes.data + format_size,
+		&dai_data->dec_config.abr_dec_cfg,
+		sizeof(struct afe_abr_dec_cfg_t));
+
+	return 0;
+}
+
+static int msm_dai_q6_afe_dec_cfg_put(struct snd_kcontrol *kcontrol,
+				      struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+	int format_size = 0;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+
+	memset(&dai_data->dec_config, 0x0,
+		sizeof(struct afe_dec_config));
+	format_size = sizeof(dai_data->dec_config.format);
+	memcpy(&dai_data->dec_config.format,
+		ucontrol->value.bytes.data,
+		format_size);
+	memcpy(&dai_data->dec_config.abr_dec_cfg,
+		ucontrol->value.bytes.data + format_size,
+		sizeof(struct afe_abr_dec_cfg_t));
+
+	return 0;
+}
+
+static const struct snd_kcontrol_new afe_dec_config_controls[] = {
+	{
+		.access = (SNDRV_CTL_ELEM_ACCESS_READWRITE |
+			   SNDRV_CTL_ELEM_ACCESS_INACTIVE),
+		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
+		.name = "SLIM_7_TX Decoder Config",
+		.info = msm_dai_q6_afe_dec_cfg_info,
+		.get = msm_dai_q6_afe_dec_cfg_get,
+		.put = msm_dai_q6_afe_dec_cfg_put,
+	},
+};
+
+static const struct snd_kcontrol_new tert_mi2s_afe_enc_config_controls[] = {
+	{
+		.access = (SNDRV_CTL_ELEM_ACCESS_READWRITE |
+			SNDRV_CTL_ELEM_ACCESS_INACTIVE),
+		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
+		.name = "TERT_MI2S_RX Encoder Config",
+		.info = msm_dai_q6_afe_enc_cfg_info,
+		.get = msm_dai_q6_afe_enc_cfg_get,
+		.put = msm_dai_q6_afe_enc_cfg_put,
+	},
+	SOC_ENUM_EXT("TERT_MI2S_RX AFE Input Channels", afe_input_chs_enum[0],
+			msm_dai_q6_afe_input_channel_get,
+			msm_dai_q6_afe_input_channel_put),
+	SOC_ENUM_EXT("TERT_MI2S_RX AFE Input Bit Format", afe_input_bit_format_enum[0],
+			msm_dai_q6_afe_input_bit_format_get,
+			msm_dai_q6_afe_input_bit_format_put),
 };
 
 static int msm_dai_q6_slim_rx_drift_info(struct snd_kcontrol *kcontrol,
@@ -2649,6 +2779,11 @@ static int msm_dai_q6_dai_probe(struct snd_soc_dai *dai)
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(&avd_drift_config_controls[2],
 					dai));
+		break;
+	case SLIMBUS_7_TX:
+		rc = snd_ctl_add(dai->component->card->snd_card,
+				 snd_ctl_new1(&afe_dec_config_controls[0],
+				 dai_data));
 		break;
 	case RT_PROXY_DAI_001_RX:
 		rc = snd_ctl_add(dai->component->card->snd_card,
@@ -3281,6 +3416,7 @@ static struct platform_driver msm_auxpcm_dev_driver = {
 		.name = "msm-auxpcm-dev",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_auxpcm_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -3769,6 +3905,18 @@ static int msm_dai_q6_dai_mi2s_probe(struct snd_soc_dai *dai)
 	if (dai->id == MSM_INT5_MI2S)
 		vi_feed_ctrl = &mi2s_vi_feed_controls[0];
 
+	if (dai->id == MSM_TERT_MI2S) {
+		rc = snd_ctl_add(dai->component->card->snd_card,
+				snd_ctl_new1(&tert_mi2s_afe_enc_config_controls[0],
+				&mi2s_dai_data->rx_dai.mi2s_dai_data));
+		rc = snd_ctl_add(dai->component->card->snd_card,
+				snd_ctl_new1(&tert_mi2s_afe_enc_config_controls[1],
+				&mi2s_dai_data->rx_dai.mi2s_dai_data));
+		rc = snd_ctl_add(dai->component->card->snd_card,
+				snd_ctl_new1(&tert_mi2s_afe_enc_config_controls[2],
+				&mi2s_dai_data->rx_dai.mi2s_dai_data));
+	}
+
 	if (vi_feed_ctrl) {
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(vi_feed_ctrl,
@@ -3958,6 +4106,74 @@ static int msm_dai_q6_mi2s_prepare(struct snd_pcm_substream *substream,
 		 */
 		rc = afe_port_start(port_id, &dai_data->port_config,
 				    dai_data->rate);
+
+		if (rc < 0)        
+			dev_err(dai->dev, "fail to open AFE port 0x%x\n",
+				dai->id);
+		else
+			set_bit(STATUS_PORT_STARTED,
+				dai_data->status_mask);
+	}
+	if (!test_bit(STATUS_PORT_STARTED, dai_data->hwfree_status)) {
+		set_bit(STATUS_PORT_STARTED, dai_data->hwfree_status);
+		dev_dbg(dai->dev, "%s: set hwfree_status to started\n",
+				__func__);
+	}
+	return rc;
+}
+
+static int msm_dai_q6_bt_mi2s_prepare(struct snd_pcm_substream *substream,
+		struct snd_soc_dai *dai)
+{
+	struct msm_dai_q6_mi2s_dai_data *mi2s_dai_data =
+		dev_get_drvdata(dai->dev);
+	struct msm_dai_q6_dai_data *dai_data =
+		(substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+		&mi2s_dai_data->rx_dai.mi2s_dai_data :
+		&mi2s_dai_data->tx_dai.mi2s_dai_data);
+	u16 port_id = 0;
+	int rc = 0;
+
+	if (msm_mi2s_get_port_id(dai->id, substream->stream,
+				&port_id) != 0) {
+		dev_err(dai->dev, "%s: Invalid Port ID 0x%x\n",
+				__func__, port_id);
+		return -EINVAL;
+	}
+
+	dev_info(dai->dev, "%s: dai id %d, afe port id = 0x%x\n"
+		"dai_data->channels = %u sample_rate = %u\n", __func__,
+		dai->id, port_id, dai_data->channels, dai_data->rate);
+
+	if (!test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
+		/* PORT START should be set if prepare called
+		 * in active state.
+		 */
+		if ((dai_data->enc_config.format != ENC_FMT_NONE) &&
+			(substream->stream == SNDRV_PCM_STREAM_PLAYBACK)) {
+			int bitwidth = 0;
+
+			if (dai_data->afe_in_bitformat ==
+				SNDRV_PCM_FORMAT_S24_LE)
+				bitwidth = 24;
+			else if (dai_data->afe_in_bitformat ==
+				SNDRV_PCM_FORMAT_S16_LE)
+				bitwidth = 16;
+			pr_info("%s: calling AFE_PORT_START_V2 with enc_format: %d\n",
+				__func__, dai_data->enc_config.format);
+			rc = afe_port_start_v2(port_id, &dai_data->port_config,
+							dai_data->rate,
+							dai_data->afe_in_channels,
+							bitwidth,
+							&dai_data->enc_config,NULL);
+			if (rc < 0)
+				pr_err("%s: afe_port_start_v2 failed error: %d\n",
+					__func__, rc);
+		} else {
+			rc = afe_port_start(port_id, &dai_data->port_config,
+					dai_data->rate);
+		}
+
 		if (rc < 0)
 			dev_err(dai->dev, "fail to open AFE port 0x%x\n",
 				dai->id);
@@ -4200,6 +4416,15 @@ static struct snd_soc_dai_ops msm_dai_q6_mi2s_ops = {
 	.shutdown	= msm_dai_q6_mi2s_shutdown,
 };
 
+static struct snd_soc_dai_ops msm_dai_q6_bt_mi2s_ops = {
+	.startup    = msm_dai_q6_mi2s_startup,
+	.prepare    = msm_dai_q6_bt_mi2s_prepare,
+	.hw_params    = msm_dai_q6_mi2s_hw_params,
+	.hw_free    = msm_dai_q6_mi2s_hw_free,
+	.set_fmt    = msm_dai_q6_mi2s_set_fmt,
+	.shutdown    = msm_dai_q6_mi2s_shutdown,
+};
+
 /* Channel min and max are initialized base on platform data */
 static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 	{
@@ -4289,7 +4514,7 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
+		.ops = &msm_dai_q6_bt_mi2s_ops,
 		.id = MSM_TERT_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
@@ -5058,6 +5283,7 @@ static struct platform_driver msm_dai_q6_dev = {
 		.name = "msm-dai-q6-dev",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -5094,6 +5320,7 @@ static struct platform_driver msm_dai_q6 = {
 		.name = "msm-dai-q6",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -5129,6 +5356,7 @@ static struct platform_driver msm_dai_mi2s_q6 = {
 		.name = "msm-dai-mi2s",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_mi2s_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -5146,6 +5374,7 @@ static struct platform_driver msm_dai_q6_mi2s_driver = {
 		.name = "msm-dai-q6-mi2s",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_mi2s_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -5183,6 +5412,7 @@ static struct platform_driver msm_dai_q6_spdif_driver = {
 		.name = "msm-dai-q6-spdif",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_spdif_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -5251,9 +5481,6 @@ static int msm_dai_tdm_q6_probe(struct platform_device *pdev)
 	}
 	dev_dbg(&pdev->dev, "%s: Group ID from DT file 0x%x\n",
 		__func__, tdm_group_cfg.group_id);
-
-	dev_info(&pdev->dev, "%s: dev_name: %s group_id: 0x%x\n",
-		__func__, dev_name(&pdev->dev), tdm_group_cfg.group_id);
 
 	rc = of_property_read_u32(pdev->dev.of_node,
 		"qcom,msm-cpudai-tdm-group-num-ports",
@@ -5392,6 +5619,7 @@ static struct platform_driver msm_dai_tdm_q6 = {
 		.name = "msm-dai-tdm",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_tdm_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -6919,6 +7147,13 @@ static int msm_dai_q6_tdm_prepare(struct snd_pcm_substream *substream,
 	u16 group_id = dai_data->group_cfg.tdm_cfg.group_id;
 	int group_idx = 0;
 	atomic_t *group_ref = NULL;
+
+	dev_dbg(dai->dev, "%s: dev_name: %s dev_id: 0x%x group_id: 0x%x\n",
+		 __func__, dev_name(dai->dev), dai->dev->id, group_id);
+
+	if (dai_data->port_cfg.custom_tdm_header.minor_version == 0)
+		dev_dbg(dai->dev,
+			 "%s: Custom tdm header not supported\n", __func__);
 
 	group_idx = msm_dai_q6_get_group_idx(dai->id);
 	if (group_idx < 0) {
@@ -8688,9 +8923,6 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 	}
 	pdev->id = tdm_dev_id;
 
-	dev_info(&pdev->dev, "%s: dev_name: %s dev_id: 0x%x\n",
-		__func__, dev_name(&pdev->dev), tdm_dev_id);
-
 	dai_data = kzalloc(sizeof(struct msm_dai_q6_tdm_dai_data),
 				GFP_KERNEL);
 	if (!dai_data) {
@@ -8831,8 +9063,6 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 		custom_tdm_header->header_type =
 			AFE_CUSTOM_TDM_HEADER_TYPE_INVALID;
 	} else {
-		dev_info(&pdev->dev,
-			"%s: Custom tdm header not supported\n", __func__);
 		/* CUSTOM TDM HEADER CFG -- set default */
 		custom_tdm_header->header_type =
 			AFE_CUSTOM_TDM_HEADER_TYPE_INVALID;
@@ -8902,6 +9132,7 @@ static struct platform_driver msm_dai_q6_tdm_driver = {
 		.name = "msm-dai-q6-tdm",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_tdm_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 

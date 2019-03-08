@@ -24,6 +24,9 @@
 #if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
 #include "cam_ois_rumba_s6.h"
 #endif
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+#include "cam_ois_mcu_stm32g.h"
+#endif
 
 /**
  * cam_ois_thread_add_msg - add msg to list

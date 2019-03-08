@@ -980,7 +980,7 @@ static int cam_jpeg_mgr_release_hw(void *hw_mgr_priv, void *release_hw_args)
 	}
 
 	kfree(ctx_data->cdm_cmd);
-	CAM_DBG(CAM_JPEG, "handle %llu", ctx_data);
+	CAM_DBG(CAM_JPEG, "handle");
 
 	return rc;
 }

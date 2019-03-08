@@ -244,6 +244,8 @@ static int32_t cam_sensor_handle_continuous_write(
 		cam_cmd_i2c_continuous_wr->header.addr_type;
 	i2c_list->i2c_settings.data_type =
 		cam_cmd_i2c_continuous_wr->header.data_type;
+	i2c_list->i2c_settings.size =
+		cam_cmd_i2c_continuous_wr->header.count;
 
 	for (cnt = 0; cnt < (cam_cmd_i2c_continuous_wr->header.count);
 		cnt++) {
@@ -859,21 +861,25 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 	}
 
 	power_info->power_setting_size = 0;
-	power_info->power_setting =
-		(struct cam_sensor_power_setting *)
-		kzalloc(sizeof(struct cam_sensor_power_setting) *
-			MAX_POWER_CONFIG, GFP_KERNEL);
-	if (!power_info->power_setting)
-		return -ENOMEM;
+	if (power_info->power_setting == NULL) {
+		power_info->power_setting =
+			(struct cam_sensor_power_setting *)
+			kzalloc(sizeof(struct cam_sensor_power_setting) *
+				MAX_POWER_CONFIG, GFP_KERNEL);
+		if (!power_info->power_setting)
+			return -ENOMEM;
+	}
 
 	power_info->power_down_setting_size = 0;
-	power_info->power_down_setting =
-		(struct cam_sensor_power_setting *)
-		kzalloc(sizeof(struct cam_sensor_power_setting) *
-			MAX_POWER_CONFIG, GFP_KERNEL);
-	if (!power_info->power_down_setting) {
-		rc = -ENOMEM;
-		goto free_power_settings;
+	if (power_info->power_down_setting == NULL) {
+		power_info->power_down_setting =
+			(struct cam_sensor_power_setting *)
+			kzalloc(sizeof(struct cam_sensor_power_setting) *
+				MAX_POWER_CONFIG, GFP_KERNEL);
+		if (!power_info->power_down_setting) {
+			rc = -ENOMEM;
+			goto free_power_settings;
+		}
 	}
 
 	while (tot_size < cmd_length) {
@@ -1698,6 +1704,11 @@ power_up_failed:
 				power_setting->data[0] =
 						soc_info->rgltr[vreg_idx];
 
+				if (soc_info->rgltr[vreg_idx] != NULL) {
+					regulator_put(soc_info->rgltr[vreg_idx]);
+					soc_info->rgltr[vreg_idx] = NULL;
+				}
+
 			}
 			else
 				CAM_ERR(CAM_SENSOR, "seq_val:%d > num_vreg: %d",
@@ -1726,7 +1737,7 @@ power_up_failed:
 		if (ret)
 			CAM_ERR(CAM_SENSOR, "cannot set pin to suspend state");
 		cam_res_mgr_shared_pinctrl_select_state(false);
-		pinctrl_put(ctrl->pinctrl_info.pinctrl);
+		devm_pinctrl_put(ctrl->pinctrl_info.pinctrl);
 		cam_res_mgr_shared_pinctrl_put();
 	}
 	ctrl->cam_pinctrl_status = 0;
@@ -1905,6 +1916,11 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 
 					ps->data[0] =
 						soc_info->rgltr[ps->seq_val];
+
+					if (soc_info->rgltr[ps->seq_val] != NULL) {
+						regulator_put(soc_info->rgltr[ps->seq_val]);
+						soc_info->rgltr[ps->seq_val] = NULL;
+					}
 				}
 				else
 					CAM_ERR(CAM_SENSOR,
@@ -1942,7 +1958,7 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 			CAM_ERR(CAM_SENSOR, "cannot set pin to suspend state");
 
 		cam_res_mgr_shared_pinctrl_select_state(false);
-		pinctrl_put(ctrl->pinctrl_info.pinctrl);
+		devm_pinctrl_put(ctrl->pinctrl_info.pinctrl);
 		cam_res_mgr_shared_pinctrl_put();
 	}
 

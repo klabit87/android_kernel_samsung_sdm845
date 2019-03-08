@@ -260,6 +260,7 @@ static int cam_cpas_util_axi_cleanup(struct cam_cpas *cpas_core,
 		list_del(&curr_port->sibling_port);
 		mutex_destroy(&curr_port->lock);
 		kfree(curr_port);
+		curr_port = NULL;
 	}
 
 	of_node_put(soc_private->axi_port_list_node);
@@ -1593,9 +1594,9 @@ int cam_cpas_hw_remove(struct cam_hw_intf *cpas_hw_intf)
 		return -EINVAL;
 	}
 
-	cam_cpas_util_axi_cleanup(cpas_core, &cpas_hw->soc_info);
-	cam_cpas_util_unregister_bus_client(&cpas_core->ahb_bus_client);
 	cam_cpas_util_client_cleanup(cpas_hw);
+	cam_cpas_util_unregister_bus_client(&cpas_core->ahb_bus_client);
+	cam_cpas_util_axi_cleanup(cpas_core, &cpas_hw->soc_info); 
 	cam_cpas_soc_deinit_resources(&cpas_hw->soc_info);
 	flush_workqueue(cpas_core->work_queue);
 	destroy_workqueue(cpas_core->work_queue);

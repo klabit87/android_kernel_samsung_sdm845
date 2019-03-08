@@ -133,11 +133,12 @@
 	.endm
 
 	.macro ropp_load_mk
-#ifdef CONFIG_TIMA_RKP
+#ifdef CONFIG_UH_RKP
 	push	x0, x1
 	push	x2, x3
 	push	x4, x5
-	mov	x0, #0xc092
+	mov	x1, #0x10 //RKP_ROPP_RELOAD
+	mov	x0, #0xc002 //UH_APP_RKP
 	movk	x0, #0xc300, lsl #16
 	smc	#0x0
 	pop	x4, x5

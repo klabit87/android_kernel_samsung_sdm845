@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -538,13 +538,13 @@ static struct sde_rot_regdump sde_rot_r3_regdump[] = {
 	 * REGDMA RAM should be dump at last.
 	 */
 	{ "SDEROT_REGDMA_RESET", ROTTOP_SW_RESET_OVERRIDE, 1,
-		SDE_ROT_REGDUMP_WRITE },
+		SDE_ROT_REGDUMP_WRITE, 1 },
 	{ "SDEROT_REGDMA_RAM", SDE_ROT_REGDMA_RAM_OFFSET, 0x2000,
 		SDE_ROT_REGDUMP_READ },
 	{ "SDEROT_VBIF_NRT", SDE_ROT_VBIF_NRT_OFFSET, 0x590,
 		SDE_ROT_REGDUMP_VBIF },
-	{ "SDEROT_REGDMA_RESET", ROTTOP_SW_RESET_OVERRIDE, 0,
-		SDE_ROT_REGDUMP_WRITE },
+	{ "SDEROT_REGDMA_RESET", ROTTOP_SW_RESET_OVERRIDE, 1,
+		SDE_ROT_REGDUMP_WRITE, 0 },
 };
 
 struct sde_rot_cdp_params {
@@ -711,7 +711,7 @@ static int sde_hw_rotator_reset(struct sde_hw_rotator *rot,
 	u32 int_mask = (REGDMA_INT_0_MASK | REGDMA_INT_1_MASK |
 			REGDMA_INT_2_MASK);
 	u32 last_ts[ROT_QUEUE_MAX] = {0,};
-	u32 latest_ts;
+	u32 latest_ts, opmode;
 	int elapsed_time, t;
 	int i, j;
 	unsigned long flags;
@@ -723,7 +723,15 @@ static int sde_hw_rotator_reset(struct sde_hw_rotator *rot,
 
 	/* sw reset the hw rotator */
 	SDE_ROTREG_WRITE(rot->mdss_base, ROTTOP_SW_RESET_OVERRIDE, 1);
+	/* ensure write is issued to the rotator HW */
+	wmb();
 	usleep_range(MS_TO_US(10), MS_TO_US(20));
+
+	/* force rotator into offline mode */
+	opmode = SDE_ROTREG_READ(rot->mdss_base, ROTTOP_OP_MODE);
+	SDE_ROTREG_WRITE(rot->mdss_base, ROTTOP_OP_MODE,
+			opmode & ~(BIT(5) | BIT(4) | BIT(1) | BIT(0)));
+
 	SDE_ROTREG_WRITE(rot->mdss_base, ROTTOP_SW_RESET_OVERRIDE, 0);
 
 	/* halt vbif xin client to ensure no pending transaction */
@@ -1488,7 +1496,7 @@ static void sde_hw_rotator_setup_wbengine(struct sde_hw_rotator_context *ctx,
 			(fmt->bits[C0_G_Y] << 0);
 
 	/* alpha control */
-	if (fmt->bits[C3_ALPHA] || fmt->alpha_enable) {
+	if (fmt->alpha_enable || (!fmt->is_yuv && (fmt->unpack_count == 4))) {
 		dst_format |= BIT(8);
 		if (!fmt->alpha_enable) {
 			dst_format |= BIT(14);
@@ -2705,6 +2713,9 @@ static int sde_hw_rotator_config(struct sde_rot_hw_resource *hw,
 			entry->src_buf.p[0].addr, entry->dst_buf.p[0].addr,
 			item->input.format, item->output.format,
 			entry->perf->config.frame_rate);
+
+	/* initialize static vbif setting */
+	sde_mdp_init_vbif();
 
 	if (!ctx->sbuf_mode && mdata->default_ot_rd_limit) {
 		struct sde_mdp_set_ot_params ot_params;

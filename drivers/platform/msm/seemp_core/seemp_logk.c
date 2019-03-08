@@ -470,20 +470,6 @@ static long seemp_logk_set_mapping(unsigned long arg)
 		(UINT_MAX / sizeof(struct seemp_source_mask))))
 		return -EFAULT;
 
-	write_lock(&filter_lock);
-	if (pmask != NULL) {
-		/*
-		 * Mask is getting set again.
-		 * seemp_core was probably restarted.
-		 */
-		struct seemp_source_mask *ptempmask;
-
-		num_sources = 0;
-		ptempmask = pmask;
-		pmask = NULL;
-		kfree(ptempmask);
-	}
-	write_unlock(&filter_lock);
 	pbuffer = kmalloc(sizeof(struct seemp_source_mask)
 				* num_elements, GFP_KERNEL);
 	if (pbuffer == NULL)
@@ -508,7 +494,21 @@ static long seemp_logk_set_mapping(unsigned long arg)
 		/* Observer is off by default*/
 		pnewmask[i].isOn = 0;
 	}
+	
 	write_lock(&filter_lock);
+	if (pmask != NULL) {
+		/*
+		 * Mask is getting set again.
+		 * seemp_core was probably restarted.
+		 */
+		struct seemp_source_mask *ptempmask;
+
+		num_sources = 0;
+		ptempmask = pmask;
+		pmask = NULL;
+		kfree(ptempmask);
+	}
+	
 	pmask = pnewmask;
 	num_sources = num_elements;
 	write_unlock(&filter_lock);

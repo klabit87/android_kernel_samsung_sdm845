@@ -84,7 +84,7 @@ struct dp_panel {
 	int (*deinit)(struct dp_panel *dp_panel);
 	int (*timing_cfg)(struct dp_panel *dp_panel);
 	int (*read_sink_caps)(struct dp_panel *dp_panel,
-		struct drm_connector *connector);
+		struct drm_connector *connector, bool multi_func);
 	u32 (*get_min_req_link_rate)(struct dp_panel *dp_panel);
 	u32 (*get_mode_bpp)(struct dp_panel *dp_panel, u32 mode_max_bpp,
 			u32 mode_pclk_khz);
@@ -97,6 +97,7 @@ struct dp_panel {
 		struct drm_msm_ext_hdr_metadata *hdr_meta);
 	void (*tpg_config)(struct dp_panel *dp_panel, bool enable);
 	int (*spd_config)(struct dp_panel *dp_panel);
+	bool (*hdr_supported)(struct dp_panel *dp_panel);
 };
 
 /**

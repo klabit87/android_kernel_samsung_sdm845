@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -351,7 +351,7 @@ static int msm_smmu_map_dma_buf(struct msm_mmu *mmu, struct sg_table *sgt,
 		DRM_DEBUG("%pad/0x%x/0x%x/0x%lx\n", &sgt->sgl->dma_address,
 				sgt->sgl->dma_length, dir, attrs);
 		SDE_EVT32(sgt->sgl->dma_address, sgt->sgl->dma_length,
-				dir, attrs);
+				dir, attrs, client->secure);
 	}
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
@@ -377,7 +377,8 @@ static void msm_smmu_unmap_dma_buf(struct msm_mmu *mmu, struct sg_table *sgt,
 	if (sgt && sgt->sgl) {
 		DRM_DEBUG("%pad/0x%x/0x%x\n", &sgt->sgl->dma_address,
 				sgt->sgl->dma_length, dir);
-		SDE_EVT32(sgt->sgl->dma_address, sgt->sgl->dma_length, dir);
+		SDE_EVT32(sgt->sgl->dma_address, sgt->sgl->dma_length, dir,
+			client->secure);
 	}
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
@@ -558,9 +559,7 @@ static int msm_smmu_fault_handler(struct iommu_domain *domain,
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic"); // case 03250922
 #else
-	SDE_DBG_DUMP("sde", "dsi0_ctrl", "dsi0_phy", "dsi1_ctrl",
-			"dsi1_phy", "vbif", "dbg_bus",
-			"vbif_dbg_bus");
+	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus");
 #endif
 
 	/*
@@ -681,6 +680,7 @@ static struct platform_driver msm_smmu_driver = {
 	.driver = {
 		.name = "msmdrm_smmu",
 		.of_match_table = msm_smmu_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 

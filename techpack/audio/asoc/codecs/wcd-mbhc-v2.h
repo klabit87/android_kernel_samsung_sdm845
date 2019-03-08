@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -145,6 +145,7 @@ do {                                                    \
 #define GND_MIC_USBC_SWAP_THRESHOLD 2
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
 #define HS_VREF_MIN_VAL 1400
+#define HS_VREF_MIN_VAL_EXTN 1300
 #define FW_READ_ATTEMPTS 15
 #define FW_READ_TIMEOUT 4000000
 #define FAKE_REM_RETRY_ATTEMPTS 3
@@ -189,6 +190,7 @@ enum wcd_mbhc_register_function {
 	WCD_MBHC_BTN_DBNC,
 	WCD_MBHC_HS_VREF,
 	WCD_MBHC_HS_COMP_RESULT,
+	WCD_MBHC_IN2P_CLAMP_STATE,
 	WCD_MBHC_MIC_SCHMT_RESULT,
 	WCD_MBHC_HPHL_SCHMT_RESULT,
 	WCD_MBHC_HPHR_SCHMT_RESULT,
@@ -526,6 +528,7 @@ struct wcd_mbhc {
 	bool gnd_swh; /*track GND switch NC / NO */
 	u32 hs_thr;
 	u32 hph_thr;
+	u32 micb_mv;
 	u32 swap_thr;
 	u32 moist_vref;
 	u32 moist_iref;
@@ -592,6 +595,7 @@ struct wcd_mbhc {
 	int impedance_offset;
 
 	struct wcd_mbhc_fn *mbhc_fn;
+	bool force_linein;
 
 #if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
 	int default_impedance_offset;

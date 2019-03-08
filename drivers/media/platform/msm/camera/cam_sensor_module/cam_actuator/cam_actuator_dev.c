@@ -16,7 +16,7 @@
 #include "cam_actuator_core.h"
 #include "cam_trace.h"
 
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 struct cam_actuator_ctrl_t *g_a_ctrls[2];
 #endif
 
@@ -226,11 +226,11 @@ static int32_t cam_actuator_driver_i2c_probe(struct i2c_client *client,
 	a_ctrl->bridge_intf.ops.apply_req =
 		cam_actuator_apply_request;
 
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 	if (a_ctrl->soc_info.index == 0)
 		g_a_ctrls[0] = a_ctrl;
 #endif
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 	if (a_ctrl->soc_info.index == 2)
 		g_a_ctrls[1] = a_ctrl;
 #endif

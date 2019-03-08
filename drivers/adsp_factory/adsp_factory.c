@@ -120,7 +120,7 @@ int adsp_factory_register(unsigned int type,
 		data->sensor_attr[type], dev_name);
 
 	data->sysfs_created[type] = true;
-	pr_info("[FACTORY] %s - type:%u ptr:%p\n",
+	pr_info("[FACTORY] %s - type:%u ptr:%pK\n",
 		__func__, type, data->sensor_device[type]);
 
 	return ret;
@@ -128,16 +128,16 @@ int adsp_factory_register(unsigned int type,
 
 int adsp_factory_unregister(unsigned int type)
 {
-	pr_info("[FACTORY] %s - type:%u ptr:%p\n",
+	pr_info("[FACTORY] %s - type:%u ptr:%pK\n",
 		__func__, type, data->sensor_device[type]);
 
 	if (data->sysfs_created[type]) {
 		sensors_unregister(data->sensor_device[type],
 			data->sensor_attr[type]);
 		data->sysfs_created[type] = false;
-	} else
-		pr_info("[FACTORY] %s: skip sensors_unregister for type %u\n",
-			__func__, type);
+	} else {
+		pr_info("[FACTORY] %s: skip type %u\n", __func__, type);
+	}
 	return 0;
 }
 
@@ -188,6 +188,30 @@ int get_accel_raw_data(int32_t *raw_data)
 
 	return 0;
 }
+
+#ifdef CONFIG_SEC_FACTORY
+int get_mag_raw_data(int32_t *raw_data)
+{
+	uint8_t cnt = 0;
+
+	adsp_unicast(NULL, 0, MSG_MAG, 0, MSG_TYPE_GET_RAW_DATA);
+
+	while (!(data->ready_flag[MSG_TYPE_GET_RAW_DATA] & 1 << MSG_MAG) &&
+		cnt++ < TIMEOUT_CNT)
+		usleep_range(500, 550);
+
+	data->ready_flag[MSG_TYPE_GET_RAW_DATA] &= ~(1 << MSG_MAG);
+
+	if (cnt >= TIMEOUT_CNT) {
+		pr_err("[FACTORY] %s: Timeout!!!\n", __func__);
+		return -1;
+	}
+
+	memcpy(raw_data, &data->msg_buf[MSG_MAG][0], sizeof(int32_t) * 3);
+
+	return 0;
+}
+#endif
 
 #ifdef CONFIG_SUPPORT_MOBEAM
 void adsp_mobeam_register(struct device_attribute *attributes[])
@@ -290,6 +314,7 @@ static int __init factory_adsp_init(void)
 
 	mutex_init(&data->accel_factory_mutex);
 	mutex_init(&data->prox_factory_mutex);
+	mutex_init(&data->remove_sysfs_mutex);
 
 	pr_info("[FACTORY] %s: Timer Init\n", __func__);
 	return 0;
@@ -301,6 +326,7 @@ static void __exit factory_adsp_exit(void)
 
 	mutex_destroy(&data->accel_factory_mutex);
 	mutex_destroy(&data->prox_factory_mutex);
+	mutex_destroy(&data->remove_sysfs_mutex);
 
 	for (i = 0; i < MSG_SENSOR_MAX; i++)
 		kfree(data->msg_buf[i]);

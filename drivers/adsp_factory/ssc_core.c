@@ -19,6 +19,10 @@
 #include <linux/adsp/slpi_motor.h>
 #include <linux/adsp/ssc_ssr_reason.h>
 #define SSR_REASON_LEN	128
+#ifdef CONFIG_SEC_FACTORY
+#define SLPI_STUCK "SLPI_STUCK"
+#define SLPI_PASS "SLPI_PASS"
+#endif
 
 static int pid;
 static char panic_msg[SSR_REASON_LEN];
@@ -79,24 +83,27 @@ static ssize_t mode_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	unsigned long timeout;
+	unsigned long timeout_2;
 	int32_t type[1];
 
 	if (pid != 0) {
 		timeout = jiffies + (2 * HZ);
+		timeout_2 = jiffies + (10 * HZ);
 		type[0] = 1;
 		pr_info("[FACTORY] To stop logging %d\n", pid);
 		adsp_unicast(type, sizeof(type), MSG_SSC_CORE, 0, MSG_TYPE_DUMPSTATE);
 
 		while (pid != 0) {
-			msleep(20);
+			msleep(25);
 			if (time_after(jiffies, timeout))
 				pr_info("[FACTORY] %s: Timeout!!!\n", __func__);
+			if (time_after(jiffies, timeout_2)) {
+//				panic("force crash : ssc core\n");
+				pr_info("[FACTORY] pid %d\n", pid);
+				return snprintf(buf, PAGE_SIZE, "1\n");
+			}
 		}
 	}
-	pr_info("[FACTORY] PID %d\n", pid);
-
-	if (pid != 0)
-		return snprintf(buf, PAGE_SIZE, "1\n");
 
 	return snprintf(buf, PAGE_SIZE, "0\n");
 }
@@ -150,20 +157,23 @@ static ssize_t remove_sensor_sysfs_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	unsigned int type = MSG_SENSOR_MAX;
+	struct adsp_data *data = dev_get_drvdata(dev);
 
 	if (kstrtouint(buf, 10, &type)) {
 		pr_err("[FACTORY] %s: kstrtouint fail\n", __func__);
 		return -EINVAL;
 	}
 
-	if (type >= MSG_SENSOR_MAX) {
+	if (type > MSG_PROX && type != MSG_HH_HOLE) {
 		pr_err("[FACTORY] %s: Invalid type %u\n", __func__, type);
 		return size;
 	}
 
 	pr_info("[FACTORY] %s: type = %u\n", __func__, type);
 
+	mutex_lock(&data->remove_sysfs_mutex);
 	adsp_factory_unregister(type);
+	mutex_unlock(&data->remove_sysfs_mutex);
 
 	return size;
 }
@@ -209,7 +219,32 @@ void ssr_reason_call_back(char reason[], int len)
 static ssize_t ssr_msg_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+#ifdef CONFIG_SEC_FACTORY
+	struct adsp_data *data = dev_get_drvdata(dev);
+	int32_t raw_data_acc[3] = {0, };
+	int32_t raw_data_mag[3] = {0, };
+	int ret_acc = 0;
+	int ret_mag = 0;
+
+	mutex_lock(&data->accel_factory_mutex);
+	ret_acc = get_accel_raw_data(raw_data_acc);
+	mutex_unlock(&data->accel_factory_mutex);
+
+	ret_mag = get_mag_raw_data(raw_data_mag);
+
+	pr_info("[FACTORY] %s: accel(%d, %d, %d), mag(%d, %d, %d)\n", __func__,
+		raw_data_acc[0], raw_data_acc[1], raw_data_acc[2],
+		raw_data_mag[0], raw_data_mag[1], raw_data_mag[2]);
+
+	if (ret_acc == -1 && ret_mag == -1) {
+		pr_err("[FACTORY] %s: SLPI stuck, check hal log\n", __func__);
+		return snprintf(buf, PAGE_SIZE, "%s\n", SLPI_STUCK);
+	} else {
+		return snprintf(buf, PAGE_SIZE, "%s\n", SLPI_PASS);
+	}
+#else
 	return snprintf(buf, PAGE_SIZE, "%s\n", panic_msg);
+#endif
 }
 
 static ssize_t ssr_reset_show(struct device *dev,

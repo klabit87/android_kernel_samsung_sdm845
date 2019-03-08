@@ -175,6 +175,7 @@
  * REG_PD_STATUS1
  */
 #define BIT_PD_DataRole			BIT(7)
+#define BIT_PD_PSRDY			BIT(4)
 #define BIT_FCT_ID				BITS(3, 0)
 
 /*

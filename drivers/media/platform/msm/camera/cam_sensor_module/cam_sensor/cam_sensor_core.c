@@ -29,6 +29,11 @@ uint8_t rear_frs_test_mode;
 uint8_t frs_output_done_flag;
 #endif
 
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+uint8_t factory_ln_test;
+#define AE_GROUP_START_ADDR 0x0104 // AE groupHold setting
+#endif
+
 #if defined(CONFIG_CAMERA_DYNAMIC_MIPI)
 #include "cam_sensor_mipi.h"
 #define STREAM_ON_ADDR   0x100
@@ -375,6 +380,52 @@ void cam_sensor_retention_write_global(struct camera_io_master *io_master_info)
 		&i2c_reg_settings);
 }
 
+
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+void cam_sensor_ln_test_retention_write_global(struct camera_io_master *io_master_info)
+{
+	int32_t rc = 0;
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+
+	i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+	i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	i2c_reg_settings.delay = 0;
+	if (sensor_version == 0x14 && sensor_nvm == 0x0) {
+		CAM_INFO(CAM_SENSOR, "[LN_TEST] Sensor version is 14");
+		i2c_reg_settings.size = sizeof(ver14_ln4_test_global_reg_array)/sizeof(struct cam_sensor_i2c_reg_array);
+		i2c_reg_settings.reg_setting = ver14_ln4_test_global_reg_array;
+	} else if (sensor_version == 0x14 && sensor_nvm == 0x1) {
+		CAM_INFO(CAM_SENSOR, "[LN_TEST] Sensor version is 1401");
+		i2c_reg_settings.size = sizeof(ver1401_ln4_test_global_reg_array)/sizeof(struct cam_sensor_i2c_reg_array);
+		i2c_reg_settings.reg_setting = ver1401_ln4_test_global_reg_array;
+	} else {
+		CAM_ERR(CAM_SENSOR, "[LN_TEST] Invalid sensor info");
+		i2c_reg_settings.size = sizeof(ver0_global_reg_array)/sizeof(struct cam_sensor_i2c_reg_array);
+		i2c_reg_settings.reg_setting = ver0_global_reg_array;
+	}
+
+	rc = camera_io_dev_write(io_master_info,
+		&i2c_reg_settings);
+}
+
+void cam_sensor_ln_test_write_grouphold(struct camera_io_master *io_master_info)
+{
+	int32_t rc = 0;
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+
+	i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+	i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	i2c_reg_settings.delay = 0;
+
+	CAM_INFO(CAM_SENSOR, "[LN_TEST] Set LN4, 20fps, exposure 1ms");
+	i2c_reg_settings.size = sizeof(ln4_test_group_reg_array)/sizeof(struct cam_sensor_i2c_reg_array);
+	i2c_reg_settings.reg_setting = ln4_test_group_reg_array;
+
+	rc = camera_io_dev_write(io_master_info,
+		&i2c_reg_settings);
+}
+#endif
+
 uint32_t cam_sensor_read_revision(struct camera_io_master *io_master_info)
 {
 	int32_t rc = 0;
@@ -563,6 +614,27 @@ uint32_t cam_sensor_frs_test_check_reg(void)
 }
 #endif
 
+#if defined(CONFIG_CAMERA_SSM_I2C_ENV)
+void cam_sensor_ssm_i2c_read(uint32_t addr, uint32_t *data,
+	enum camera_sensor_i2c_type addr_type,
+	enum camera_sensor_i2c_type data_type)
+{
+	int rc = 0;
+
+	if (g_s_ctrl)
+	{
+		rc = camera_io_dev_read(&g_s_ctrl->io_master_info, addr,
+			data, addr_type, data_type);
+		if (rc < 0)
+			CAM_ERR(CAM_SENSOR, "Failed to read 0x%x", addr);
+	}
+	else
+	{
+		CAM_ERR(CAM_SENSOR, "ssm i2c is not ready!");
+	}
+}
+#endif
+
 static void cam_sensor_update_req_mgr(
 	struct cam_sensor_ctrl_t *s_ctrl,
 	struct cam_packet *csl_packet)
@@ -717,12 +789,20 @@ static int32_t cam_sensor_i2c_pkt_parse(struct cam_sensor_ctrl_t *s_ctrl,
 		break;
 	}
 	case CAM_SENSOR_PACKET_OPCODE_SENSOR_STREAMON: {
+		if (s_ctrl->streamon_count > 0)
+			return 0;
+
+		s_ctrl->streamon_count = s_ctrl->streamon_count + 1;
 		i2c_reg_settings = &i2c_data->streamon_settings;
 		i2c_reg_settings->request_id = 0;
 		i2c_reg_settings->is_settings_valid = 1;
 		break;
 	}
 	case CAM_SENSOR_PACKET_OPCODE_SENSOR_STREAMOFF: {
+		if (s_ctrl->streamoff_count > 0)
+			return 0;
+
+		s_ctrl->streamoff_count = s_ctrl->streamoff_count + 1;
 		i2c_reg_settings = &i2c_data->streamoff_settings;
 		i2c_reg_settings->request_id = 0;
 		i2c_reg_settings->is_settings_valid = 1;
@@ -812,6 +892,12 @@ static int32_t cam_sensor_i2c_modes_util(
 				if (cam_sensor_retention_compare_checksum(read_value) == TRUE) {
 					CAM_INFO(CAM_SENSOR, "[RET_DBG] Retention wake! Skip to write initSetting(retention setting)");
 					sensor_retention_mode = RETENTION_READY_TO_ON;
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+					if (factory_ln_test == 1) {
+						cam_sensor_ln_test_retention_write_global(io_master_info);
+						return 0;
+					}
+#endif
 					cam_sensor_retention_write_global(io_master_info);
 					return 0;
 				} else {
@@ -854,6 +940,7 @@ static int32_t cam_sensor_i2c_modes_util(
 				&(mipi_i2c_list.i2c_settings));
 		}
 #endif
+
 		rc = camera_io_dev_write(io_master_info,
 			&(i2c_list->i2c_settings));
 		if (rc < 0) {
@@ -868,13 +955,13 @@ static int32_t cam_sensor_i2c_modes_util(
 			&& s_ctrl->sensordata->slave_info.sensor_id == RETENTION_SENSOR_ID) {
 			uint32_t frame_cnt = 0;
 			int retry_cnt = 10;
-			rc = camera_io_dev_read(&g_s_ctrl->io_master_info, 0x0005,
+			rc = camera_io_dev_read(&s_ctrl->io_master_info, 0x0005,
 				&frame_cnt, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
 			CAM_INFO(CAM_SENSOR, "[SENSOR_DBG] Stream off, frame_cnt : %x", frame_cnt);
 
 			while (frame_cnt != 0xFF && retry_cnt > 0) {
 				usleep_range(2000, 3000);
-				rc = camera_io_dev_read(&g_s_ctrl->io_master_info, 0x0005,
+				rc = camera_io_dev_read(&s_ctrl->io_master_info, 0x0005,
 					&frame_cnt, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
 				CAM_INFO(CAM_SENSOR, "[SENSOR_DBG] retry cnt : %d, Stream off, frame_cnt : %x", retry_cnt, frame_cnt);
 				retry_cnt--;
@@ -942,8 +1029,20 @@ static int32_t cam_sensor_i2c_modes_util(
 					sensor_retention_mode = RETENTION_INIT;
 					CAM_INFO(CAM_SENSOR, "[RET_DBG] Fail to calc checksum");
 				}
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+				if (factory_ln_test == 1) {
+					CAM_WARN(CAM_SENSOR, "[LN_TEST] Not in retention mode");
+				}
+#endif
 			}
 		}
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+		else if (i2c_list->i2c_settings.reg_setting[0].reg_addr == AE_GROUP_START_ADDR) {
+			if (factory_ln_test == 1) {
+				cam_sensor_ln_test_write_grouphold(io_master_info);
+			}
+		}
+#endif
 	}
 #endif
 
@@ -1164,6 +1263,8 @@ void cam_sensor_shutdown(struct cam_sensor_ctrl_t *s_ctrl)
 
 	kfree(power_info->power_setting);
 	kfree(power_info->power_down_setting);
+	s_ctrl->streamon_count = 0;
+	s_ctrl->streamoff_count = 0;
 
 	s_ctrl->sensor_state = CAM_SENSOR_INIT;
 }
@@ -1425,6 +1526,10 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		 */
 		s_ctrl->is_probe_succeed = 1;
 		s_ctrl->sensor_state = CAM_SENSOR_INIT;
+
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+		factory_ln_test = 0;
+#endif
 	}
 		break;
 	case CAM_ACQUIRE_DEV: {
@@ -1530,6 +1635,8 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		}
 		CAM_INFO(CAM_SENSOR, "CAM_RELEASE_DEV : sensor_id : 0x%x",
 			s_ctrl->sensordata->slave_info.sensor_id);
+		s_ctrl->streamon_count = 0;
+		s_ctrl->streamoff_count = 0;
 
 		rc = cam_sensor_power_down(s_ctrl);
 		if (rc < 0) {
@@ -1556,6 +1663,12 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		s_ctrl->bridge_intf.session_hdl = -1;
 
 		s_ctrl->sensor_state = CAM_SENSOR_INIT;
+
+		g_s_ctrl = NULL;
+
+#if defined(CONFIG_CAMERA_FAC_LN_TEST)
+		factory_ln_test = 0;
+#endif
 	}
 		break;
 	case CAM_QUERY_CAP: {
@@ -2201,8 +2314,10 @@ int32_t cam_sensor_apply_request(struct cam_req_mgr_apply_request *apply)
 	}
 	CAM_DBG(CAM_SENSOR, " Req Id: %lld", apply->request_id);
 	trace_cam_apply_req("Sensor", apply->request_id);
+	mutex_lock(&(s_ctrl->cam_sensor_mutex));
 	rc = cam_sensor_apply_settings(s_ctrl, apply->request_id,
 		CAM_SENSOR_PACKET_OPCODE_SENSOR_UPDATE);
+	mutex_unlock(&(s_ctrl->cam_sensor_mutex));
 	return rc;
 }
 
@@ -2432,3 +2547,4 @@ int msm_is_sec_get_rear2_hw_param(struct cam_hw_param **hw_param)
 	return 0;
 }
 #endif
+

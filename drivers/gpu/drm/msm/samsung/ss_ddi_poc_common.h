@@ -20,17 +20,17 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
-#ifdef CONFIG_SUPPORT_POC_2_0
-#define POC_IMG_SIZE    (546008)
-#else
-#define POC_IMG_SIZE    (532816)
-#endif
-
 #define POC_IMG_ADDR	(0x000000)
 #define POC_PAGE		(4096)
-#define POC_TEST_PATTERN_SIZE	(1024)
 
 /* Register to cnotrol POC */
 #define POC_CTRL_REG	0xEB
+
+#define DEBUG_POC_CNT 4096
+
+int ss_dsi_poc_init(struct samsung_display_driver_data *vdd);
+void ss_poc_read_mca(struct samsung_display_driver_data *vdd);
+void ss_poc_comp(struct samsung_display_driver_data *vdd);
+int ss_is_poc_open(void);
 
 #endif

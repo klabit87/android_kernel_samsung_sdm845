@@ -826,7 +826,6 @@ void pm_get_active_wakeup_sources(char *pending_wakeup_source, size_t max)
 			len += scnprintf(pending_wakeup_source + len, max - len,
 				"%s ", ws->name);
 			active = true;
-			suspend_stats_ex_save_failed(FAILED_WAKELOCK, ws);
 		} else if (!active &&
 			   (!last_active_ws ||
 			    ktime_to_ns(ws->last_time) >
@@ -838,7 +837,6 @@ void pm_get_active_wakeup_sources(char *pending_wakeup_source, size_t max)
 		scnprintf(pending_wakeup_source, max,
 				"Last active Wakeup Source: %s",
 				last_active_ws->name);
-		suspend_stats_ex_save_failed(FAILED_WAKELOCK, last_active_ws);
 	}
 	srcu_read_unlock(&wakeup_srcu, srcuidx);
 }

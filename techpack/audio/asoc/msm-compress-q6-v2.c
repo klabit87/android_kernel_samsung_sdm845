@@ -540,8 +540,8 @@ static int msm_compr_read_buffer(struct msm_compr_audio *prtd)
 			__func__, ret);
 		return ret;
 	}
-	prtd->bytes_read += buffer_length;
-	prtd->bytes_read_offset += buffer_length;
+	prtd->bytes_read += buffer_length + prtd->ts_header_offset;
+	prtd->bytes_read_offset += buffer_length + prtd->ts_header_offset;
 	if (prtd->bytes_read_offset >= prtd->buffer_size)
 		prtd->bytes_read_offset -= prtd->buffer_size;
 
@@ -1521,9 +1521,10 @@ static int msm_compr_configure_dsp_for_capture(struct snd_compr_stream *cstream)
 	pr_debug("%s: sample_rate = %d channels = %d bps = %d sample_word_size = %d\n",
 			__func__, prtd->sample_rate, prtd->num_channels,
 					 bits_per_sample, sample_word_size);
-	ret = q6asm_enc_cfg_blk_pcm_format_support_v3(prtd->audio_client,
+	ret = q6asm_enc_cfg_blk_pcm_format_support_v4(prtd->audio_client,
 					prtd->sample_rate, prtd->num_channels,
-					bits_per_sample, sample_word_size);
+					bits_per_sample, sample_word_size,
+					ASM_LITTLE_ENDIAN, DEFAULT_QF);
 
 	return ret;
 }
@@ -1537,11 +1538,11 @@ static int msm_compr_playback_open(struct snd_compr_stream *cstream)
 			snd_soc_platform_get_drvdata(rtd->platform);
 
 	pr_debug("%s\n", __func__);
-    if (pdata->is_in_use[rtd->dai_link->id] == true) {
-       pr_err("%s: %s is already in use,err: %d ",
-          __func__, rtd->dai_link->cpu_dai_name, -EBUSY);
-       return -EBUSY;
-    }
+	if (pdata->is_in_use[rtd->dai_link->id] == true) {
+		pr_err("%s: %s is already in use, err: %d\n",
+			__func__, rtd->dai_link->cpu_dai_name, -EBUSY);
+		return -EBUSY;
+	}
 	prtd = kzalloc(sizeof(struct msm_compr_audio), GFP_KERNEL);
 	if (prtd == NULL) {
 		pr_err("Failed to allocate memory for msm_compr_audio\n");
@@ -1615,6 +1616,7 @@ static int msm_compr_playback_open(struct snd_compr_stream *cstream)
 		kfree(pdata->audio_effects[rtd->dai_link->id]);
 		pdata->audio_effects[rtd->dai_link->id] = NULL;
 		kfree(pdata->dec_params[rtd->dai_link->id]);
+		pdata->dec_params[rtd->dai_link->id] = NULL;
 		pdata->cstream[rtd->dai_link->id] = NULL;
 		kfree(prtd);
 		runtime->private_data = NULL;
@@ -1625,7 +1627,7 @@ static int msm_compr_playback_open(struct snd_compr_stream *cstream)
 	prtd->session_id = prtd->audio_client->session;
 	pdata->is_in_use[rtd->dai_link->id] = true;
 	msm_adsp_init_mixer_ctl_pp_event_queue(rtd);
-
+	pdata->is_in_use[rtd->dai_link->id] = true;
 	return 0;
 }
 
@@ -1781,15 +1783,15 @@ static int msm_compr_playback_free(struct snd_compr_stream *cstream)
 
 	q6asm_audio_client_free(ac);
 	msm_adsp_clean_mixer_ctl_pp_event_queue(soc_prtd);
-    if (pdata->audio_effects[soc_prtd->dai_link->id] != NULL) {
-       kfree(pdata->audio_effects[soc_prtd->dai_link->id]);
-       pdata->audio_effects[soc_prtd->dai_link->id] = NULL;
-    }
-    if (pdata->dec_params[soc_prtd->dai_link->id] != NULL) {
-       kfree(pdata->dec_params[soc_prtd->dai_link->id]);
-       pdata->dec_params[soc_prtd->dai_link->id] = NULL;
-    }
-    pdata->is_in_use[soc_prtd->dai_link->id] = false;
+	if (pdata->audio_effects[soc_prtd->dai_link->id] != NULL) {
+		kfree(pdata->audio_effects[soc_prtd->dai_link->id]);
+		pdata->audio_effects[soc_prtd->dai_link->id] = NULL;
+	}
+	if (pdata->dec_params[soc_prtd->dai_link->id] != NULL) {
+		kfree(pdata->dec_params[soc_prtd->dai_link->id]);
+		pdata->dec_params[soc_prtd->dai_link->id] = NULL;
+	}
+	pdata->is_in_use[soc_prtd->dai_link->id] = false;
 	kfree(prtd);
 	runtime->private_data = NULL;
 
@@ -2658,12 +2660,10 @@ static int msm_compr_pointer(struct snd_compr_stream *cstream,
 				rc = q6asm_get_session_time(
 				prtd->audio_client, &prtd->marker_timestamp);
 			if (rc < 0) {
-				pr_err("%s: Get Session Time return =%lld\n",
-					__func__, timestamp);
 				if (atomic_read(&prtd->error))
 					return -ENETRESET;
 				else
-					return -EAGAIN;
+					return rc;
 			}
 		}
 	} else {
@@ -3682,7 +3682,7 @@ static int msm_compr_adsp_stream_cmd_put(struct snd_kcontrol *kcontrol,
 	}
 
 	actual_payload_len = sizeof(struct msm_adsp_event_data) +
-					event_data->payload_len;
+		event_data->payload_len;
 	if (actual_payload_len >= U32_MAX) {
 		pr_err("%s payload length 0x%X  exceeds limit",
 				__func__, event_data->payload_len);
@@ -3690,9 +3690,8 @@ static int msm_compr_adsp_stream_cmd_put(struct snd_kcontrol *kcontrol,
 		goto done;
 	}
 
-
-	if ((sizeof(struct msm_adsp_event_data) + event_data->payload_len) >=
-					sizeof(ucontrol->value.bytes.data)) {
+	if (event_data->payload_len > sizeof(ucontrol->value.bytes.data)
+			- sizeof(struct msm_adsp_event_data)) {
 		pr_err("%s param length=%d  exceeds limit",
 			__func__, event_data->payload_len);
 		ret = -EINVAL;
@@ -4562,6 +4561,7 @@ static struct platform_driver msm_compr_driver = {
 		.name = "msm-compress-dsp",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_compr_dt_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = msm_compr_dev_probe,
 	.remove = msm_compr_remove,

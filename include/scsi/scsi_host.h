@@ -662,6 +662,9 @@ struct Scsi_Host {
 	/* The controller does not support WRITE SAME */
 	unsigned no_write_same:1;
 
+	/* Inline encryption support? */
+	unsigned inlinecrypt_support:1;
+
 	unsigned use_blk_mq:1;
 	unsigned use_cmd_list:1;
 
@@ -748,6 +751,10 @@ struct Scsi_Host {
 	unsigned long issue_LBA_list[SEC_MAX_LBA_LOGGING];
 	unsigned int issue_LBA_count;
 	u64 issue_region_map;
+	sector_t  ufs_system_start;
+	sector_t  ufs_system_end;
+	bool ufs_sys_log_en;
+
 	/*
 	 * We should ensure that this is aligned, both for better performance
 	 * and also because some compilers (m68k) don't automatically force

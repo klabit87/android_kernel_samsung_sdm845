@@ -754,7 +754,7 @@ MMC_DEV_ATTR(manfid, "0x%06x\n", card->cid.manfid);
 MMC_DEV_ATTR(name, "%s\n", card->cid.prod_name);
 MMC_DEV_ATTR(oemid, "0x%04x\n", card->cid.oemid);
 MMC_DEV_ATTR(serial, "0x%08x\n", card->cid.serial);
-MMC_DEV_ATTR(ocr, "%08x\n", card->ocr);
+MMC_DEV_ATTR(ocr, "0x%08x\n", card->ocr);
 
 
 static ssize_t mmc_dsr_show(struct device *dev,
@@ -1170,6 +1170,9 @@ static void mmc_sd_remove(struct mmc_host *host)
  */
 static int mmc_sd_alive(struct mmc_host *host)
 {
+	if (host->ops->get_cd && !host->ops->get_cd(host))
+		return -ENOMEDIUM;
+
 	return mmc_send_status(host->card, NULL);
 }
 
@@ -1186,6 +1189,13 @@ static void mmc_sd_detect(struct mmc_host *host)
 	BUG_ON(!host);
 	BUG_ON(!host->card);
 
+	if (host->ops->get_cd && !host->ops->get_cd(host)) {
+		err = -ENOMEDIUM;
+		mmc_card_set_removed(host->card);
+		mmc_card_clr_suspended(host->card);
+		goto out;
+	}
+
 	/*
 	 * Try to acquire claim host. If failed to get the lock in 2 sec,
 	 * just return; This is to ensure that when this call is invoked
@@ -1197,6 +1207,9 @@ static void mmc_sd_detect(struct mmc_host *host)
 		pm_runtime_put_autosuspend(&host->card->dev);
 		return;
 	}
+
+	if (mmc_bus_needs_resume(host))
+		mmc_resume_bus(host);
 
 	/*
 	 * Just check if our card has been removed.
@@ -1222,6 +1235,7 @@ static void mmc_sd_detect(struct mmc_host *host)
 
 	mmc_put_card(host->card);
 
+out:
 	if (err) {
 		mmc_sd_remove(host);
 
@@ -1304,6 +1318,11 @@ static int _mmc_sd_resume(struct mmc_host *host)
 	if (!mmc_card_suspended(host->card))
 		goto out;
 
+	if (host->ops->get_cd && !host->ops->get_cd(host)) {
+		mmc_card_clr_suspended(host->card);
+		goto out;
+	}
+
 	mmc_power_up(host, host->card->ocr);
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
 	retries = 5;
@@ -1330,6 +1349,8 @@ static int _mmc_sd_resume(struct mmc_host *host)
 			mmc_hostname(host), __func__, err);
 		mmc_card_set_removed(host->card);
 		mmc_detect_change(host, msecs_to_jiffies(200));
+	} else if (err) {
+		goto out;
 	}
 	mmc_card_clr_suspended(host->card);
 
@@ -1402,6 +1423,9 @@ static int mmc_sd_runtime_resume(struct mmc_host *host)
 
 static int mmc_sd_reset(struct mmc_host *host)
 {
+	if (host->ops->get_cd && !host->ops->get_cd(host))
+		return -ENOMEDIUM;
+
 	mmc_power_cycle(host, host->card->ocr);
 	return mmc_sd_init_card(host, host->card->ocr, host->card);
 }
@@ -1428,6 +1452,7 @@ int mmc_attach_sd(struct mmc_host *host)
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
 	int retries;
 #endif
+
 	BUG_ON(!host);
 	WARN_ON(!host->claimed);
 

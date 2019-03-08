@@ -453,6 +453,8 @@ static inline bool gic_enable_sre(void)
 extern int msm_show_resume_irq_mask;
 
 void gic_show_pending_irqs(void);
+void gic_v3_dist_save(void);
+void gic_v3_dist_restore(void);
 unsigned int get_gic_highpri_irq(void);
 #endif
 

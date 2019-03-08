@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,11 +36,11 @@
 /* this time is ~1ms - only wake tcs in any mode */
 #define RSC_BACKOFF_TIME_NS		 (SINGLE_TCS_EXECUTION_TIME + 100)
 
-/** 
- * this time is ~1ms - only wake TCS in mode-0. 
- * This time must be greater than backoff time. 
- */ 
-#define RSC_MODE_THRESHOLD_TIME_IN_NS (RSC_BACKOFF_TIME_NS + 2700) 
+/**
+ * this time is ~1ms - only wake TCS in mode-0.
+ * This time must be greater than backoff time.
+ */
+#define RSC_MODE_THRESHOLD_TIME_IN_NS	(RSC_BACKOFF_TIME_NS + 2700)
 
 /* this time is ~2ms - sleep+ wake TCS in mode-1 */
 #define RSC_TIME_SLOT_0_NS		((SINGLE_TCS_EXECUTION_TIME * 2) + 100)
@@ -574,6 +574,27 @@ static int sde_rsc_switch_to_clk(struct sde_rsc_priv *rsc,
 			msleep(PRIMARY_VBLANK_WORST_CASE_MS);
 		} else {
 			*wait_vblank_crtc_id = rsc->primary_client->crtc_id;
+
+			/* increase refcount, so we wait for the next vsync */
+			atomic_inc(&rsc->rsc_vsync_wait);
+			SDE_EVT32(atomic_read(&rsc->rsc_vsync_wait));
+		}
+	} else if (atomic_read(&rsc->rsc_vsync_wait)) {
+		SDE_EVT32(rsc->primary_client, rsc->current_state,
+			atomic_read(&rsc->rsc_vsync_wait));
+
+		/* Wait for the vsync, if the refcount is set */
+		rc = wait_event_timeout(rsc->rsc_vsync_waitq,
+			atomic_read(&rsc->rsc_vsync_wait) == 0,
+			msecs_to_jiffies(PRIMARY_VBLANK_WORST_CASE_MS*2));
+		if (!rc) {
+			pr_err("Timeout waiting for vsync\n");
+			rc = -ETIMEDOUT;
+			SDE_EVT32(atomic_read(&rsc->rsc_vsync_wait), rc,
+				SDE_EVTLOG_ERROR);
+		} else {
+			SDE_EVT32(atomic_read(&rsc->rsc_vsync_wait), rc);
+			rc = 0;
 		}
 	}
 end:
@@ -613,11 +634,91 @@ static int sde_rsc_switch_to_vid(struct sde_rsc_priv *rsc,
 			msleep(PRIMARY_VBLANK_WORST_CASE_MS);
 		} else {
 			*wait_vblank_crtc_id = rsc->primary_client->crtc_id;
+
+			/* increase refcount, so we wait for the next vsync */
+			atomic_inc(&rsc->rsc_vsync_wait);
+			SDE_EVT32(atomic_read(&rsc->rsc_vsync_wait));
+		}
+	} else if (atomic_read(&rsc->rsc_vsync_wait)) {
+		SDE_EVT32(rsc->primary_client, rsc->current_state,
+			atomic_read(&rsc->rsc_vsync_wait));
+
+		/* Wait for the vsync, if the refcount is set */
+		rc = wait_event_timeout(rsc->rsc_vsync_waitq,
+			atomic_read(&rsc->rsc_vsync_wait) == 0,
+			msecs_to_jiffies(PRIMARY_VBLANK_WORST_CASE_MS*2));
+		if (!rc) {
+			pr_err("Timeout waiting for vsync\n");
+			rc = -ETIMEDOUT;
+			SDE_EVT32(atomic_read(&rsc->rsc_vsync_wait), rc,
+				SDE_EVTLOG_ERROR);
+		} else {
+			SDE_EVT32(atomic_read(&rsc->rsc_vsync_wait), rc);
+			rc = 0;
 		}
 	}
 
 end:
 	return rc;
+}
+
+/**
+ * sde_rsc_client_get_vsync_refcount() - returns the status of the vsync
+ * refcount, to signal if the client needs to reset the refcounting logic
+ * @client:	 Client pointer provided by sde_rsc_client_create().
+ *
+ * Return: value of the vsync refcount.
+ */
+int sde_rsc_client_get_vsync_refcount(
+		struct sde_rsc_client *caller_client)
+{
+	struct sde_rsc_priv *rsc;
+
+	if (!caller_client) {
+		pr_err("invalid client for rsc state update\n");
+		return -EINVAL;
+	} else if (caller_client->rsc_index >= MAX_RSC_COUNT) {
+		pr_err("invalid rsc index\n");
+		return -EINVAL;
+	}
+
+	rsc = rsc_prv_list[caller_client->rsc_index];
+	if (!rsc)
+		return 0;
+
+	return atomic_read(&rsc->rsc_vsync_wait);
+}
+
+/**
+ * sde_rsc_client_reset_vsync_refcount() - reduces the refcounting
+ * logic that waits for the vsync.
+ * @client:	 Client pointer provided by sde_rsc_client_create().
+ *
+ * Return: zero if refcount was already zero.
+ */
+int sde_rsc_client_reset_vsync_refcount(
+		struct sde_rsc_client *caller_client)
+{
+	struct sde_rsc_priv *rsc;
+	int ret;
+
+	if (!caller_client) {
+		pr_err("invalid client for rsc state update\n");
+		return -EINVAL;
+	} else if (caller_client->rsc_index >= MAX_RSC_COUNT) {
+		pr_err("invalid rsc index\n");
+		return -EINVAL;
+	}
+
+	rsc = rsc_prv_list[caller_client->rsc_index];
+	if (!rsc)
+		return 0;
+
+	ret = atomic_add_unless(&rsc->rsc_vsync_wait, -1, 0);
+	wake_up_all(&rsc->rsc_vsync_waitq);
+	SDE_EVT32(atomic_read(&rsc->rsc_vsync_wait));
+
+	return ret;
 }
 
 /**
@@ -799,23 +900,22 @@ EXPORT_SYMBOL(sde_rsc_client_state_update);
 int sde_rsc_client_vote(struct sde_rsc_client *caller_client,
 		u32 bus_id, u64 ab_vote, u64 ib_vote)
 {
-	int rc = 0;
+	int rc = 0, rsc_index;
 	struct sde_rsc_priv *rsc;
 
-	if (!caller_client) {
-		pr_err("invalid client for ab/ib vote\n");
-		return -EINVAL;
-	} else if (caller_client->rsc_index >= MAX_RSC_COUNT) {
+	if (caller_client && caller_client->rsc_index >= MAX_RSC_COUNT) {
 		pr_err("invalid rsc index\n");
 		return -EINVAL;
 	}
 
-	rsc = rsc_prv_list[caller_client->rsc_index];
+	rsc_index = caller_client ? caller_client->rsc_index : SDE_RSC_INDEX;
+	rsc = rsc_prv_list[rsc_index];
 	if (!rsc)
 		return -EINVAL;
 
 	pr_debug("client:%s ab:%llu ib:%llu\n",
-			caller_client->name, ab_vote, ib_vote);
+			caller_client ? caller_client->name : "unknown",
+			ab_vote, ib_vote);
 
 	mutex_lock(&rsc->client_lock);
 	rc = sde_rsc_clk_enable(&rsc->phandle, rsc->pclient, true);
@@ -1329,6 +1429,7 @@ static int sde_rsc_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&rsc->client_list);
 	INIT_LIST_HEAD(&rsc->event_list);
 	mutex_init(&rsc->client_lock);
+	init_waitqueue_head(&rsc->rsc_vsync_waitq);
 
 	pr_info("sde rsc index:%d probed successfully\n",
 				SDE_RSC_INDEX + counter);
@@ -1372,6 +1473,7 @@ static struct platform_driver sde_rsc_platform_driver = {
 	.driver     = {
 		.name   = "sde_rsc",
 		.of_match_table = dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 

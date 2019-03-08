@@ -445,7 +445,7 @@ static int psy_chg_set_cable_online(struct sm5720_charger_data *charger, int cab
 	dev_info(charger->dev, "[start] prev_cable_type(%d), cable_type(%d), op_mode(%d), op_status(0x%x)",
 			prev_cable_type, cable_type, sm5720_charger_oper_get_current_op_mode(), sm5720_charger_oper_get_current_status());
 
-	if (charger->cable_type == SEC_BATTERY_CABLE_NONE) {
+	if (is_nocharge_type(charger->cable_type)) {
 		charger->wc_pre_current = WC_CURRENT_START;
 		wake_unlock(&charger->wpc_wake_lock);
 
@@ -777,7 +777,7 @@ static int sm5720_chg_set_property(struct power_supply *psy,
 			else
 				sm5720_set_input_current(charger, val->intval);
 
-			if (charger->cable_type == SEC_BATTERY_CABLE_NONE)
+			if (is_nocharge_type(charger->cable_type))
 				sm5720_set_wireless_input_current(charger, val->intval);
 			break;
 		/* set charge current */
@@ -1184,7 +1184,7 @@ static inline void _check_slow_rate_charging(struct sm5720_charger_data *charger
 	union power_supply_propval value;
 	/* under 400mA considered as slow charging concept for VZW */
 	if (charger->input_current <= SLOW_CHARGING_CURRENT_STANDARD &&
-			charger->cable_type != SEC_BATTERY_CABLE_NONE) {
+			!is_nocharge_type(charger->cable_type)) {
 
 		dev_info(charger->dev, "slow-rate charging on : input current(%dmA), cable-type(%d)\n",
 				charger->input_current, charger->cable_type);
@@ -1208,7 +1208,7 @@ static void aicl_work(struct work_struct *work)
 
 	mutex_lock(&charger->charger_mutex);
 	sm5720_read_reg(charger->i2c, SM5720_CHG_REG_STATUS2, &reg);
-	while ((reg & (0x1 << 0)) && charger->cable_type != SEC_BATTERY_CABLE_NONE) {
+	while ((reg & (0x1 << 0)) && is_nocharge_type(charger->cable_type)) {
 		if (++aicl_cnt >= 2) {
 			input_limit = _reduce_input_limit_current(charger);
 			aicl_on = true;

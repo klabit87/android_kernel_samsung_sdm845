@@ -1,6 +1,9 @@
 #
 # Makefile for nfc devices
 #
+ifneq ($(SEC_BUILD_CONF_USE_ESE_TZ), false)
+	ccflags-y += -DENABLE_ESE_SPI_SECURED
+endif
 
 obj-$(CONFIG_NFC_FDP)		+= fdp/
 obj-$(CONFIG_NFC_PN544)		+= pn544/

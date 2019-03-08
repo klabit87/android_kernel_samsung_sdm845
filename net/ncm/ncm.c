@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* START_OF_KNOX_NPA */
+// KNOX NPA - START
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -72,9 +72,15 @@ static unsigned int ncm_deactivated_flag; // default = 0
 
 static unsigned int device_open_count; // default = 0
 
-static struct nf_hook_ops nfho_ipv4_pr;
+static int ncm_activated_type = NCM_FLOW_TYPE_DEFAULT;
 
-static struct nf_hook_ops nfho_ipv6_pr;
+static struct nf_hook_ops nfho_ipv4_pr_conntrack;
+
+static struct nf_hook_ops nfho_ipv6_pr_conntrack;
+
+static struct nf_hook_ops nfho_ipv4_li_conntrack;
+
+static struct nf_hook_ops nfho_ipv6_li_conntrack;
 
 static struct workqueue_struct *eWq; // default = 0
 
@@ -151,13 +157,16 @@ void insert_data_kfifo(struct work_struct *pwork) {
  *  The kernel threads which handles the responsibility of inserting the meta-data into the kfifo is manintained by the workqueue function;
  */
 void insert_data_kfifo_kthread(struct knox_socket_metadata* knox_socket_metadata) {
-	INIT_WORK(&(knox_socket_metadata->work_kfifo), insert_data_kfifo);
-	if (!eWq) {
-		NCM_LOGD("ewq..Single Thread created\r\n");
-		eWq = create_workqueue("ncmworkqueue");
-	}
-	if (eWq) {
-		queue_work(eWq, &(knox_socket_metadata->work_kfifo));
+	if (knox_socket_metadata != NULL)
+	{
+		INIT_WORK(&(knox_socket_metadata->work_kfifo), insert_data_kfifo);
+		if (!eWq) {
+			NCM_LOGD("ewq ncmworkqueue not initialized. Data not collected\r\n");
+			kfree(knox_socket_metadata);
+		}
+		if (eWq) {
+			queue_work(eWq, &(knox_socket_metadata->work_kfifo));
+		}
 	}
 }
 EXPORT_SYMBOL(insert_data_kfifo_kthread);
@@ -186,6 +195,14 @@ static void initialize_kfifo(void) {
 	}
 }
 
+/* The function is used to create work queue */
+static void initialize_ncmworkqueue(void) {
+	if (!eWq) {
+		NCM_LOGD("ewq..Single Thread created\r\n");
+		eWq = create_workqueue("ncmworkqueue");
+	}
+}
+
 /* The function is ued to free the kfifo */
 static void free_kfifo(void) {
 	if (kfifo_status()) {
@@ -202,496 +219,382 @@ static void update_ncm_flag(unsigned int ncmFlag) {
 		atomic_set(&isNCMEnabled, ncm_deactivated_flag);
 }
 
+/* The function is used to update the flag indicating start or stop flow  */
+static void update_ncm_flow_type(int ncmFlowType) {
+	ncm_activated_type = ncmFlowType;
+}
 
-/** The function is used to get the source ip address of the packet and update the srcaddr parameter present in struct knox_socket_metadata
- *  The function is registered in the post-routing chain and it is needed to collect the correct source ip address if iptables is involved
- */
-static unsigned int hook_func_ipv4_out(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
-{
-	struct iphdr *ip_header;
-	struct udphdr *udp_header;
-	struct sctphdr *sctp_header;
+/* IPv4 hook function to copy information from struct socket into struct nf_conn during first packet of the network flow */
+static unsigned int hook_func_ipv4_out_conntrack(void *priv, struct sk_buff *skb, const struct nf_hook_state *state) {
+	struct iphdr *ip_header = NULL;
+	struct tcphdr *tcp_header = NULL;
+	struct udphdr *udp_header = NULL;
+	struct nf_conn *ct = NULL;
+	enum ip_conntrack_info ctinfo;
 
-	if ((skb->sk) && (skb->sk->sk_protocol == IPPROTO_TCP)) {
-		return NF_ACCEPT;
-	} else if ((skb->sk) && (skb->sk->sk_protocol == IPPROTO_UDP)) {
-		if (isIpv4PostRoutingAddressEqualsNull(skb->sk->sk_udp_daddr_v6, skb->sk->sk_udp_saddr_v6)) {
-			ip_header = (struct iphdr *)skb_network_header(skb);
-			udp_header = (struct udphdr *)skb_transport_header(skb);
-
-			skb->sk->sk_udp_saddr_v6[0] = ip_header->saddr;
-			skb->sk->sk_udp_sport = udp_header->source;
-
-			skb->sk->sk_udp_daddr_v6[0] = ip_header->daddr;
-			skb->sk->sk_udp_dport = udp_header->dest;
+	if ( (skb) && (skb->sk) && (skb->dev) ) {
+		if ( (skb->sk->knox_pid == INIT_PID_NAP) && (skb->sk->knox_uid == INIT_UID_NAP) && (skb->sk->sk_protocol == IPPROTO_TCP) ) {
+			return NF_ACCEPT;
 		}
-	} else if ((skb->sk) && (skb->sk->sk_protocol == IPPROTO_SCTP)) {
-		if (isIpv4PostRoutingAddressEqualsNull(skb->sk->sk_udp_daddr_v6, skb->sk->sk_udp_saddr_v6)) {
-			ip_header = (struct iphdr *)skb_network_header(skb);
-			sctp_header = (struct sctphdr *)skb_transport_header(skb);
-
-			skb->sk->sk_udp_saddr_v6[0] = ip_header->saddr;
-			skb->sk->sk_udp_daddr_v6[0] = ip_header->daddr;
-
-			// TO DO : To check how to test the ports of sctp protocols;
-			if (sctp_header != NULL) {
-				skb->sk->sk_udp_sport = sctp_header->source;
-				skb->sk->sk_udp_dport = sctp_header->dest;
-			}
-		}
-	} else {
-		if (skb->sk) {
-			if (isIpv4PostRoutingAddressEqualsNull(skb->sk->sk_udp_daddr_v6, skb->sk->sk_udp_saddr_v6)) {
+		if ( (skb->sk->sk_protocol == IPPROTO_UDP) || (skb->sk->sk_protocol == IPPROTO_TCP) || (skb->sk->sk_protocol == IPPROTO_ICMP) || (skb->sk->sk_protocol == IPPROTO_SCTP) || (skb->sk->sk_protocol == IPPROTO_ICMPV6) ) {
+			ct = nf_ct_get(skb, &ctinfo);
+			if ( (ct) && (!atomic_read(&ct->startFlow)) ) {
+				atomic_set(&ct->startFlow, 1);
+				ct->knox_uid = skb->sk->knox_uid;
+				ct->knox_pid = skb->sk->knox_pid;
+				memcpy(ct->process_name,skb->sk->process_name,sizeof(ct->process_name)-1);
+				ct->knox_puid = skb->sk->knox_puid;
+				ct->knox_ppid = skb->sk->knox_ppid;
+				memcpy(ct->parent_process_name,skb->sk->parent_process_name,sizeof(ct->parent_process_name)-1);
+				memcpy(ct->domain_name,skb->sk->domain_name,sizeof(ct->domain_name)-1);
+				memcpy(ct->interface_name,skb->dev->name,sizeof(ct->interface_name)-1);
 				ip_header = (struct iphdr *)skb_network_header(skb);
-				skb->sk->sk_udp_saddr_v6[0] = ip_header->saddr;
-				skb->sk->sk_udp_daddr_v6[0] = ip_header->daddr;
+				if ( (ip_header) && (ip_header->protocol == IPPROTO_UDP) ) {
+					udp_header = (struct udphdr *)skb_transport_header(skb);
+					if (udp_header) {
+						int udp_payload_size = (ntohs(udp_header->len)) - sizeof(struct udphdr);
+						if ( (ct->knox_sent + udp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + udp_payload_size;
+						if ( (ntohs(udp_header->dest) ==  DNS_PORT_NAP) && (ct->knox_uid == INIT_UID_NAP) && (skb->sk->knox_dns_uid > INIT_UID_NAP) ) {
+							ct->knox_puid = skb->sk->knox_dns_uid;
+							ct->knox_ppid = skb->sk->knox_dns_pid;
+							memcpy(ct->parent_process_name,skb->sk->dns_process_name,sizeof(ct->parent_process_name)-1);
+						}
+					}
+				} else if ( (ip_header) && (ip_header->protocol == IPPROTO_TCP) ) {
+					tcp_header = (struct tcphdr *)skb_transport_header(skb);
+					if (tcp_header) {
+						int tcp_payload_size = (ntohs(ip_header->tot_len)) - (ip_header->ihl * 4) - (tcp_header->doff * 4);
+						if ( (ct->knox_sent + tcp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + tcp_payload_size;
+						if ( (ntohs(tcp_header->dest) ==  DNS_PORT_NAP) && (ct->knox_uid == INIT_UID_NAP) && (skb->sk->knox_dns_uid > INIT_UID_NAP) ) {
+							ct->knox_puid = skb->sk->knox_dns_uid;
+							ct->knox_ppid = skb->sk->knox_dns_pid;
+							memcpy(ct->parent_process_name,skb->sk->dns_process_name,sizeof(ct->parent_process_name)-1);
+						}
+					}
+				} else {
+					ct->knox_sent = 0;
+				}
+				knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_OPEN, 1);
+			} else if (ct) {
+				ip_header = (struct iphdr *)skb_network_header(skb);
+				if ( (ip_header) && (ip_header->protocol == IPPROTO_UDP) ) {
+					udp_header = (struct udphdr *)skb_transport_header(skb);
+					if (udp_header) {
+						int udp_payload_size = (ntohs(udp_header->len)) - sizeof(struct udphdr);
+						if ( (ct->knox_sent + udp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + udp_payload_size;
+					}
+				} else if ( (ip_header) && (ip_header->protocol == IPPROTO_TCP) ) {
+					tcp_header = (struct tcphdr *)skb_transport_header(skb);
+					if (tcp_header) {
+						int tcp_payload_size = (ntohs(ip_header->tot_len)) - (ip_header->ihl * 4) - (tcp_header->doff * 4);
+						if ( (ct->knox_sent + tcp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + tcp_payload_size;
+					}
+				} else {
+					ct->knox_sent = 0;
+				}
 			}
 		}
 	}
+
 	return NF_ACCEPT;
 }
 
-static unsigned int hook_func_ipv6_out(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
-{
-	struct ipv6hdr *ipv6_header;
-	struct udphdr *udp_header;
-	struct sctphdr *sctp_header;
+/* IPv6 hook function to copy information from struct socket into struct nf_conn during first packet of the network flow */
+static unsigned int hook_func_ipv6_out_conntrack(void *priv, struct sk_buff *skb, const struct nf_hook_state *state) {
+	struct ipv6hdr *ipv6_header = NULL;
+	struct tcphdr *tcp_header = NULL;
+	struct udphdr *udp_header = NULL;
+	struct nf_conn *ct = NULL;
+	enum ip_conntrack_info ctinfo;
 
-	if ((skb->sk) && (skb->sk->sk_protocol == IPPROTO_TCP)) {
-		return NF_ACCEPT;
-	} else if ((skb->sk) && (skb->sk->sk_protocol == IPPROTO_UDP)) {
-		if (isIpv6PostRoutingAddressEqualsNull(skb->sk->sk_udp_daddr_v6, skb->sk->sk_udp_saddr_v6)) {
-			ipv6_header = (struct ipv6hdr *)skb_network_header(skb);
-			udp_header = (struct udphdr *)skb_transport_header(skb);
-
-			memcpy(skb->sk->sk_udp_saddr_v6, &ipv6_header->saddr, sizeof(skb->sk->sk_udp_saddr_v6));
-			skb->sk->sk_udp_sport = udp_header->source;
-
-			memcpy(skb->sk->sk_udp_daddr_v6, &ipv6_header->daddr, sizeof(skb->sk->sk_udp_daddr_v6));
-			skb->sk->sk_udp_dport = udp_header->dest;
+	if ( (skb) && (skb->sk) && (skb->dev) ) {
+		if ( (skb->sk->knox_pid == INIT_PID_NAP) && (skb->sk->knox_uid == INIT_UID_NAP) && (skb->sk->sk_protocol == IPPROTO_TCP) ) {
+			return NF_ACCEPT;
 		}
-	} else if ((skb->sk) && (skb->sk->sk_protocol == IPPROTO_SCTP)) {
-		if (isIpv6PostRoutingAddressEqualsNull(skb->sk->sk_udp_daddr_v6, skb->sk->sk_udp_saddr_v6)) {
-			ipv6_header = (struct ipv6hdr *)skb_network_header(skb);
-			sctp_header = (struct sctphdr *)skb_transport_header(skb);
-
-			memcpy(skb->sk->sk_udp_saddr_v6, &ipv6_header->saddr, sizeof(skb->sk->sk_udp_saddr_v6));
-			memcpy(skb->sk->sk_udp_daddr_v6, &ipv6_header->daddr, sizeof(skb->sk->sk_udp_daddr_v6));
-			// TO DO : To check how to test the ports of sctp protocols;
-			if (sctp_header != NULL) {
-				skb->sk->sk_udp_sport = sctp_header->source;
-				skb->sk->sk_udp_dport = sctp_header->dest;
-			}
-		}
-	} else {
-		if (skb->sk) {
-			if (isIpv6PostRoutingAddressEqualsNull(skb->sk->sk_udp_daddr_v6, skb->sk->sk_udp_saddr_v6)) {
+		if ( (skb->sk->sk_protocol == IPPROTO_UDP) || (skb->sk->sk_protocol == IPPROTO_TCP) || (skb->sk->sk_protocol == IPPROTO_ICMP) || (skb->sk->sk_protocol == IPPROTO_SCTP) || (skb->sk->sk_protocol == IPPROTO_ICMPV6) ) {
+			ct = nf_ct_get(skb, &ctinfo);
+			if ( (ct) && (!atomic_read(&ct->startFlow)) ) {
+				atomic_set(&ct->startFlow, 1);
+				ct->knox_uid = skb->sk->knox_uid;
+				ct->knox_pid = skb->sk->knox_pid;
+				memcpy(ct->process_name,skb->sk->process_name,sizeof(ct->process_name)-1);
+				ct->knox_puid = skb->sk->knox_puid;
+				ct->knox_ppid = skb->sk->knox_ppid;
+				memcpy(ct->parent_process_name,skb->sk->parent_process_name,sizeof(ct->parent_process_name)-1);
+				memcpy(ct->domain_name,skb->sk->domain_name,sizeof(ct->domain_name)-1);
+				memcpy(ct->interface_name,skb->dev->name,sizeof(ct->interface_name)-1);
 				ipv6_header = (struct ipv6hdr *)skb_network_header(skb);
-				memcpy(skb->sk->sk_udp_saddr_v6, &ipv6_header->saddr, sizeof(skb->sk->sk_udp_saddr_v6));
-				memcpy(skb->sk->sk_udp_daddr_v6, &ipv6_header->daddr, sizeof(skb->sk->sk_udp_daddr_v6));
+				if ( (ipv6_header) && (ipv6_header->nexthdr == IPPROTO_UDP) ) {
+					udp_header = (struct udphdr *)skb_transport_header(skb);
+					if (udp_header) {
+						int udp_payload_size = (ntohs(udp_header->len)) - sizeof(struct udphdr);
+						if ( (ct->knox_sent + udp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + udp_payload_size;
+						if ( (ntohs(udp_header->dest) ==  DNS_PORT_NAP) && (ct->knox_uid == INIT_UID_NAP) && (skb->sk->knox_dns_uid > INIT_UID_NAP) ) {
+							ct->knox_puid = skb->sk->knox_dns_uid;
+							ct->knox_ppid = skb->sk->knox_dns_pid;
+							memcpy(ct->parent_process_name,skb->sk->dns_process_name,sizeof(ct->parent_process_name)-1);
+						}
+					}
+				} else if ( (ipv6_header) && (ipv6_header->nexthdr == IPPROTO_TCP) ) {
+					tcp_header = (struct tcphdr *)skb_transport_header(skb);
+					if (tcp_header) {
+						int tcp_payload_size = (ntohs(ipv6_header->payload_len)) - (tcp_header->doff * 4);
+						if ( (ct->knox_sent + tcp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + tcp_payload_size;
+						if ( (ntohs(tcp_header->dest) ==  DNS_PORT_NAP) && (ct->knox_uid == INIT_UID_NAP) && (skb->sk->knox_dns_uid > INIT_UID_NAP) ) {
+							ct->knox_puid = skb->sk->knox_dns_uid;
+							ct->knox_ppid = skb->sk->knox_dns_pid;
+							memcpy(ct->parent_process_name,skb->sk->dns_process_name,sizeof(ct->parent_process_name)-1);
+						}
+					}
+				} else {
+					ct->knox_sent = 0;
+				}
+				knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_OPEN, 2);
+			} else if (ct) {
+				ipv6_header = (struct ipv6hdr *)skb_network_header(skb);
+				if ( (ipv6_header) && (ipv6_header->nexthdr == IPPROTO_UDP) ) {
+					udp_header = (struct udphdr *)skb_transport_header(skb);
+					if (udp_header) {
+						int udp_payload_size = (ntohs(udp_header->len)) - sizeof(struct udphdr);
+						if ( (ct->knox_sent + udp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + udp_payload_size;
+					}
+				} else if ( (ipv6_header) && (ipv6_header->nexthdr == IPPROTO_TCP) ) {
+					tcp_header = (struct tcphdr *)skb_transport_header(skb);
+					if (tcp_header) {
+						int tcp_payload_size = (ntohs(ipv6_header->payload_len)) - (tcp_header->doff * 4);
+						if ( (ct->knox_sent + tcp_payload_size) > ULLONG_MAX )
+							ct->knox_sent = ULLONG_MAX;
+						else
+							ct->knox_sent = ct->knox_sent + tcp_payload_size;
+					}
+				} else {
+					ct->knox_sent = 0;
+				}
 			}
 		}
 	}
+
 	return NF_ACCEPT;
 }
 
-/* The fuction registers to listen for packets in the post-routing chain to collect the correct source ip address detail; */
+static unsigned int hook_func_ipv4_in_conntrack(void *priv, struct sk_buff *skb, const struct nf_hook_state *state) {
+	struct iphdr *ip_header = NULL;
+	struct tcphdr *tcp_header = NULL;
+	struct udphdr *udp_header = NULL;
+	struct nf_conn *ct = NULL;
+	enum ip_conntrack_info ctinfo;
+
+	if (skb){
+		ip_header = (struct iphdr *)skb_network_header(skb);
+		if ( (ip_header) && (ip_header->protocol == IPPROTO_TCP || ip_header->protocol == IPPROTO_UDP || ip_header->protocol == IPPROTO_SCTP || ip_header->protocol == IPPROTO_ICMP || ip_header->protocol == IPPROTO_ICMPV6) ) {		
+			ct = nf_ct_get(skb, &ctinfo);
+			if (ct) {
+				if (ip_header->protocol == IPPROTO_TCP) {
+					tcp_header = (struct tcphdr *)skb_transport_header(skb);
+					if (tcp_header) {
+						int tcp_payload_size = (ntohs(ip_header->tot_len)) - (ip_header->ihl * 4) - (tcp_header->doff * 4);
+						if ( (ct->knox_recv + tcp_payload_size) > ULLONG_MAX )
+							ct->knox_recv = ULLONG_MAX;
+						else
+							ct->knox_recv = ct->knox_recv + tcp_payload_size;
+					}
+				} else if (ip_header->protocol == IPPROTO_UDP) {
+					udp_header = (struct udphdr *)skb_transport_header(skb);
+					if (udp_header) {
+						int udp_payload_size = (ntohs(udp_header->len)) - sizeof(struct udphdr);
+						if ( (ct->knox_recv + udp_payload_size) > ULLONG_MAX )
+							ct->knox_recv = ULLONG_MAX;
+						else
+							ct->knox_recv = ct->knox_recv + udp_payload_size;
+					}
+				} else {
+					ct->knox_recv = 0;
+				}
+			}
+		}
+	}
+
+	return NF_ACCEPT;
+}
+
+static unsigned int hook_func_ipv6_in_conntrack(void *priv, struct sk_buff *skb, const struct nf_hook_state *state) {
+	struct ipv6hdr *ipv6_header = NULL;
+	struct tcphdr *tcp_header = NULL;
+	struct udphdr *udp_header = NULL;
+	struct nf_conn *ct = NULL;
+	enum ip_conntrack_info ctinfo;
+
+	if (skb){
+		ipv6_header = (struct ipv6hdr *)skb_network_header(skb);
+		if ( (ipv6_header) && (ipv6_header->nexthdr == IPPROTO_TCP || ipv6_header->nexthdr == IPPROTO_UDP || ipv6_header->nexthdr == IPPROTO_SCTP || ipv6_header->nexthdr == IPPROTO_ICMP || ipv6_header->nexthdr == IPPROTO_ICMPV6) ) {
+			ct = nf_ct_get(skb, &ctinfo);
+			if (ct) {
+				if (ipv6_header->nexthdr == IPPROTO_TCP) {
+					tcp_header = (struct tcphdr *)skb_transport_header(skb);
+					if (tcp_header) {
+						int tcp_payload_size = (ntohs(ipv6_header->payload_len)) - (tcp_header->doff * 4);
+						if ( (ct->knox_recv + tcp_payload_size) > ULLONG_MAX )
+							ct->knox_recv = ULLONG_MAX;
+						else
+							ct->knox_recv = ct->knox_recv + tcp_payload_size;
+					}
+				} else if (ipv6_header->nexthdr == IPPROTO_UDP) {
+					udp_header = (struct udphdr *)skb_transport_header(skb);
+					if (udp_header) {
+						int udp_payload_size = (ntohs(udp_header->len)) - sizeof(struct udphdr);
+						if ( (ct->knox_recv + udp_payload_size) > ULLONG_MAX )
+							ct->knox_recv = ULLONG_MAX;
+						else
+							ct->knox_recv = ct->knox_recv + udp_payload_size;
+					}
+				} else {
+					ct->knox_recv = 0;
+				}
+			}
+		}
+	}
+
+	return NF_ACCEPT;
+}
+
+/* The fuction registers to listen for packets in the post-routing chain to collect detail; */
 static void registerNetfilterHooks(void) {
-	nfho_ipv4_pr.hook = hook_func_ipv4_out;
-	nfho_ipv4_pr.hooknum = NF_INET_POST_ROUTING;
-	nfho_ipv4_pr.pf = PF_INET;
-	nfho_ipv4_pr.priority = NF_IP_PRI_LAST;
+	nfho_ipv4_pr_conntrack.hook = hook_func_ipv4_out_conntrack;
+	nfho_ipv4_pr_conntrack.hooknum = NF_INET_POST_ROUTING;
+	nfho_ipv4_pr_conntrack.pf = PF_INET;
+	nfho_ipv4_pr_conntrack.priority = NF_IP_PRI_LAST;
 
-	nfho_ipv6_pr.hook = hook_func_ipv6_out;
-	nfho_ipv6_pr.hooknum = NF_INET_POST_ROUTING;
-	nfho_ipv6_pr.pf = PF_INET6;
-	nfho_ipv6_pr.priority = NF_IP6_PRI_LAST;
+	nfho_ipv6_pr_conntrack.hook = hook_func_ipv6_out_conntrack;
+	nfho_ipv6_pr_conntrack.hooknum = NF_INET_POST_ROUTING;
+	nfho_ipv6_pr_conntrack.pf = PF_INET6;
+	nfho_ipv6_pr_conntrack.priority = NF_IP6_PRI_LAST;
 
-	nf_register_hook(&nfho_ipv4_pr);
-	nf_register_hook(&nfho_ipv6_pr);
+	nfho_ipv4_li_conntrack.hook = hook_func_ipv4_in_conntrack;
+	nfho_ipv4_li_conntrack.hooknum = NF_INET_LOCAL_IN;
+	nfho_ipv4_li_conntrack.pf = PF_INET;
+	nfho_ipv4_li_conntrack.priority = NF_IP_PRI_LAST;
+
+	nfho_ipv6_li_conntrack.hook = hook_func_ipv6_in_conntrack;
+	nfho_ipv6_li_conntrack.hooknum = NF_INET_LOCAL_IN;
+	nfho_ipv6_li_conntrack.pf = PF_INET6;
+	nfho_ipv6_li_conntrack.priority = NF_IP6_PRI_LAST;
+
+	nf_register_hook(&nfho_ipv4_pr_conntrack);
+	nf_register_hook(&nfho_ipv6_pr_conntrack);
+	nf_register_hook(&nfho_ipv4_li_conntrack);
+	nf_register_hook(&nfho_ipv6_li_conntrack);
 }
 
 /* The function un-registers the netfilter hook */
 static void unregisterNetFilterHooks(void) {
-	nf_unregister_hook(&nfho_ipv4_pr);
-	nf_unregister_hook(&nfho_ipv6_pr);
+	nf_unregister_hook(&nfho_ipv4_pr_conntrack);
+	nf_unregister_hook(&nfho_ipv6_pr_conntrack);
+	nf_unregister_hook(&nfho_ipv4_li_conntrack);
+	nf_unregister_hook(&nfho_ipv6_li_conntrack);
 }
 
-/* Function to collect the socket meta-data information. This function is called from af_inet.c when the socket gets closed. */
-void knox_collect_socket_data(struct socket *sock)
-{
-	struct knox_socket_metadata *ksm = kzalloc(sizeof(struct knox_socket_metadata), GFP_KERNEL);
+/* Function to collect the conntrack meta-data information. This function is called from ncm.c during the flows first send data and nf_conntrack_core.c when flow is removed. */
+void knox_collect_conntrack_data(struct nf_conn *ct, int startStop, int where) {
+	if ( check_ncm_flag() && (ncm_activated_type == startStop || ncm_activated_type == NCM_FLOW_TYPE_ALL) ) {
+		struct knox_socket_metadata *ksm = kzalloc(sizeof(struct knox_socket_metadata), GFP_ATOMIC);
+		struct nf_conntrack_tuple *tuple = NULL;
+		struct timespec close_timespec;
 
-	struct sock *sk = sock->sk;
-	struct inet_sock *inet = inet_sk(sk);
-
-	struct pid *pid_struct;
-	struct task_struct *task;
-
-	struct pid *parent_pid_struct;
-	struct task_struct *parent_task;
-
-	struct timespec close_timespec;
-
-	struct ipv6_pinfo *np = NULL;
-	char ipv6_address[INET6_ADDRSTRLEN_NAP] = {0};
-
-	char full_process_name[128] = {0};
-	char full_parent_process_name[128] = {0};
-	int process_returnValue;
-	int parent_returnValue;
-
-	if (ksm == NULL)
-		return;
-
-	if (!(sk->sk_family == AF_INET) && !(sk->sk_family == AF_INET6)) {
-		printk("NPA feature will not record the invalid address type \n");
-		kfree(ksm);
-		return;
-	}
-
-	#if IS_ENABLED(CONFIG_IPV6)
-	if (sk->sk_family == AF_INET6) {
-		np = inet6_sk(sk);
-		if (np == NULL) {
-			kfree(ksm);
+		if (ksm == NULL) {
+			printk("kzalloc atomic memory allocation failed\n");
 			return;
 		}
-	}
-	#endif
 
-	pid_struct = find_get_pid(current->tgid);
-	task = pid_task(pid_struct, PIDTYPE_PID);
-	if (task != NULL) {
-		process_returnValue = get_cmdline(task, full_process_name, sizeof(full_process_name)-1);
-		if (process_returnValue > 0) {
-			memcpy(ksm->process_name, full_process_name, sizeof(ksm->process_name));
+		ksm->knox_uid = ct->knox_uid;
+		ksm->knox_pid = ct->knox_pid;
+		memcpy(ksm->process_name, ct->process_name, sizeof(ksm->process_name)-1);
+		ksm->trans_proto = nf_ct_protonum(ct);
+		tuple = &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
+		if (tuple != NULL) {
+			if (nf_ct_l3num(ct) == IPV4_FAMILY_NAP) {
+				sprintf(ksm->srcaddr,"%pI4",(void *)&tuple->src.u3.ip);
+				sprintf(ksm->dstaddr,"%pI4",(void *)&tuple->dst.u3.ip);
+			} else if (nf_ct_l3num(ct) == IPV6_FAMILY_NAP) {
+				sprintf(ksm->srcaddr,"%pI6",(void *)&tuple->src.u3.ip6);
+				sprintf(ksm->dstaddr,"%pI6",(void *)&tuple->dst.u3.ip6);
+			}
+			if (nf_ct_protonum(ct) == IPPROTO_UDP) {
+				ksm->srcport = ntohs(tuple->src.u.udp.port);
+				ksm->dstport = ntohs(tuple->dst.u.udp.port);
+			} else if (nf_ct_protonum(ct) == IPPROTO_TCP) {
+				ksm->srcport = ntohs(tuple->src.u.tcp.port);
+				ksm->dstport = ntohs(tuple->dst.u.tcp.port);
+			} else if (nf_ct_protonum(ct) == IPPROTO_SCTP) {
+				ksm->srcport = ntohs(tuple->src.u.sctp.port);
+				ksm->dstport = ntohs(tuple->dst.u.sctp.port);
+			} else {
+				ksm->srcport = 0;
+				ksm->dstport = 0;
+			}
+		}
+		memcpy(ksm->domain_name, ct->domain_name, sizeof(ksm->domain_name)-1);
+		ksm->open_time = ct->open_time;
+		if (startStop == NCM_FLOW_TYPE_OPEN) {
+			ksm->close_time = 0;
+		} else if (startStop == NCM_FLOW_TYPE_CLOSE) {
+			close_timespec = current_kernel_time();
+			ksm->close_time = close_timespec.tv_sec;
+		}
+		ksm->knox_puid = ct->knox_puid;
+		ksm->knox_ppid = ct->knox_ppid;
+		memcpy(ksm->parent_process_name, ct->parent_process_name, sizeof(ksm->parent_process_name)-1);
+		if ( (nf_ct_protonum(ct) == IPPROTO_UDP) || (nf_ct_protonum(ct) == IPPROTO_TCP) || (nf_ct_protonum(ct) == IPPROTO_SCTP) ) {
+			ksm->knox_sent = ct->knox_sent;
+			ksm->knox_recv = ct->knox_recv;
 		} else {
-			memcpy(ksm->process_name, task->comm, sizeof(task->comm));
+			ksm->knox_sent = 0;
+			ksm->knox_recv = 0;
 		}
-		if (task->parent != NULL) {
-			parent_pid_struct = find_get_pid(task->parent->tgid);
-			parent_task = pid_task(parent_pid_struct, PIDTYPE_PID);
-			if (parent_task != NULL) {
-				parent_returnValue = get_cmdline(parent_task, full_parent_process_name, sizeof(full_parent_process_name)-1);
-				if (parent_returnValue > 0) {
-					memcpy(ksm->parent_process_name, full_parent_process_name, sizeof(ksm->parent_process_name));
-				} else {
-					memcpy(ksm->parent_process_name, parent_task->comm, sizeof(parent_task->comm));
-				}
-				ksm->knox_puid = parent_task->cred->uid.val;
-				ksm->knox_ppid = parent_task->tgid;
-			}
+		if (ksm->dstport == DNS_PORT_NAP && ksm->knox_uid > INIT_UID_NAP) {
+			ksm->knox_uid_dns = ksm->knox_uid;
+		} else {
+			ksm->knox_uid_dns = ksm->knox_puid;
 		}
+		memcpy(ksm->interface_name, ct->interface_name, sizeof(ksm->interface_name)-1);
+		if (where == 10) {
+			ksm->flow_type = 2;
+		} else {
+			ksm->flow_type = 1;
+		}
+		insert_data_kfifo_kthread(ksm);
 	}
-
-	if (sk->sk_protocol == IPPROTO_TCP) {
-		// Changes to support IPV4, IPV6, IPV4-mapped-IPV6;
-		switch (sk->sk_family) {
-		case AF_INET6:
-			sprintf(ipv6_address, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-			if (isIpv6SourceAddressEqualsNull(ipv6_address)) {
-				if ((!ipv6_addr_v4mapped(&np->saddr))) {
-						/* Handles IPv6 */
-					sprintf(ksm->srcaddr, "%pI6", (void *)&np->saddr);
-					ksm->srcport = ntohs(inet->inet_sport);
-					sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-					ksm->dstport = ntohs(inet->inet_dport);
-				} else {
-						/* Handles IPv4MappedIPv6 */
-					sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-					ksm->srcport = ntohs(inet->inet_sport);
-					sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-					ksm->dstport = ntohs(inet->inet_dport);
-				}
-			} else {
-				if ((!ipv6_addr_v4mapped(&sk->sk_v6_rcv_saddr))) {
-						/* Handles IPv6 */
-					sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-					ksm->srcport = ntohs(inet->inet_sport);
-					sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-					ksm->dstport = ntohs(inet->inet_dport);
-				} else {
-						/* Handles IPv4MappedIPv6 */
-					sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-					ksm->srcport = ntohs(inet->inet_sport);
-					sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-					ksm->dstport = ntohs(inet->inet_dport);
-				}
-			}
-			break;
-		case AF_INET:
-				/* Handles IPv4 */
-			sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-			ksm->srcport = ntohs(inet->inet_sport);
-
-			sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-			ksm->dstport = ntohs(inet->inet_dport);
-			break;
-		default:
-			kfree(ksm);
-			return;
-		}
-	} else if (sk->sk_protocol == IPPROTO_UDP) {
-		// Changes to support IPV4, IPV6, IPV4-mapped-IPV6;
-		switch (sk->sk_family) {
-		case AF_INET6:
-			sprintf(ipv6_address, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-			if (isIpv6SourceAddressEqualsNull(ipv6_address)) {
-					/* Handles IPv6 */
-				if ((!ipv6_addr_v4mapped(&np->saddr))) {
-					if (isIpv6PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&np->saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_udp_saddr_v6);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_udp_daddr_v6);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				} else {
-						/* Handles IPv4MappedIPv6 */
-					if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				}
-			} else {
-					/* Handles IPv6 */
-				if ((!ipv6_addr_v4mapped(&sk->sk_v6_rcv_saddr))) {
-					if (isIpv6PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_udp_saddr_v6);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_udp_daddr_v6);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				} else {
-						/* Handles IPv4MappedIPv6 */
-					if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				}
-			}
-			break;
-		case AF_INET:
-				/* Handles IPv4 */
-			if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-				sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-				ksm->srcport = ntohs(inet->inet_sport);
-
-				sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-				ksm->dstport = ntohs(inet->inet_dport);
-			} else {
-				sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-				ksm->srcport = ntohs(sk->sk_udp_sport);
-
-				sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-				ksm->dstport = ntohs(sk->sk_udp_dport);
-			}
-			break;
-		default:
-			kfree(ksm);
-			return;
-		}
-	} else if (sk->sk_protocol == IPPROTO_SCTP) {
-		// Changes to support IPV4, IPV6, IPV4-mapped-IPV6
-		switch (sk->sk_family) {
-		case AF_INET6:
-			sprintf(ipv6_address, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-			if (isIpv6SourceAddressEqualsNull(ipv6_address)) {
-				if ((!ipv6_addr_v4mapped(&np->saddr))) {
-						/* Handles IPv6 */
-					if (isIpv6PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&np->saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_udp_saddr_v6);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_udp_daddr_v6);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				} else {
-						/* Handles IPv4MappedIPv6 */
-					if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				}
-			} else {
-					/* Handles IPv6 */
-				if ((!ipv6_addr_v4mapped(&sk->sk_v6_rcv_saddr))) {
-					if (isIpv6PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_udp_saddr_v6);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_udp_daddr_v6);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				} else {
-						/* Handles IPv4MappedIPv6 */
-					if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-						ksm->srcport = ntohs(inet->inet_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-						ksm->dstport = ntohs(inet->inet_dport);
-					} else {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-						ksm->srcport = ntohs(sk->sk_udp_sport);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-						ksm->dstport = ntohs(sk->sk_udp_dport);
-					}
-				}
-			}
-			break;
-		case AF_INET:
-				/* Handles IPv4 */
-			if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-				sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-				ksm->srcport = ntohs(inet->inet_sport);
-
-				sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-				ksm->dstport = ntohs(inet->inet_dport);
-			} else {
-				sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-				ksm->srcport = ntohs(sk->sk_udp_sport);
-
-				sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-				ksm->dstport = ntohs(sk->sk_udp_dport);
-			}
-			break;
-		default:
-			kfree(ksm);
-			return;
-		}
-	} else {
-		// Changes to support IPV4, IPV6, IPV4-mapped-IPV6;
-		switch (sk->sk_family) {
-		case AF_INET6:
-			sprintf(ipv6_address, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-			if (isIpv6SourceAddressEqualsNull(ipv6_address)) {
-				if ((!ipv6_addr_v4mapped(&np->saddr))) {
-					if (isIpv6PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&np->saddr);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-					} else {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_udp_saddr_v6);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_udp_daddr_v6);
-					}
-				} else {
-					if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-					} else {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-					}
-				}
-			} else {
-				if ((!ipv6_addr_v4mapped(&sk->sk_v6_rcv_saddr))) {
-					if (isIpv6PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_v6_rcv_saddr);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_v6_daddr);
-					} else {
-						sprintf(ksm->srcaddr, "%pI6", (void *)&sk->sk_udp_saddr_v6);
-						sprintf(ksm->dstaddr, "%pI6", (void *)&sk->sk_udp_daddr_v6);
-					}
-				} else {
-					if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-					} else {
-						sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-						sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-					}
-				}
-			}
-			break;
-		case AF_INET:
-			/* Handles IPv4 */
-			if (isIpv4PostRoutingAddressEqualsNull(sk->sk_udp_daddr_v6, sk->sk_udp_saddr_v6)) {
-				sprintf(ksm->srcaddr, "%pI4", (void *)&inet->inet_saddr);
-				sprintf(ksm->dstaddr, "%pI4", (void *)&inet->inet_daddr);
-			} else {
-				sprintf(ksm->srcaddr, "%pI4", (void *)&sk->sk_udp_saddr_v6[0]);
-				sprintf(ksm->dstaddr, "%pI4", (void *)&sk->sk_udp_daddr_v6[0]);
-			}
-			break;
-		default:
-			kfree(ksm);
-			return;
-		}
-	}
-
-	// Do not record packets which does not have valid ip addresses associated;
-	if (isIpv4AddressEqualsNull(ksm->srcaddr, ksm->dstaddr) || isIpv6AddressEqualsNull(ksm->srcaddr, ksm->dstaddr)) {
-		kfree(ksm);
-		return;
-	}
-
-	ksm->knox_sent = sock->knox_sent;
-	ksm->knox_recv = sock->knox_recv;
-	// To record the uid of DNS request packet and other packets
-	ksm->knox_uid = current->cred->uid.val;
-	if (ksm->dstport == 53 && ksm->knox_uid > 0) {
-		ksm->knox_uid_dns = ksm->knox_uid;
-	} else if (ksm->dstport == 53 && ksm->knox_uid == 0 && sk->knox_dns_uid >= 0) {
-		ksm->knox_uid_dns = sk->knox_dns_uid;
-	} else {
-		ksm->knox_uid_dns = 0;
-	}
-
-	ksm->knox_pid = current->tgid;
-	ksm->trans_proto = sk->sk_protocol;
-
-	memcpy(ksm->domain_name, sk->domain_name, sizeof(ksm->domain_name)-1);
-
-	ksm->open_time = sock->open_time;
-
-	close_timespec = current_kernel_time();
-	ksm->close_time = close_timespec.tv_sec;
-
-	insert_data_kfifo_kthread(ksm);
 }
-EXPORT_SYMBOL(knox_collect_socket_data);
+EXPORT_SYMBOL(knox_collect_conntrack_data);
 
 /* The function opens the char device through which the userspace reads the socket meta-data information */
 static int ncm_open(struct inode *inode, struct file *file) {
 	NCM_LOGD("ncm_open is being called. \n");
+
+	if ( !(IS_ENABLED(CONFIG_NF_CONNTRACK)) ) {
+		NCM_LOGE("ncm_open failed:Trying to open in device conntrack module is not enabled \n");
+		return -EACCES;
+	}
 
 	if (!is_system_server()) {
 		NCM_LOGE("ncm_open failed:Caller is a non system process with uid %u \n", (current_uid().val));
@@ -746,6 +649,7 @@ static ssize_t ncm_copy_data_user_64(char __user *buf, size_t count)
 	user_copy.close_time = kcm.close_time;
 	user_copy.knox_uid_dns = kcm.knox_uid_dns;
 	user_copy.knox_ppid = kcm.knox_ppid;
+	user_copy.flow_type = kcm.flow_type;
 
 	memcpy(user_copy.srcaddr, kcm.srcaddr, sizeof(user_copy.srcaddr));
 	memcpy(user_copy.dstaddr, kcm.dstaddr, sizeof(user_copy.dstaddr));
@@ -754,6 +658,8 @@ static ssize_t ncm_copy_data_user_64(char __user *buf, size_t count)
 	memcpy(user_copy.parent_process_name, kcm.parent_process_name, sizeof(user_copy.parent_process_name));
 
 	memcpy(user_copy.domain_name, kcm.domain_name, sizeof(user_copy.domain_name)-1);
+
+	memcpy(user_copy.interface_name, kcm.interface_name, sizeof(user_copy.interface_name)-1);
 
 	copied = copy_to_user(buf, &user_copy, sizeof(struct knox_user_socket_metadata));
 	return count;
@@ -797,6 +703,7 @@ static ssize_t ncm_copy_data_user(char __user *buf, size_t count)
 	user_copy.close_time = kcm->close_time;
 	user_copy.knox_uid_dns = kcm->knox_uid_dns;
 	user_copy.knox_ppid = kcm->knox_ppid;
+	user_copy.flow_type = kcm->flow_type;
 
 	memcpy(user_copy.srcaddr, kcm->srcaddr, sizeof(user_copy.srcaddr));
 	memcpy(user_copy.dstaddr, kcm->dstaddr, sizeof(user_copy.dstaddr));
@@ -805,6 +712,8 @@ static ssize_t ncm_copy_data_user(char __user *buf, size_t count)
 	memcpy(user_copy.parent_process_name, kcm->parent_process_name, sizeof(user_copy.parent_process_name));
 
 	memcpy(user_copy.domain_name, kcm->domain_name, sizeof(user_copy.domain_name)-1);
+
+	memcpy(user_copy.interface_name, kcm->interface_name, sizeof(user_copy.interface_name)-1);
 
 	copied = copy_to_user(buf, &user_copy, sizeof(struct knox_user_socket_metadata));
 
@@ -819,6 +728,11 @@ static ssize_t ncm_read(struct file *file, char __user *buf, size_t count, loff_
 	if (!is_system_server()) {
 		NCM_LOGE("ncm_read failed:Caller is a non system process with uid %u \n", (current_uid().val));
 		return -EACCES;
+	}
+
+	if (!eWq) {
+		NCM_LOGD("ewq..Single Thread created\r\n");
+		eWq = create_workqueue("ncmworkqueue");
 	}
 
 	#ifdef CONFIG_64BIT
@@ -856,22 +770,57 @@ static long ncm_ioctl_evt(struct file *file, unsigned int cmd, unsigned long arg
 		return -EACCES;
 	}
 	switch (cmd) {
-	case NCM_ACTIVATED: {
+	case NCM_ACTIVATED_ALL: {
 		NCM_LOGD("ncm_ioctl_evt is being NCM_ACTIVATED with the ioctl command %u \n", cmd);
 		if (check_ncm_flag())
 			return SUCCESS;
 		registerNetfilterHooks();
 		initialize_kfifo();
+		initialize_ncmworkqueue();
 		update_ncm_flag(ncm_activated_flag);
+		update_ncm_flow_type(NCM_FLOW_TYPE_ALL);
+		break;
+	}
+	case NCM_ACTIVATED_OPEN: {
+		NCM_LOGD("ncm_ioctl_evt is being NCM_ACTIVATED with the ioctl command %u \n", cmd);
+		if (check_ncm_flag())
+			return SUCCESS;
+		registerNetfilterHooks();
+		initialize_kfifo();
+		initialize_ncmworkqueue();
+		update_ncm_flag(ncm_activated_flag);
+		update_ncm_flow_type(NCM_FLOW_TYPE_OPEN);
+		break;
+	}
+	case NCM_ACTIVATED_CLOSE: {
+		NCM_LOGD("ncm_ioctl_evt is being NCM_ACTIVATED with the ioctl command %u \n", cmd);
+		if (check_ncm_flag())
+			return SUCCESS;
+		registerNetfilterHooks();
+		initialize_kfifo();
+		initialize_ncmworkqueue();
+		update_ncm_flag(ncm_activated_flag);
+		update_ncm_flow_type(NCM_FLOW_TYPE_CLOSE);
 		break;
 	}
 	case NCM_DEACTIVATED: {
 		NCM_LOGD("ncm_ioctl_evt is being NCM_DEACTIVATED with the ioctl command %u \n", cmd);
 		if (!check_ncm_flag())
 			return SUCCESS;
+		update_ncm_flow_type(NCM_FLOW_TYPE_DEFAULT);
 		update_ncm_flag(ncm_deactivated_flag);
 		free_kfifo();
 		unregisterNetFilterHooks();
+		break;
+	}
+	case NCM_GETVERSION: {
+		NCM_LOGD("ncm_ioctl_evt is being NCM_GETVERSION with the ioctl command %u \n", cmd);
+		return NCM_VERSION;
+		break;
+	}
+	case NCM_MATCH_VERSION: {
+		NCM_LOGD("ncm_ioctl_evt is being NCM_MATCH_VERSION with the ioctl command %u \n", cmd);
+		return sizeof(struct knox_user_socket_metadata);
 		break;
 	}
 	default:
@@ -944,4 +893,4 @@ module_exit(ncm_exit)
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Network Context Metadata Module:");
 
-/* END_OF_KNOX_NPA */
+// KNOX NPA - END

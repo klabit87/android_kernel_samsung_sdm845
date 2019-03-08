@@ -556,7 +556,6 @@ static bool msm_vidc_check_for_vp9d_overload(struct msm_vidc_core *core)
 {
 	u32 vp9d_instance_count = 0;
 	struct msm_vidc_inst *inst = NULL;
-	bool overload = false;
 
 	mutex_lock(&core->lock);
 	list_for_each_entry(inst, &core->instances, list) {
@@ -566,11 +565,9 @@ static bool msm_vidc_check_for_vp9d_overload(struct msm_vidc_core *core)
 	}
 	mutex_unlock(&core->lock);
 
-	/* Instance count includes current instance as well. */
-
 	if (vp9d_instance_count > MAX_VP9D_INST_COUNT)
-		overload = true;
-	return overload;
+		return true;
+	return false;
 }
 
 int msm_vdec_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)

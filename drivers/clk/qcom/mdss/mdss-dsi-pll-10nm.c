@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +20,8 @@
 #include "mdss-dsi-pll.h"
 #include "mdss-pll.h"
 #include <dt-bindings/clock/mdss-10nm-pll-clk.h>
+#define CREATE_TRACE_POINTS
+#include "mdss_pll_trace.h"
 
 #define VCO_DELAY_USEC 1
 
@@ -175,6 +177,7 @@ static inline int pll_reg_read(void *context, unsigned int reg,
 					unsigned int *val)
 {
 	int rc = 0;
+	u32 data;
 	struct mdss_pll_resources *rsc = context;
 
 	rc = mdss_pll_resource_enable(rsc, true);
@@ -183,7 +186,19 @@ static inline int pll_reg_read(void *context, unsigned int reg,
 		return rc;
 	}
 
+	/*
+	 * DSI PHY/PLL should be both powered on when reading PLL
+	 * registers. Since PHY power has been enabled in DSI PHY
+	 * driver, only PLL power is needed to enable here.
+	 */
+	data = MDSS_PLL_REG_R(rsc->phy_base, PHY_CMN_CTRL_0);
+	MDSS_PLL_REG_W(rsc->phy_base, PHY_CMN_CTRL_0, data | BIT(5));
+	ndelay(250);
+
 	*val = MDSS_PLL_REG_R(rsc->pll_base, reg);
+
+	MDSS_PLL_REG_W(rsc->phy_base, PHY_CMN_CTRL_0, data);
+
 	(void)mdss_pll_resource_enable(rsc, false);
 
 	return rc;
@@ -895,8 +910,13 @@ static int vco_10nm_prepare(struct clk_hw *hw)
 		MDSS_PLL_REG_W(pll->pll_base, PLL_PLL_OUTDIV_RATE,
 					pll->cached_outdiv);
 	}
-
+	MDSS_PLL_ATRACE_BEGIN("pll_lock");
+	trace_mdss_pll_lock_start((u64)pll->vco_cached_rate,
+			pll->vco_current_rate,
+			pll->cached_cfg0, pll->cached_cfg1,
+			pll->cached_outdiv, pll->resource_ref_cnt);
 	rc = dsi_pll_enable(vco);
+	MDSS_PLL_ATRACE_END("pll_lock");
 	if (rc) {
 		mdss_pll_resource_enable(pll, false);
 		pr_err("pll(%d) enable failed, rc=%d\n", pll->index, rc);
@@ -922,6 +942,11 @@ static unsigned long vco_10nm_recalc_rate(struct clk_hw *hw,
 
 	if (!vco->priv)
 		pr_err("vco priv is null\n");
+
+	if (!pll) {
+		pr_err("pll is null\n");
+		return 0;
+	}
 
 	/*
 	 * Calculate the vco rate from HW registers only for handoff cases.
@@ -1131,7 +1156,7 @@ static struct regmap_bus pll_regmap_bus = {
 	.reg_read = pll_reg_read,
 };
 
-static struct regmap_bus pclk_mux_regmap_bus = {
+static struct regmap_bus pclk_src_mux_regmap_bus = {
 	.reg_read = pclk_mux_read_sel,
 	.reg_write = pclk_mux_write_sel,
 };
@@ -1577,7 +1602,7 @@ int dsi_pll_clock_register_10nm(struct platform_device *pdev,
 				pll_res, &dsi_pll_10nm_config);
 		dsi0pll_pclk_mux.clkr.regmap = rmap;
 
-		rmap = devm_regmap_init(&pdev->dev, &pclk_mux_regmap_bus,
+		rmap = devm_regmap_init(&pdev->dev, &pclk_src_mux_regmap_bus,
 				pll_res, &dsi_pll_10nm_config);
 		dsi0pll_pclk_src_mux.clkr.regmap = rmap;
 		rmap = devm_regmap_init(&pdev->dev, &mdss_mux_regmap_bus,
@@ -1615,11 +1640,11 @@ int dsi_pll_clock_register_10nm(struct platform_device *pdev,
 				pll_res, &dsi_pll_10nm_config);
 		dsi1pll_pclk_src.clkr.regmap = rmap;
 
-		rmap = devm_regmap_init(&pdev->dev, &pclk_mux_regmap_bus,
+		rmap = devm_regmap_init(&pdev->dev, &mdss_mux_regmap_bus,
 				pll_res, &dsi_pll_10nm_config);
 		dsi1pll_pclk_mux.clkr.regmap = rmap;
 
-		rmap = devm_regmap_init(&pdev->dev, &mdss_mux_regmap_bus,
+		rmap = devm_regmap_init(&pdev->dev, &pclk_src_mux_regmap_bus,
 				pll_res, &dsi_pll_10nm_config);
 		dsi1pll_pclk_src_mux.clkr.regmap = rmap;
 		rmap = devm_regmap_init(&pdev->dev, &mdss_mux_regmap_bus,

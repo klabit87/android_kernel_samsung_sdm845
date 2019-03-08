@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -123,6 +123,8 @@ struct msm_kms_funcs {
 			unsigned int domain);
 	/* handle continuous splash  */
 	int (*cont_splash_config)(struct msm_kms *kms);
+	/* check for continuous splash status */
+	bool (*check_for_splash)(struct msm_kms *kms);
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	int (*ss_callback)(struct drm_device *dev,
 			enum mdss_intf_events event, void *arg);

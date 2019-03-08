@@ -31,4 +31,5 @@ struct samsung_display_driver_data;
 /* PANEL SYSFS FUNCTION */
 int ss_create_sysfs(struct samsung_display_driver_data *vdd);
 void ss_cabc_update(struct samsung_display_driver_data *vdd);
+int flash_gamma_mode_check(struct samsung_display_driver_data *vdd);
 #endif

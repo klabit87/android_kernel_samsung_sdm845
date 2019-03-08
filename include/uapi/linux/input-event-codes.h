@@ -525,6 +525,8 @@
 #define KEY_SIDE_GESTURE_RIGHT	0x1ca
 #define KEY_SIDE_GESTURE_LEFT	0x1cb
 
+#define KEY_RESET		0x1cd
+
 #define KEY_FN			0x1d0
 #define KEY_FN_ESC		0x1d1
 #define KEY_FN_F1		0x1d2
@@ -650,6 +652,7 @@
  */
 #define KEY_DATA			0x277
 
+#define KEY_INT_CANCEL		0x2be	/* for touch event skip */
 #define KEY_WINK			0x2bf	/* Intelligence Key */
 
 #define BTN_TRIGGER_HAPPY		0x2c0
@@ -693,6 +696,14 @@
 #define BTN_TRIGGER_HAPPY38		0x2e5
 #define BTN_TRIGGER_HAPPY39		0x2e6
 #define BTN_TRIGGER_HAPPY40		0x2e7
+
+/* Custom fingerprint gestures keys */
+#define KEY_FP_GESTURE_UP		0x2e8
+#define KEY_FP_GESTURE_DOWN		0x2e9
+#define KEY_FP_GESTURE_LEFT		0x2ea
+#define KEY_FP_GESTURE_RIGHT		0x2eb
+#define KEY_FP_GESTURE_LONG_PRESS	0x2ec
+#define KEY_FP_GESTURE_TAP		0x2ed
 
 /* We avoid low common keys in module aliases so they don't get huge. */
 #define KEY_MIN_INTERESTING	KEY_MUTE
@@ -792,11 +803,11 @@
 #define SW_ROTATE_LOCK		0x0c  /* set = rotate locked/disabled */
 #define SW_LINEIN_INSERT	0x0d  /* set = inserted */
 #define SW_MUTE_DEVICE		0x0e  /* set = device disabled */
-#define SW_PEN_INSERT		0x0f  /* set = pen inserted */
-#define SW_HPHL_OVERCURRENT	0x10  /* set = over current on left hph */
-#define SW_HPHR_OVERCURRENT	0x11  /* set = over current on right hph */
-#define SW_MICROPHONE2_INSERT   0x12  /* set = inserted */
-#define SW_UNSUPPORT_INSERT	0x13  /* set = unsupported device inserted */
+#define SW_HPHL_OVERCURRENT	0x0f  /* set = over current on left hph */
+#define SW_HPHR_OVERCURRENT	0x10  /* set = over current on right hph */
+#define SW_MICROPHONE2_INSERT	0x11  /* set = inserted */
+#define SW_UNSUPPORT_INSERT	0x12  /* set = unsupported device inserted */
+#define SW_PEN_INSERT		0x13  /* set = pen insert, remove */
 #define SW_GLOVE		0x20  /* set = glove mode */
 #define SW_MAX			0x20
 #define SW_CNT			(SW_MAX+1)

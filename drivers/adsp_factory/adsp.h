@@ -42,11 +42,15 @@ struct adsp_data {
 	bool sysfs_created[MSG_SENSOR_MAX];
 	struct mutex prox_factory_mutex;
 	struct mutex accel_factory_mutex;
+	struct mutex remove_sysfs_mutex;
 };
 
 #ifdef CONFIG_SUPPORT_MOBEAM
 void adsp_mobeam_register(struct device_attribute *attributes[]);
 void adsp_mobeam_unregister(struct device_attribute *attributes[]);
+#endif
+#ifdef CONFIG_SEC_FACTORY
+int get_mag_raw_data(int32_t *raw_data);
 #endif
 int get_accel_raw_data(int32_t *raw_data);
 int get_prox_raw_data(int *raw_data, int *offset);

@@ -364,6 +364,12 @@ static irqreturn_t rtc6213n_i2c_interrupt(int irq, void *dev_id)
 	if (retval < 0)
 		goto end;
 
+#ifdef CONFIG_RDS
+	retval = rtc6213n_get_register(radio, RSSI);
+	if (retval < 0)
+		goto end;
+#endif
+
 	if ((rtc6213n_wq_flag == SEEK_WAITING) ||
 		(rtc6213n_wq_flag == TUNE_WAITING)) {
 		if (radio->registers[STATUS] & STATUS_STD) {
@@ -401,8 +407,11 @@ static irqreturn_t rtc6213n_i2c_interrupt(int irq, void *dev_id)
 	dev_info(&radio->videodev->dev, "RDS_RDY=%d, RDS_SYNC=%d\n",
 		(radio->registers[STATUS] & STATUS_RDS_RDY) >> 15,
 		(radio->registers[STATUS] & STATUS_RDS_SYNC) >> 11);
-
+#ifdef CONFIG_RDS
+	for (blocknum = 0; blocknum < 5; blocknum++) {
+#else
 	for (blocknum = 0; blocknum < 4; blocknum++) {
+#endif
 		switch (blocknum) {
 		case 1:
 			bler = (radio->registers[RSSI] &
@@ -419,6 +428,12 @@ static irqreturn_t rtc6213n_i2c_interrupt(int irq, void *dev_id)
 					RSSI_RDS_BD_ERRS) >> 8;
 			rds = radio->registers[BD_DATA];
 			break;
+#ifdef CONFIG_RDS			
+		case 4:		/* block index 4 for RSSI */
+			bler = 0;
+			rds = radio->registers[RSSI] & RSSI;
+			break;
+#endif
 		default:	/* case 0 */
 			bler = (radio->registers[RSSI] &
 					RSSI_RDS_BA_ERRS) >> 14;

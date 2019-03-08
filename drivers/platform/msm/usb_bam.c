@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,6 +26,7 @@
 #include <linux/workqueue.h>
 #include <linux/dma-mapping.h>
 #include <linux/pm_runtime.h>
+#include <linux/usb/msm_hsusb.h>
 
 #define USB_THRESHOLD 512
 #define USB_BAM_MAX_STR_LEN 50
@@ -321,10 +322,18 @@ static int usb_bam_alloc_buffer(struct usb_bam_pipe_connect *pipe_connect)
 	struct usb_bam_ctx_type *ctx = &msm_usb_bam[pipe_connect->bam_type];
 	struct sps_mem_buffer *data_buf = &(pipe_connect->data_mem_buf);
 	struct sps_mem_buffer *desc_buf = &(pipe_connect->desc_mem_buf);
+	struct device *dev = &ctx->usb_bam_pdev->dev;
+	struct sg_table data_sgt, desc_sgt;
+	dma_addr_t data_iova, desc_iova;
+	u32 data_fifo_size;
 
 	pr_debug("%s: data_fifo size:%x desc_fifo_size:%x\n",
 				__func__, pipe_connect->data_fifo_size,
 				pipe_connect->desc_fifo_size);
+
+	if (dev->parent)
+		dev = dev->parent;
+
 	switch (pipe_connect->mem_type) {
 	case SPS_PIPE_MEM:
 		log_event_dbg("%s: USB BAM using SPS pipe memory\n", __func__);
@@ -366,7 +375,16 @@ static int usb_bam_alloc_buffer(struct usb_bam_pipe_connect *pipe_connect)
 			ret = -ENOMEM;
 			goto err_exit;
 		}
+
 		memset_io(data_buf->base, 0, data_buf->size);
+		data_buf->iova = dma_map_resource(dev, data_buf->phys_base,
+					data_buf->size, DMA_BIDIRECTIONAL, 0);
+		if (dma_mapping_error(dev, data_buf->iova))
+			log_event_err("%s(): oci_mem: err mapping data_buf\n",
+								__func__);
+		log_event_dbg("%s: data_buf:%s virt:%pK, phys:%lx, iova:%lx\n",
+			__func__, dev_name(dev), data_buf->base,
+			(unsigned long)data_buf->phys_base, data_buf->iova);
 
 		desc_buf->phys_base = pipe_connect->desc_fifo_base_offset +
 				ctx->usb_bam_data->usb_bam_fifo_baseaddr;
@@ -380,6 +398,16 @@ static int usb_bam_alloc_buffer(struct usb_bam_pipe_connect *pipe_connect)
 			goto err_exit;
 		}
 		memset_io(desc_buf->base, 0, desc_buf->size);
+		desc_buf->iova = dma_map_resource(dev, desc_buf->phys_base,
+					desc_buf->size,
+					DMA_BIDIRECTIONAL, 0);
+		if (dma_mapping_error(dev, desc_buf->iova))
+			log_event_err("%s(): oci_mem: err mapping desc_buf\n",
+								__func__);
+
+		log_event_dbg("%s: desc_buf:%s virt:%pK, phys:%lx, iova:%lx\n",
+			__func__, dev_name(dev), desc_buf->base,
+			(unsigned long)desc_buf->phys_base, desc_buf->iova);
 		break;
 	case SYSTEM_MEM:
 		log_event_dbg("%s: USB BAM using system memory\n", __func__);
@@ -391,56 +419,57 @@ static int usb_bam_alloc_buffer(struct usb_bam_pipe_connect *pipe_connect)
 		}
 
 		/* BAM would use system memory, allocate FIFOs */
-		data_buf->size = pipe_connect->data_fifo_size;
+		data_fifo_size = data_buf->size = pipe_connect->data_fifo_size;
 		/* On platforms which use CI controller, USB HW can fetch
 		 * additional 128 bytes at the end of circular buffer when
 		 * AXI prefetch is enabled and hence requirement is to
 		 * allocate 512 bytes more than required length.
 		 */
 		if (pipe_connect->bam_type == CI_CTRL)
-			data_buf->base =
-				dma_alloc_coherent(&ctx->usb_bam_pdev->dev,
-				(pipe_connect->data_fifo_size +
-					DATA_FIFO_EXTRA_MEM_ALLOC_SIZE),
-				&(data_buf->phys_base),
-				GFP_KERNEL);
-		else
-			data_buf->base =
-				dma_alloc_coherent(&ctx->usb_bam_pdev->dev,
-				pipe_connect->data_fifo_size,
-				&(data_buf->phys_base),
-				GFP_KERNEL);
+			data_fifo_size += DATA_FIFO_EXTRA_MEM_ALLOC_SIZE;
+
+		data_buf->base = dma_alloc_attrs(dev, data_fifo_size,
+						&data_iova, GFP_KERNEL,
+						DMA_ATTR_FORCE_CONTIGUOUS);
 		if (!data_buf->base) {
-			log_event_err("%s: dma_alloc_coherent failed for data fifo\n",
+			log_event_err("%s: data_fifo: dma_alloc_attr failed\n",
 								__func__);
 			ret = -ENOMEM;
 			goto err_exit;
 		}
 		memset(data_buf->base, 0, pipe_connect->data_fifo_size);
 
+		data_buf->iova = data_iova;
+		dma_get_sgtable(dev, &data_sgt, data_buf->base, data_buf->iova,
+								data_fifo_size);
+		data_buf->phys_base = page_to_phys(sg_page(data_sgt.sgl));
+		sg_free_table(&data_sgt);
+		log_event_dbg("%s: data_buf:%s virt:%pK, phys:%lx, iova:%lx\n",
+			__func__, dev_name(dev), data_buf->base,
+			(unsigned long)data_buf->phys_base, data_buf->iova);
+
 		desc_buf->size = pipe_connect->desc_fifo_size;
-		desc_buf->base = dma_alloc_coherent(&ctx->usb_bam_pdev->dev,
-			pipe_connect->desc_fifo_size,
-			&(desc_buf->phys_base),
-			GFP_KERNEL);
+		desc_buf->base = dma_alloc_attrs(dev,
+				pipe_connect->desc_fifo_size,
+				&desc_iova, GFP_KERNEL,
+				DMA_ATTR_FORCE_CONTIGUOUS);
 		if (!desc_buf->base) {
-			log_event_err("%s: dma_alloc_coherent failed for desc fifo\n",
+			log_event_err("%s: desc_fifo: dma_alloc_attr failed\n",
 								__func__);
-			if (pipe_connect->bam_type == CI_CTRL)
-				dma_free_coherent(&ctx->usb_bam_pdev->dev,
-				(pipe_connect->data_fifo_size +
-					DATA_FIFO_EXTRA_MEM_ALLOC_SIZE),
-				data_buf->base,
-				data_buf->phys_base);
-			else
-				dma_free_coherent(&ctx->usb_bam_pdev->dev,
-				pipe_connect->data_fifo_size,
-				data_buf->base,
-				data_buf->phys_base);
+			dma_free_attrs(dev, data_fifo_size, data_buf->base,
+				data_buf->iova, DMA_ATTR_FORCE_CONTIGUOUS);
 			ret = -ENOMEM;
 			goto err_exit;
 		}
 		memset(desc_buf->base, 0, pipe_connect->desc_fifo_size);
+		desc_buf->iova = desc_iova;
+		dma_get_sgtable(dev, &desc_sgt, desc_buf->base, desc_buf->iova,
+								desc_buf->size);
+		desc_buf->phys_base = page_to_phys(sg_page(desc_sgt.sgl));
+		sg_free_table(&desc_sgt);
+		log_event_dbg("%s: desc_buf:%s virt:%pK, phys:%lx, iova:%lx\n",
+			__func__, dev_name(dev), desc_buf->base,
+			(unsigned long)desc_buf->phys_base, desc_buf->iova);
 		break;
 	default:
 		log_event_err("%s: invalid mem type\n", __func__);
@@ -476,35 +505,40 @@ int usb_bam_free_fifos(enum usb_ctrl cur_bam, u8 idx)
 				&ctx->usb_bam_connections[idx];
 	struct sps_connect *sps_connection =
 				&ctx->usb_bam_sps.sps_connections[idx];
+	struct device *dev = &ctx->usb_bam_pdev->dev;
+	u32 data_fifo_size;
 
 	pr_debug("%s(): data size:%x desc size:%x\n",
 			__func__, sps_connection->data.size,
 			sps_connection->desc.size);
 
+	if (dev->parent)
+		dev = dev->parent;
+
 	switch (pipe_connect->mem_type) {
 	case SYSTEM_MEM:
 		log_event_dbg("%s: Freeing system memory used by PIPE\n",
 				__func__);
-		if (sps_connection->data.phys_base) {
+		if (sps_connection->data.iova) {
+			data_fifo_size = sps_connection->data.size;
 			if (cur_bam == CI_CTRL)
-				dma_free_coherent(&ctx->usb_bam_pdev->dev,
-					(sps_connection->data.size +
-						DATA_FIFO_EXTRA_MEM_ALLOC_SIZE),
+				data_fifo_size +=
+					DATA_FIFO_EXTRA_MEM_ALLOC_SIZE;
+
+			dma_free_attrs(dev, data_fifo_size,
 					sps_connection->data.base,
-					sps_connection->data.phys_base);
-			else
-				dma_free_coherent(&ctx->usb_bam_pdev->dev,
-					sps_connection->data.size,
-					sps_connection->data.base,
-					sps_connection->data.phys_base);
+					sps_connection->data.iova,
+					DMA_ATTR_FORCE_CONTIGUOUS);
+			sps_connection->data.iova = 0;
 			sps_connection->data.phys_base = 0;
 			pipe_connect->data_mem_buf.base = NULL;
 		}
-		if (sps_connection->desc.phys_base) {
-			dma_free_coherent(&ctx->usb_bam_pdev->dev,
-					sps_connection->desc.size,
+		if (sps_connection->desc.iova) {
+			dma_free_attrs(dev, sps_connection->desc.size,
 					sps_connection->desc.base,
-					sps_connection->desc.phys_base);
+					sps_connection->desc.iova,
+					DMA_ATTR_FORCE_CONTIGUOUS);
+			sps_connection->desc.iova = 0;
 			sps_connection->desc.phys_base = 0;
 			pipe_connect->desc_mem_buf.base = NULL;
 		}
@@ -512,11 +546,25 @@ int usb_bam_free_fifos(enum usb_ctrl cur_bam, u8 idx)
 	case OCI_MEM:
 		log_event_dbg("Freeing oci memory used by BAM PIPE\n");
 		if (sps_connection->data.base) {
+			if (sps_connection->data.iova) {
+				dma_unmap_resource(dev,
+					sps_connection->data.iova,
+					sps_connection->data.size,
+					DMA_BIDIRECTIONAL, 0);
+				sps_connection->data.iova = 0;
+			}
 			iounmap(sps_connection->data.base);
 			sps_connection->data.base = NULL;
 			pipe_connect->data_mem_buf.base = NULL;
 		}
 		if (sps_connection->desc.base) {
+			if (sps_connection->desc.iova) {
+				dma_unmap_resource(dev,
+					sps_connection->desc.iova,
+					sps_connection->desc.size,
+					DMA_BIDIRECTIONAL, 0);
+				sps_connection->desc.iova = 0;
+			}
 			iounmap(sps_connection->desc.base);
 			sps_connection->desc.base = NULL;
 			pipe_connect->desc_mem_buf.base = NULL;
@@ -530,7 +578,8 @@ int usb_bam_free_fifos(enum usb_ctrl cur_bam, u8 idx)
 	return 0;
 }
 
-static int connect_pipe(enum usb_ctrl cur_bam, u8 idx, u32 *usb_pipe_idx)
+static int connect_pipe(enum usb_ctrl cur_bam, u8 idx, u32 *usb_pipe_idx,
+							unsigned long iova)
 {
 	int ret;
 	struct usb_bam_ctx_type *ctx = &msm_usb_bam[cur_bam];
@@ -575,9 +624,11 @@ static int connect_pipe(enum usb_ctrl cur_bam, u8 idx, u32 *usb_pipe_idx)
 	if (dir == USB_TO_PEER_PERIPHERAL) {
 		sps_connection->mode = SPS_MODE_SRC;
 		*usb_pipe_idx = pipe_connect->src_pipe_index;
+		sps_connection->dest_iova = iova;
 	} else {
 		sps_connection->mode = SPS_MODE_DEST;
 		*usb_pipe_idx = pipe_connect->dst_pipe_index;
+		sps_connection->source_iova = iova;
 	}
 
 	sps_connection->data = *data_buf;
@@ -1059,7 +1110,34 @@ retry:
 	return 0;
 }
 
-int usb_bam_connect(enum usb_ctrl cur_bam, int idx, u32 *bam_pipe_idx)
+int get_qdss_bam_info(enum usb_ctrl cur_bam, u8 idx,
+				phys_addr_t *p_addr, u32 *bam_size)
+{
+	int ret = 0;
+	struct usb_bam_ctx_type *ctx = &msm_usb_bam[cur_bam];
+	struct usb_bam_pipe_connect *pipe_connect =
+					&ctx->usb_bam_connections[idx];
+	unsigned long peer_bam_handle;
+
+	ret = sps_phy2h(pipe_connect->src_phy_addr, &peer_bam_handle);
+	if (ret) {
+		log_event_err("%s: sps_phy2h failed (src BAM) %d\n",
+				__func__, ret);
+		return ret;
+	}
+
+	ret = sps_get_bam_addr(peer_bam_handle, p_addr, bam_size);
+	if (ret) {
+		log_event_err("%s: sps_get_bam_addr failed%d\n",
+				__func__, ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+int usb_bam_connect(enum usb_ctrl cur_bam, int idx, u32 *bam_pipe_idx,
+						unsigned long iova)
 {
 	int ret;
 	struct usb_bam_ctx_type *ctx = &msm_usb_bam[cur_bam];
@@ -1110,7 +1188,7 @@ int usb_bam_connect(enum usb_ctrl cur_bam, int idx, u32 *bam_pipe_idx)
 	/* Set the BAM mode (host/device) according to connected pipe */
 	info[cur_bam].cur_bam_mode = pipe_connect->bam_mode;
 
-	ret = connect_pipe(cur_bam, idx, bam_pipe_idx);
+	ret = connect_pipe(cur_bam, idx, bam_pipe_idx, iova);
 	if (ret) {
 		log_event_err("%s: pipe connection[%d] failure\n",
 				__func__, idx);
@@ -2652,12 +2730,12 @@ int usb_bam_disconnect_pipe(enum usb_ctrl bam_type, u8 idx)
 
 		if (bam_type == CI_CTRL)
 			msm_hw_bam_disable(0);
-		/* Enable usb irq here which is disabled in function drivers
-		 * during disconnect after BAM reset.
-		 */
-		if (bam_type == CI_CTRL)
-			msm_usb_irq_disable(false);
 	}
+	/* Enable usb irq here which is disabled in function drivers
+	 * during disconnect after BAM reset.
+	 */
+	if (!ctx->pipes_enabled_per_bam && (bam_type == CI_CTRL))
+		msm_usb_irq_disable(false);
 	/* This function is directly called by USB Transport drivers
 	 * to disconnect pipes. Drop runtime usage count here. For
 	 * IPA, caller takes care of it
@@ -2892,9 +2970,6 @@ static struct msm_usb_bam_data *usb_bam_dt_to_data(
 	else
 		usb_bam_data->override_threshold = threshold;
 
-	usb_bam_data->enable_hsusb_bam_on_boot = of_property_read_bool(node,
-		"qcom,enable-hsusb-bam-on-boot");
-
 	for_each_child_of_node(pdev->dev.of_node, node)
 		max_connections++;
 
@@ -3018,6 +3093,54 @@ err:
 	return NULL;
 }
 
+static void msm_usb_bam_update_props(struct sps_bam_props *props,
+				struct platform_device *pdev)
+{
+	struct usb_bam_ctx_type *ctx = dev_get_drvdata(&pdev->dev);
+	enum usb_ctrl bam_type = ctx->usb_bam_data->bam_type;
+	struct device *dev;
+
+	props->phys_addr = ctx->io_res->start;
+	props->virt_addr = NULL;
+	props->virt_size = resource_size(ctx->io_res);
+	props->irq = ctx->irq;
+	props->summing_threshold = ctx->usb_bam_data->override_threshold;
+	props->event_threshold = ctx->usb_bam_data->override_threshold;
+	props->num_pipes = ctx->usb_bam_data->usb_bam_num_pipes;
+	props->callback = usb_bam_sps_events;
+	props->user = bam_enable_strings[bam_type];
+
+	/*
+	* HSUSB and HSIC Cores don't support RESET ACK signal to BAMs
+	* Hence, let BAM to ignore acknowledge from USB while resetting PIPE
+	*/
+	if (ctx->usb_bam_data->ignore_core_reset_ack && bam_type != DWC3_CTRL)
+		props->options = SPS_BAM_NO_EXT_P_RST;
+
+	if (ctx->usb_bam_data->disable_clk_gating)
+		props->options |= SPS_BAM_NO_LOCAL_CLK_GATING;
+
+	/*
+	 * HSUSB BAM is not NDP BAM and it must be enabled before
+	 * starting peripheral controller to avoid switching USB core mode
+	 * from legacy to BAM with ongoing data transfers.
+	 */
+	if (bam_type == CI_CTRL) {
+		log_event_dbg("Register and enable HSUSB BAM\n");
+		props->options |= SPS_BAM_OPT_ENABLE_AT_BOOT;
+		props->options |= SPS_BAM_FORCE_RESET;
+	}
+
+	dev = &ctx->usb_bam_pdev->dev;
+	if (dev && dev->parent && device_property_present(dev->parent, "iommus")
+		&& !device_property_present(dev->parent,
+						"qcom,smmu-s1-bypass")) {
+		pr_info("%s: setting SPS_BAM_SMMU_EN flag with (%s)\n",
+						__func__, dev_name(dev));
+		props->options |= SPS_BAM_SMMU_EN;
+	}
+}
+
 static int usb_bam_init(struct platform_device *pdev)
 {
 	int ret;
@@ -3025,42 +3148,19 @@ static int usb_bam_init(struct platform_device *pdev)
 	enum usb_ctrl bam_type = ctx->usb_bam_data->bam_type;
 	struct sps_bam_props props;
 
-	memset(&props, 0, sizeof(props));
-
 	pr_debug("%s: usb_bam_init - %s\n", __func__,
 		bam_enable_strings[bam_type]);
 
-	props.phys_addr = ctx->io_res->start;
-	props.virt_size = resource_size(ctx->io_res);
-	props.irq = ctx->irq;
-	props.summing_threshold = ctx->usb_bam_data->override_threshold;
-	props.event_threshold = ctx->usb_bam_data->override_threshold;
-	props.num_pipes = ctx->usb_bam_data->usb_bam_num_pipes;
-	props.callback = usb_bam_sps_events;
-	props.user = bam_enable_strings[bam_type];
-
 	/*
-	* HSUSB and HSIC Cores don't support RESET ACK signal to BAMs
-	* Hence, let BAM to ignore acknowledge from USB while resetting PIPE
-	*/
-	if (ctx->usb_bam_data->ignore_core_reset_ack && bam_type != DWC3_CTRL)
-		props.options = SPS_BAM_NO_EXT_P_RST;
-
-	if (ctx->usb_bam_data->disable_clk_gating)
-		props.options |= SPS_BAM_NO_LOCAL_CLK_GATING;
-
-	/*
-	 * HSUSB BAM is not NDP BAM and it must be enabled early before
-	 * starting peripheral controller to avoid switching USB core mode
-	 * from legacy to BAM with ongoing data transfers.
+	 * CI USB2 BAM is registered before starting controller
+	 * and only if bam2bam function is present in composition
 	 */
-	if (ctx->usb_bam_data->enable_hsusb_bam_on_boot
-					&& bam_type == CI_CTRL) {
-		pr_debug("Register and enable HSUSB BAM\n");
-		props.options |= SPS_BAM_OPT_ENABLE_AT_BOOT;
-	}
-	ret = sps_register_bam_device(&props, &ctx->h_bam);
+	if (bam_type == CI_CTRL)
+		return 0;
 
+	memset(&props, 0, sizeof(props));
+	msm_usb_bam_update_props(&props, pdev);
+	ret = sps_register_bam_device(&props, &ctx->h_bam);
 	if (ret < 0) {
 		log_event_err("%s: register bam error %d\n", __func__, ret);
 		return -EFAULT;
@@ -3226,7 +3326,7 @@ static int usb_bam_probe(struct platform_device *pdev)
 	return ret;
 }
 
-bool usb_bam_get_prod_granted(enum usb_ctrl bam_type, u8 idx)
+bool usb_bam_get_prod_granted(enum usb_ctrl bam_type)
 {
 	return (info[bam_type].cur_prod_state == IPA_RM_RESOURCE_GRANTED);
 }
@@ -3319,22 +3419,170 @@ int usb_bam_get_bam_type(const char *core_name)
 }
 EXPORT_SYMBOL(usb_bam_get_bam_type);
 
-bool msm_usb_bam_enable(enum usb_ctrl bam, bool bam_enable)
+/*
+ * This function makes sure ipa endpoints are disabled for both USB->IPA
+ * and IPA->USB pipes before USB bam reset. USB BAM reset is required to
+ * to avoid EP flush issues while disabling USB endpoints on disconnect.
+ */
+int msm_do_bam_disable_enable(enum usb_ctrl bam)
 {
-	struct msm_usb_bam_data *usb_bam_data;
 	struct usb_bam_ctx_type *ctx = &msm_usb_bam[bam];
+	struct sps_pipe *pipe;
+	u32 timeout = 10, pipe_empty;
+	int ret = 0, i;
+	struct sps_connect *sps_connection;
+	struct usb_bam_sps_type usb_bam_sps = ctx->usb_bam_sps;
+	struct usb_bam_pipe_connect *pipe_connect;
+	int qdss_idx;
+	struct msm_usb_bam_data *usb_bam_data;
 
 	if (!ctx->usb_bam_pdev)
 		return 0;
 
 	usb_bam_data = ctx->usb_bam_data;
-	if ((bam != CI_CTRL) || !(bam_enable ||
-					usb_bam_data->enable_hsusb_bam_on_boot))
+	if (bam != CI_CTRL)
 		return 0;
 
+	if (!ctx->pipes_enabled_per_bam || info[bam].pipes_suspended)
+		return 0;
+
+	if (in_interrupt()) {
+		pr_err("%s:API called in interrupt context\n", __func__);
+		return 0;
+	}
+
+	mutex_lock(&info[bam].suspend_resume_mutex);
+	log_event_dbg("%s: Perform USB BAM reset\n", __func__);
+	/* Get QDSS pipe index to avoid pipe reset */
+	qdss_idx = usb_bam_get_connection_idx(qdss_usb_bam_type, QDSS_P_BAM,
+		PEER_PERIPHERAL_TO_USB, USB_BAM_DEVICE, 0);
+
+	for (i = 0; i < ctx->max_connections; i++) {
+		pipe_connect = &ctx->usb_bam_connections[i];
+		if (pipe_connect->enabled &&
+				(pipe_connect->dir == PEER_PERIPHERAL_TO_USB) &&
+							(qdss_idx != i)) {
+			/* Call to disable IPA producer endpoint */
+			ipa_disable_endpoint(pipe_connect->ipa_clnt_hdl);
+			sps_pipe_reset(ctx->h_bam,
+						pipe_connect->dst_pipe_index);
+		}
+	}
+
+	for (i = 0; i < ctx->max_connections; i++) {
+		pipe_connect = &ctx->usb_bam_connections[i];
+		if (pipe_connect->enabled &&
+				(pipe_connect->dir == USB_TO_PEER_PERIPHERAL) &&
+							(qdss_idx != i)) {
+			pipe = ctx->usb_bam_sps.sps_pipes[i];
+			sps_connection = &usb_bam_sps.sps_connections[i];
+			timeout = 10;
+			/*
+			 * On some platforms, there is a chance that flow
+			 * control is disabled from IPA side, due to this IPA
+			 * core may not consume data from USB. Hence notify IPA
+			 * to enable flow control and then check sps pipe is
+			 * empty or not before processing USB->IPA disconnect.
+			 */
+			ipa_clear_endpoint_delay(pipe_connect->ipa_clnt_hdl);
+
+			/* Make sure pipes are empty before disconnecting it */
+			while (1) {
+				ret = sps_is_pipe_empty(pipe, &pipe_empty);
+				if (ret) {
+					log_event_err("%s: pipeempty fail %d\n",
+								__func__, ret);
+					goto err;
+				}
+				if (pipe_empty || !--timeout)
+					break;
+
+				/* Check again */
+				usleep_range(1000, 2000);
+			}
+			if (!pipe_empty) {
+				log_event_dbg("%s: Inject ZLT\n", __func__);
+				sps_pipe_inject_zlt(sps_connection->destination,
+					sps_connection->dest_pipe_index);
+
+				timeout = 0;
+				while (1) {
+					ret = sps_is_pipe_empty(pipe,
+								&pipe_empty);
+					if (ret)
+						goto err;
+
+					if (pipe_empty)
+						break;
+
+					timeout++;
+					/* Check again */
+					usleep_range(1000, 2000);
+				}
+			}
+			/* Call to disable IPA consumer endpoint */
+			ipa_disable_endpoint(pipe_connect->ipa_clnt_hdl);
+			sps_pipe_reset(ctx->h_bam,
+						pipe_connect->src_pipe_index);
+		}
+	}
+
+	/* Perform USB BAM reset */
 	msm_hw_bam_disable(1);
 	sps_device_reset(ctx->h_bam);
 	msm_hw_bam_disable(0);
+	log_event_dbg("%s: USB BAM reset done\n", __func__);
+	ret = 0;
+
+err:
+	mutex_unlock(&info[bam].suspend_resume_mutex);
+	return ret;
+}
+EXPORT_SYMBOL(msm_do_bam_disable_enable);
+
+bool msm_usb_bam_enable(enum usb_ctrl bam, bool bam_enable)
+{
+	struct msm_usb_bam_data *usb_bam_data;
+	struct usb_bam_ctx_type *ctx = &msm_usb_bam[bam];
+	static bool bam_enabled;
+	int ret;
+
+	if (!ctx->usb_bam_pdev)
+		return 0;
+
+	usb_bam_data = ctx->usb_bam_data;
+	if (bam != CI_CTRL)
+		return 0;
+
+	if (bam_enabled == bam_enable) {
+		log_event_dbg("%s: USB BAM is already %s\n", __func__,
+				bam_enable ? "Registered" : "De-registered");
+		return 0;
+	}
+
+	if (bam_enable) {
+		struct sps_bam_props props;
+
+		memset(&props, 0, sizeof(props));
+		msm_usb_bam_update_props(&props, ctx->usb_bam_pdev);
+		msm_hw_bam_disable(1);
+		ret = sps_register_bam_device(&props, &ctx->h_bam);
+		bam_enabled = true;
+		if (ret < 0) {
+			log_event_err("%s: register bam error %d\n",
+					__func__, ret);
+			return -EFAULT;
+		}
+		log_event_dbg("%s: USB BAM Registered\n", __func__);
+		msm_hw_bam_disable(0);
+	} else {
+		msm_hw_soft_reset();
+		msm_hw_bam_disable(1);
+		sps_device_reset(ctx->h_bam);
+		sps_deregister_bam_device(ctx->h_bam);
+		log_event_dbg("%s: USB BAM De-registered\n", __func__);
+		bam_enabled = false;
+	}
 
 	return 0;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,23 +36,53 @@ struct dp_aux_private {
 	struct dp_aux dp_aux;
 	struct dp_catalog_aux *catalog;
 	struct dp_aux_cfg *cfg;
-
 	struct mutex mutex;
 	struct completion comp;
+	struct drm_dp_aux drm_aux;
 
-	u32 aux_error_num;
-	u32 retry_cnt;
 	bool cmd_busy;
 	bool native;
 	bool read;
 	bool no_send_addr;
 	bool no_send_stop;
+
 	u32 offset;
 	u32 segment;
+	u32 aux_error_num;
+	u32 retry_cnt;
+
 	atomic_t aborted;
 
-	struct drm_dp_aux drm_aux;
+	u8 *dpcd;
+	u8 *edid;
 };
+
+#ifdef CONFIG_DYNAMIC_DEBUG
+static void dp_aux_hex_dump(struct drm_dp_aux *drm_aux,
+		struct drm_dp_aux_msg *msg)
+{
+	DEFINE_DYNAMIC_DEBUG_METADATA(ddm, "dp aux tracker");
+
+	if (unlikely(ddm.flags & _DPRINTK_FLAGS_PRINT)) {
+		u8 buf[SZ_64];
+		struct dp_aux_private *aux = container_of(drm_aux,
+			struct dp_aux_private, drm_aux);
+
+		snprintf(buf, SZ_64, "[drm-dp] %5s %5s %5xh(%2zu): ",
+			aux->native ? "NATIVE" : "I2C",
+			aux->read ? "READ" : "WRITE",
+			msg->address, msg->size);
+
+		print_hex_dump(KERN_DEBUG, buf, DUMP_PREFIX_NONE,
+			8, 1, msg->buffer, msg->size, false);
+	}
+}
+#else
+static void dp_aux_hex_dump(struct drm_dp_aux *drm_aux,
+		struct drm_dp_aux_msg *msg)
+{
+}
+#endif
 
 static char *dp_aux_get_error(u32 aux_error)
 {
@@ -345,6 +375,7 @@ static void dp_aux_update_offset_and_segment(struct dp_aux_private *aux,
  *
  * @aux: DP AUX private structure
  * @input_msg: input message from DRM upstream APIs
+ * @send_seg: send the seg to sink
  *
  * return: void
  *
@@ -352,7 +383,7 @@ static void dp_aux_update_offset_and_segment(struct dp_aux_private *aux,
  * sinks that do not handle the i2c middle-of-transaction flag correctly.
  */
 static void dp_aux_transfer_helper(struct dp_aux_private *aux,
-		struct drm_dp_aux_msg *input_msg)
+		struct drm_dp_aux_msg *input_msg, bool send_seg)
 {
 	struct drm_dp_aux_msg helper_msg;
 	u32 const message_size = 0x10;
@@ -371,7 +402,7 @@ static void dp_aux_transfer_helper(struct dp_aux_private *aux,
 	 * duplicate AUX transactions related to this while reading the
 	 * first 16 bytes of each block.
 	 */
-	if (!(aux->offset % edid_block_length))
+	if (!(aux->offset % edid_block_length) || !send_seg)
 		goto end;
 
 	aux->read = false;
@@ -413,26 +444,16 @@ end:
 		aux->segment = 0x0; /* reset segment at end of block */
 }
 
-/*
- * This function does the real job to process an AUX transaction.
- * It will call aux_reset() function to reset the AUX channel,
- * if the waiting is timeout.
- */
-static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
-		struct drm_dp_aux_msg *msg)
+static int dp_aux_transfer_ready(struct dp_aux_private *aux,
+		struct drm_dp_aux_msg *msg, bool send_seg)
 {
-	ssize_t ret;
+	int ret = 0;
 	int const aux_cmd_native_max = 16;
 	int const aux_cmd_i2c_max = 128;
-	int const retry_count = 5;
-	struct dp_aux_private *aux = container_of(drm_aux,
-		struct dp_aux_private, drm_aux);
-
-	mutex_lock(&aux->mutex);
 
 	if (atomic_read(&aux->aborted)) {
 		ret = -ETIMEDOUT;
-		goto unlock_exit;
+		goto error;
 	}
 
 	aux->native = msg->request & (DP_AUX_NATIVE_WRITE & DP_AUX_NATIVE_READ);
@@ -441,8 +462,7 @@ static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
 	if ((msg->size == 0) || (msg->buffer == NULL)) {
 		msg->reply = aux->native ?
 			DP_AUX_NATIVE_REPLY_ACK : DP_AUX_I2C_REPLY_ACK;
-		ret = msg->size;
-		goto unlock_exit;
+		goto error;
 	}
 
 	/* msg sanity check */
@@ -451,21 +471,21 @@ static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
 		pr_err("%s: invalid msg: size(%zu), request(%x)\n",
 			__func__, msg->size, msg->request);
 		ret = -EINVAL;
-		goto unlock_exit;
+		goto error;
 	}
 
 #ifdef CONFIG_SEC_DISPLAYPORT
 	if (!secdp_get_fw_update_status()) {
 		dp_aux_update_offset_and_segment(aux, msg);
-		dp_aux_transfer_helper(aux, msg);
+		dp_aux_transfer_helper(aux, msg, send_seg);
 	}
 #else
 	dp_aux_update_offset_and_segment(aux, msg);
-	dp_aux_transfer_helper(aux, msg);
+
+	dp_aux_transfer_helper(aux, msg, send_seg);
 #endif
 
 	aux->read = msg->request & (DP_AUX_I2C_READ & DP_AUX_NATIVE_READ);
-	aux->cmd_busy = true;
 
 	if (aux->read) {
 		aux->no_send_addr = true;
@@ -475,8 +495,92 @@ static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
 		aux->no_send_stop = true;
 	}
 
+	aux->cmd_busy = true;
+error:
+	return ret;
+}
+
+static ssize_t dp_aux_transfer_debug(struct drm_dp_aux *drm_aux,
+		struct drm_dp_aux_msg *msg)
+{
+	u32 timeout;
+	ssize_t ret;
+	struct dp_aux_private *aux = container_of(drm_aux,
+		struct dp_aux_private, drm_aux);
+
+	ret = dp_aux_transfer_ready(aux, msg, false);
+	if (ret)
+		goto end;
+
+	aux->aux_error_num = DP_AUX_ERR_NONE;
+
+	if (aux->native) {
+		if (aux->read && ((msg->address + msg->size) < SZ_1K)) {
+			aux->dp_aux.reg = msg->address;
+
+			reinit_completion(&aux->comp);
+			timeout = wait_for_completion_timeout(&aux->comp, HZ);
+			if (!timeout)
+				pr_err("aux timeout for 0x%x\n", msg->address);
+
+			aux->dp_aux.reg = 0xFFFF;
+
+			memcpy(msg->buffer, aux->dpcd + msg->address,
+				msg->size);
+			aux->aux_error_num = DP_AUX_ERR_NONE;
+		} else {
+			memset(msg->buffer, 0, msg->size);
+		}
+	} else {
+		if (aux->read && msg->address == 0x50) {
+			memcpy(msg->buffer,
+				aux->edid + aux->offset - 16,
+				msg->size);
+		}
+	}
+
+	if (aux->aux_error_num == DP_AUX_ERR_NONE) {
+		dp_aux_hex_dump(drm_aux, msg);
+
+		msg->reply = aux->native ?
+			DP_AUX_NATIVE_REPLY_ACK : DP_AUX_I2C_REPLY_ACK;
+	} else {
+		/* Reply defer to retry */
+		msg->reply = aux->native ?
+			DP_AUX_NATIVE_REPLY_DEFER : DP_AUX_I2C_REPLY_DEFER;
+	}
+
+	ret = msg->size;
+end:
+	return ret;
+}
+
+/*
+ * This function does the real job to process an AUX transaction.
+ * It will call aux_reset() function to reset the AUX channel,
+ * if the waiting is timeout.
+ */
+static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
+		struct drm_dp_aux_msg *msg)
+{
+	ssize_t ret;
+	int const retry_count = 5;
+	struct dp_aux_private *aux = container_of(drm_aux,
+		struct dp_aux_private, drm_aux);
+
+	mutex_lock(&aux->mutex);
+
+	ret = dp_aux_transfer_ready(aux, msg, true);
+	if (ret)
+		goto unlock_exit;
+
+	if (!aux->cmd_busy) {
+		ret = msg->size;
+		goto unlock_exit;
+	}
+
 	ret = dp_aux_cmd_fifo_tx(aux, msg);
-	if ((ret < 0) && aux->native && !atomic_read(&aux->aborted)) {
+	if ((ret < 0) && !atomic_read(&aux->aborted)) {
 #ifdef CONFIG_SEC_DISPLAYPORT
 		if (!secdp_get_cable_status()) {
 			pr_info("cable is out\n");
@@ -496,6 +600,8 @@ static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
 	if (aux->aux_error_num == DP_AUX_ERR_NONE) {
 		if (aux->read)
 			dp_aux_cmd_fifo_rx(aux, msg);
+
+		dp_aux_hex_dump(drm_aux, msg);
 
 		msg->reply = aux->native ?
 			DP_AUX_NATIVE_REPLY_ACK : DP_AUX_I2C_REPLY_ACK;
@@ -644,6 +750,41 @@ static ssize_t secdp_dpcd_read(unsigned int offset, void *buffer, size_t size)
 }
 #endif
 
+static void dp_aux_dpcd_updated(struct dp_aux *dp_aux)
+{
+	struct dp_aux_private *aux;
+
+	if (!dp_aux) {
+		pr_err("invalid input\n");
+		return;
+	}
+
+	aux = container_of(dp_aux, struct dp_aux_private, dp_aux);
+
+	complete(&aux->comp);
+}
+
+static void dp_aux_set_sim_mode(struct dp_aux *dp_aux, bool en,
+		u8 *edid, u8 *dpcd)
+{
+	struct dp_aux_private *aux;
+
+	if (!dp_aux) {
+		pr_err("invalid input\n");
+		return;
+	}
+
+	aux = container_of(dp_aux, struct dp_aux_private, dp_aux);
+
+	aux->edid = edid;
+	aux->dpcd = dpcd;
+
+	if (en)
+		aux->drm_aux.transfer = dp_aux_transfer_debug;
+	else
+		aux->drm_aux.transfer = dp_aux_transfer;
+}
+
 struct dp_aux *dp_aux_get(struct device *dev, struct dp_catalog_aux *catalog,
 		struct dp_aux_cfg *aux_cfg)
 {
@@ -672,6 +813,7 @@ struct dp_aux *dp_aux_get(struct device *dev, struct dp_catalog_aux *catalog,
 	aux->cfg = aux_cfg;
 	dp_aux = &aux->dp_aux;
 	aux->retry_cnt = 0;
+	aux->dp_aux.reg = 0xFFFF;
 
 	dp_aux->isr     = dp_aux_isr;
 	dp_aux->init    = dp_aux_init;
@@ -680,6 +822,8 @@ struct dp_aux *dp_aux_get(struct device *dev, struct dp_catalog_aux *catalog,
 	dp_aux->drm_aux_deregister = dp_aux_deregister;
 	dp_aux->reconfig = dp_aux_reconfig;
 	dp_aux->abort = dp_aux_abort_transaction;
+	dp_aux->dpcd_updated = dp_aux_dpcd_updated;
+	dp_aux->set_sim_mode = dp_aux_set_sim_mode;
 
 #ifdef CONFIG_SEC_DISPLAYPORT
 	secdp_aux_dev_init(secdp_i2c_write, secdp_i2c_read,

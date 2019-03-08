@@ -40,9 +40,6 @@ void data_release(struct kref *ref)
 	struct sdcardfs_inode_data *data =
 		container_of(ref, struct sdcardfs_inode_data, refcount);
 
-	data->d.free_task = current;
-	BUG_ON(data->abandoned == false);
-
 	kmem_cache_free(sdcardfs_inode_data_cachep, data);
 }
 
@@ -83,8 +80,7 @@ static int sdcardfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 
 	if (uid_eq(GLOBAL_ROOT_UID, current_fsuid()) ||
 			capable(CAP_SYS_RESOURCE) ||
-			in_group_p(AID_USE_ROOT_RESERVED) ||
-			in_group_p(AID_USE_SEC_RESERVED))
+			in_group_p(AID_RESERVED_DISK))
 		goto out;
 
 	if (sbi->options.reserved_mb) {
@@ -153,7 +149,7 @@ static int sdcardfs_remount_fs2(struct vfsmount *mnt, struct super_block *sb,
 		pr_err("sdcardfs: remount flags 0x%x unsupported\n", *flags);
 		return -EINVAL;
 	}
-	pr_info("Remount options were %s for vfsmnt %p.\n", options, mnt);
+	pr_info("Remount options were %s\n", options);
 	err = parse_options_remount(sb, options, *flags & MS_SILENT ? 1 : 0,
 			mnt->data);
 
@@ -224,7 +220,9 @@ static struct inode *sdcardfs_alloc_inode(struct super_block *sb)
 
 	i->data = d;
 	kref_init(&d->refcount);
-	d->d.owner = &i->vfs_inode;
+	i->top_data = d;
+	spin_lock_init(&i->top_lock);
+	kref_get(&d->refcount);
 
 	i->vfs_inode.i_version = 1;
 	return &i->vfs_inode;
@@ -312,6 +310,10 @@ static int sdcardfs_show_options(struct vfsmount *mnt, struct seq_file *m,
 		seq_printf(m, ",mask=%u", vfsopts->mask);
 	if (opts->fs_user_id)
 		seq_printf(m, ",userid=%u", opts->fs_user_id);
+	if (opts->gid_derivation)
+		seq_puts(m, ",derive_gid");
+	if (opts->default_normal)
+		seq_puts(m, ",default_normal");
 	if (opts->reserved_mb != 0)
 		seq_printf(m, ",reserved=%uMB", opts->reserved_mb);
 

@@ -61,7 +61,13 @@ static ssize_t barcode_emul_store(struct device *dev,
 	struct adsp_data *data = dev_get_drvdata(dev);
 	uint8_t cnt = 0;
 	char *send_buf;
-	int buf_size, i;
+	int len, buf_size, i;
+
+	if (size <= 1) {
+		pr_info("[FACTORY] %s - not enough size(%d)",
+			__func__, (int)size);
+		return size;
+	}
 
 	if (buf[0] == 0xFF && buf[1] != 0) {
 		if (is_beaming)
@@ -79,15 +85,21 @@ static ssize_t barcode_emul_store(struct device *dev,
 		return size;
 	} else if (buf[0] == 0x00) {
 		buf_size = 128;
+		len = ((int)size - 2 > 128) ? 128 : ((int)size - 2);
 		send_buf = kzalloc(buf_size + 1, GFP_KERNEL);
 		send_buf[0] = CMD_TYPE_MOBEAM_SEND_DATA;
-		memcpy(&send_buf[1], &buf[2], buf_size);
+		memcpy(&send_buf[1], &buf[2], len);
 	} else if (buf[0] == 0x80) {
 		buf_size = 1;
 		send_buf = kzalloc(buf_size + 1, GFP_KERNEL);
 		send_buf[0] = CMD_TYPE_MOBEAM_SEND_COUNT;
 		memcpy(&send_buf[1], &buf[1], buf_size);
 	} else {
+		if (size < 8) {
+			pr_info("[FACTORY] %s - not enough size(%d)",
+				__func__, (int)size);
+			return size;
+		}
 		buf_size = 6;
 		send_buf = kzalloc(buf_size + 1, GFP_KERNEL);
 		send_buf[0] = CMD_TYPE_MOBEAM_SEND_REG;

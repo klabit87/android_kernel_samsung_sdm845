@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +9,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
 
 &pm660_0{
 	pm660_charger: qcom,qpnp-smb2 {
@@ -175,8 +177,8 @@
 		io-channel-names = "rradc_batt_id",
 				   "rradc_die_temp";
 		qcom,rradc-base = <0x4500>;
-		qcom,fg-esr-timer-awake = <96 96>;
-		qcom,fg-esr-timer-asleep = <256 256>;
+		qcom,fg-esr-timer-awake = <64 96>;
+		qcom,fg-esr-timer-asleep = <224 256>;
 		qcom,fg-esr-timer-charging = <0 96>;
 		qcom,cycle-counter-en;
 		qcom,hold-soc-while-full;
@@ -380,5 +382,54 @@
 };
 
 &usb0 {
-	extcon = <&pm660_pdphy>, <&pm660_pdphy>, <&eud>;
+	extcon = <&pm660_pdphy>, <&pm660_pdphy>, <&eud>,
+					<&pm660_charger>, <&pm660_charger>;
+	vbus_dwc3-supply = <&smb2_vbus>;
+	qcom,no-vbus-vote-with-type-C;
+};
+
+&thermal_zones {
+	xo-therm-step {
+		trips {
+			batt_trip1: batt-trip1 {
+				temperature = <50000>;
+				hysteresis = <4000>;
+				type = "passive";
+			};
+			batt_trip2: batt-trip2 {
+				temperature = <52000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+			batt_trip3: batt-trip3 {
+				temperature = <54000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+			batt_trip4: batt-trip4 {
+				temperature = <56000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			battery_lvl1 {
+				trip = <&batt_trip1>;
+				cooling-device = <&pm660_charger 1 1>;
+			};
+			battery_lvl2 {
+				trip = <&batt_trip2>;
+				cooling-device = <&pm660_charger 2 2>;
+			};
+			battery_lvl3 {
+				trip = <&batt_trip3>;
+				cooling-device = <&pm660_charger 4 4>;
+			};
+			battery_lvl4 {
+				trip = <&batt_trip4>;
+				cooling-device = <&pm660_charger 5 5>;
+			};
+		};
+	};
 };

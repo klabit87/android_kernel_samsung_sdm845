@@ -67,28 +67,27 @@ enum dpui_key {
 	DPUI_KEY_LCDID2,	/* panel id 2 */
 	DPUI_KEY_LCDID3,	/* panel id 3 */
 	DPUI_KEY_MAID_DATE,	/* panel manufacture date */
-	DPUI_KEY_DISP_MODEL,	/* panel model name */
-	DPUI_KEY_CHIPID,	/* display driver-ic chip id */
 	DPUI_KEY_CELLID,	/* panel cell id */
 	DPUI_KEY_OCTAID,	/* panel octa id */
 	DPUI_KEY_PNDSIE,	/* panel dsi error count */
 	DPUI_KEY_PNELVDE,	/* panel ELVDD error count */
 	DPUI_KEY_PNVLI1E,	/* panel VLIN1 error count */
 	DPUI_KEY_PNVLO3E,	/* panel VLOUT3 error count */
-	DPUI_KEY_PNESDE,	/* panel ESD error count */
 	DPUI_KEY_PNSDRE,	/* panel OTP loading error count */
-#ifdef CONFIG_SUPPORT_POC_FLASH
-	DPUI_KEY_PNPOCT,	/* panel POC try count */
+ 	DPUI_KEY_PNPOCT,	/* panel POC try count */
 	DPUI_KEY_PNPOCF,	/* panel POC fail count */
 	DPUI_KEY_PNPOCI,	/* panel POC image index */
 	DPUI_KEY_PNPOCI_ORG,	/* panel POC image index in factory */
-#endif
+ 	DPUI_KEY_PNGFLS,	/* panel gamma flash loading result */
 	/* dependent on processor */
 	DPUI_KEY_QCT_DSIE,	/* display controller dsi error count */
 	DPUI_KEY_QCT_PPTO,	/* display controller pingpong timeout count */
 	DPUI_KEY_QCT_NO_TE,	/* display controller no TE response  count */
 	DPUI_KEY_QCT_RCV_CNT,	/* display controller recovery count */
 	DPUI_KEY_QCT_SSLOG,	/* display controller ss debugging log */
+
+	/* GPU */
+	DPUI_KEY_QCT_GPU_PF,	/* GPU Page Fault Count */
 
 	MAX_DPUI_KEY,
 };

@@ -44,6 +44,12 @@ config ARGOS
 	  enhancing the performance such as adjusting the CPU freqency, allocating the tasks
 	  to the appropriate CPU and so on
 
+config SEC_VTS_TEST
+	bool "VTS TEST"
+	default n
+	help
+	  This option notices this binary for VTS test.
+
 menu "Samsung Factory Feature"
 config SEC_FACTORY
 	bool "when it comes to sec factory mode"

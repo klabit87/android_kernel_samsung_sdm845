@@ -318,9 +318,6 @@ int ss_read_errfg(struct samsung_display_driver_data *vdd)
 		inc_dpui_u32_field(DPUI_KEY_PNVLI1E, 1);
 	}
 	LCD_DEBUG("==================================================\n");
-
-	inc_dpui_u32_field(DPUI_KEY_PNESDE, (err_fg & 0x4D) ? 1 : 0);
-
 	return err_fg;
 }
 
@@ -369,6 +366,54 @@ int ss_read_self_diag(struct samsung_display_driver_data *vdd)
 
 	return 0;
 }
+
+int ss_read_ddi_cmd_log(struct samsung_display_driver_data *vdd, char *read_buf)
+{
+	int ret;
+	int i;
+
+	ret = ss_panel_data_read(vdd, RX_LDI_DEBUG_LOGBUF, read_buf, LEVEL1_KEY);
+	if (ret) {
+		LCD_ERR("fail to read ddi cmd log buffer(ret=%d)\n", ret);
+		return ret;
+	}
+
+	LCD_INFO("DDI command log:");
+	for (i = 0; i < DDI_CMD_LOGBUF_SIZE; i++)
+		pr_cont(" %02x", read_buf[i]);
+	pr_cont("\n");
+
+	return 0;
+}
+
+#if defined(CONFIG_SEC_FACTORY)
+char bootloader_pps1_data[SZ_64]; /* 0xA2 : PPS data (0x00 ~ 0x2C) */
+char bootloader_pps2_data[SZ_64]; /* 0xA2 : PPS data (0x2d ~ 0x58)*/
+int ss_read_pps_data(struct samsung_display_driver_data *vdd)
+{
+	int ret;
+
+	ret = ss_panel_data_read(vdd, RX_LDI_DEBUG_PPS1, bootloader_pps1_data, LEVEL1_KEY);
+	if (ret) {
+		LCD_ERR("fail to read pps_data(ret=%d)\n", ret);
+		return ret;
+	}
+
+	ret = ss_panel_data_read(vdd, RX_LDI_DEBUG_PPS2, bootloader_pps2_data, LEVEL1_KEY);
+	if (ret) {
+		LCD_ERR("fail to read pps_data(ret=%d)\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+#else
+int ss_read_pps_data(struct samsung_display_driver_data *vdd)
+{
+	LCD_INFO("nothing to do\n");
+	return 0;
+}
+#endif
 
 struct clock_index_table {
 	int rat;
@@ -704,7 +749,7 @@ end:
 		debugfs_remove_recursive(vdd->debug_data->root);
 		kfree(vdd->debug_data);
 	}
-	
+
 	return ret;
 }
 

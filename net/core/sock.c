@@ -141,6 +141,12 @@
 #include <net/tcp.h>
 #include <net/busy_poll.h>
 
+// KNOX NPA - START
+#include <linux/sched.h>
+#include <linux/pid.h>
+#include <net/ncm.h>
+// KNOX NPA - END
+
 static DEFINE_MUTEX(proto_list_mutex);
 static LIST_HEAD(proto_list);
 
@@ -408,9 +414,15 @@ int __sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	struct sk_buff_head *list = &sk->sk_receive_queue;
 
 	if (atomic_read(&sk->sk_rmem_alloc) >= sk->sk_rcvbuf) {
-		atomic_inc(&sk->sk_drops);
-		trace_sock_rcvqueue_full(sk, skb);
-		return -ENOMEM;
+		if (sk->sk_rcvbuf < sysctl_rmem_max) {
+			/* increase sk_rcvbuf twice */
+			sk->sk_rcvbuf = min(sk->sk_rcvbuf * 2, (int)sysctl_rmem_max);
+		}
+		if (atomic_read(&sk->sk_rmem_alloc) >= sk->sk_rcvbuf) {
+			atomic_inc(&sk->sk_drops);
+			trace_sock_rcvqueue_full(sk, skb);
+			return -ENOMEM;
+		}
 	}
 
 	if (!sk_rmem_schedule(sk, skb, skb->truesize)) {
@@ -620,32 +632,34 @@ out:
 	return ret;
 }
 
-/* START_OF_KNOX_NPA */
+// KNOX NPA - START
 /** The function sets the domain name associated with the socket. **/
-static int sock_set_domain_name(struct sock *sk, char __user *optval, int optlen)
+static int sock_set_domain_name(struct sock *sk, char __user *optval,
+                int optlen)
 {
 	int ret = -EADDRNOTAVAIL;
-	char domain[255];
+	char domain[DOMAIN_NAME_LEN_NAP];
 
 	ret = -EINVAL;
 	if (optlen < 0)
 		goto out;
 
-	if (optlen > 255 - 1)
-		optlen = 255 - 1;
+	if (optlen > DOMAIN_NAME_LEN_NAP - 1)
+		optlen = DOMAIN_NAME_LEN_NAP - 1;
 
 	memset(domain, 0, sizeof(domain));
 
 	ret = -EFAULT;
 	if (copy_from_user(domain, optval, optlen))
 		goto out;
-	if (sk->domain_name[0] == '\0')
-		memcpy(sk->domain_name, domain, sizeof(sk->domain_name) - 1);
+	memcpy(sk->domain_name,domain, sizeof(sk->domain_name)-1);
 	ret = 0;
 
-out: return ret;
+out:
+	return ret;
 }
 
+/** The function sets the uid associated with the dns socket. **/
 static int sock_set_dns_uid(struct sock *sk, char __user *optval, int optlen)
 {
 	int ret = -EADDRNOTAVAIL;
@@ -657,15 +671,55 @@ static int sock_set_dns_uid(struct sock *sk, char __user *optval, int optlen)
 		uid_t dns_uid;
 		ret = -EFAULT;
 		if (copy_from_user(&dns_uid, optval, sizeof(dns_uid)))
-		goto out;
+			goto out;
 		memcpy(&sk->knox_dns_uid, &dns_uid, sizeof(sk->knox_dns_uid));
+		ret = 0;
+    }
+
+out:
+	return ret;
+}
+
+/** The function sets the pid and the process name associated with the dns socket. **/
+static int sock_set_dns_pid(struct sock *sk, char __user *optval, int optlen)
+{
+	int ret = -EADDRNOTAVAIL;
+	struct pid *pid_struct = NULL;
+	struct task_struct *task = NULL;
+	int process_returnValue = -1;
+	char full_process_name[PROCESS_NAME_LEN_NAP] = {0};
+
+	if (optlen < 0)
+		goto out;
+
+	if (optlen == sizeof(pid_t)) {
+		pid_t dns_pid;
+		ret = -EFAULT;
+		if (copy_from_user(&dns_pid, optval, sizeof(dns_pid)))
+			goto out;
+		memcpy(&sk->knox_dns_pid, &dns_pid, sizeof(sk->knox_dns_pid));
+		if(check_ncm_flag()) {
+			pid_struct = find_get_pid(dns_pid);
+			if (pid_struct != NULL) {
+				task = pid_task(pid_struct,PIDTYPE_PID);
+				if (task != NULL) {
+					process_returnValue = get_cmdline(task, full_process_name, sizeof(full_process_name)-1);
+					if (process_returnValue > 0) {
+						memcpy(sk->dns_process_name, full_process_name, sizeof(sk->dns_process_name)-1);
+					} else {
+						memcpy(sk->dns_process_name, task->comm, sizeof(task->comm)-1);
+					}
+				}
+			}
+		}
 		ret = 0;
 	}
 
 out:
 	return ret;
 }
-/* END_OF_KNOX_NPA */
+
+// KNOX NPA - END
 
 static inline void sock_valbool_flag(struct sock *sk, int bit, int valbool)
 {
@@ -715,12 +769,14 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 	if (optname == SO_BINDTODEVICE)
 		return sock_setbindtodevice(sk, optval, optlen);
 
-	/* START_OF_KNOX_NPA */
+	// KNOX NPA - START
 	if (optname == SO_SET_DOMAIN_NAME)
 		return sock_set_domain_name(sk, optval, optlen);
 	if (optname == SO_SET_DNS_UID)
 		return sock_set_dns_uid(sk, optval, optlen);
-	/* END_OF_KNOX_NPA */
+	if (optname == SO_SET_DNS_PID)
+		return sock_set_dns_pid(sk, optval, optlen);
+	// KNOX NPA - END
 
 	if (optlen < sizeof(int))
 		return -EINVAL;
@@ -1445,9 +1501,63 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 {
 	struct sock *sk;
 
+	// KNOX NPA - START
+	struct pid *pid_struct = NULL;
+	struct task_struct *task = NULL;
+	int process_returnValue = -1;
+	char full_process_name[PROCESS_NAME_LEN_NAP] = {0};
+	struct pid *parent_pid_struct = NULL;
+	struct task_struct *parent_task = NULL;
+	int parent_returnValue = -1;
+	char full_parent_process_name[PROCESS_NAME_LEN_NAP] = {0};
+	// KNOX NPA - END
+
 	sk = sk_prot_alloc(prot, priority | __GFP_ZERO, family);
 	if (sk) {
 		sk->sk_family = family;
+		// KNOX NPA - START
+		/* assign values to members of sock structure when npa flag is present */
+		sk->knox_uid = current->cred->uid.val;
+		sk->knox_pid = current->tgid;
+		sk->knox_puid = 0;
+		sk->knox_ppid = 0;
+		sk->knox_dns_uid = 0;
+		sk->knox_dns_pid = 0;
+		memset(sk->process_name,'\0',sizeof(sk->process_name));
+		memset(sk->parent_process_name,'\0',sizeof(sk->parent_process_name));
+		memset(sk->dns_process_name,'\0',sizeof(sk->dns_process_name));
+		memset(sk->domain_name,'\0',sizeof(sk->domain_name));
+		if (check_ncm_flag()) {
+			pid_struct = find_get_pid(current->tgid);
+			if (pid_struct != NULL) {
+				task = pid_task(pid_struct, PIDTYPE_PID);
+				if (task != NULL) {
+					process_returnValue = get_cmdline(task, full_process_name, sizeof(full_process_name)-1);
+					if (process_returnValue > 0) {
+						memcpy(sk->process_name, full_process_name, sizeof(sk->process_name)-1);
+					} else {
+						memcpy(sk->process_name, task->comm, sizeof(task->comm)-1);
+					}
+					if (task->parent != NULL) {
+						parent_pid_struct = find_get_pid(task->parent->tgid);
+						if (parent_pid_struct != NULL) {
+							parent_task = pid_task(parent_pid_struct, PIDTYPE_PID);
+							if (parent_task != NULL) {
+								parent_returnValue = get_cmdline(parent_task, full_parent_process_name, sizeof(full_parent_process_name)-1);
+								if (parent_returnValue > 0) {
+									memcpy(sk->parent_process_name, full_parent_process_name, sizeof(sk->parent_process_name)-1);
+								} else {
+									memcpy(sk->parent_process_name, parent_task->comm, sizeof(parent_task->comm)-1);
+								}
+								sk->knox_puid = parent_task->cred->uid.val;
+								sk->knox_ppid = parent_task->tgid;
+							}
+						}
+					}
+				}
+			}
+		}
+		// KNOX NPA - END
 		/*
 		 * See comment in struct sock definition to understand
 		 * why we need sk_prot_creator -acme
@@ -1464,10 +1574,6 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		cgroup_sk_alloc(&sk->sk_cgrp_data);
 		sock_update_classid(&sk->sk_cgrp_data);
 		sock_update_netprioidx(&sk->sk_cgrp_data);
-		/* START_OF_KNOX_NPA */
-		sk->knox_uid = current->cred->uid.val;
-		sk->knox_pid = current->tgid;
-		/* END_OF_KNOX_NPA */
 	}
 
 	return sk;
@@ -1523,7 +1629,7 @@ void sk_destruct(struct sock *sk)
 
 static void __sk_free(struct sock *sk)
 {
-	if (unlikely(sock_diag_has_destroy_listeners(sk) && sk->sk_net_refcnt))
+	if (unlikely(sk->sk_net_refcnt && sock_diag_has_destroy_listeners(sk)))
 		sock_diag_broadcast_destroy(sk);
 	else
 		sk_destruct(sk);

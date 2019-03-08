@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -43,11 +43,13 @@ struct kgsl_device_private;
  * @ticks: GPU ticks at submit time (from the 19.2Mhz timer)
  * @ktime: local clock time (in nanoseconds)
  * @utime: Wall clock time
+ * @drawobj: the object that we want to profile
  */
 struct adreno_submit_time {
 	uint64_t ticks;
 	u64 ktime;
 	struct timespec utime;
+	struct kgsl_drawobj *drawobj;
 };
 
 /**
@@ -158,7 +160,7 @@ void adreno_ringbuffer_stop(struct adreno_device *adreno_dev);
 
 void adreno_ringbuffer_close(struct adreno_device *adreno_dev);
 
-int adreno_ringbuffer_issuecmds(struct adreno_ringbuffer *rb,
+int adreno_ringbuffer_issue_internal_cmds(struct adreno_ringbuffer *rb,
 					unsigned int flags,
 					unsigned int *cmdaddr,
 					int sizedwords);

@@ -45,6 +45,8 @@
 /* from BKL pushdown */
 DEFINE_MUTEX(drm_global_mutex);
 
+#define MAX_DRM_OPEN_COUNT		20
+
 /**
  * DOC: file operations
  *
@@ -135,6 +137,11 @@ int drm_open(struct inode *inode, struct file *filp)
 	if (!dev->open_count++)
 		need_setup = 1;
 
+	if (dev->open_count >= MAX_DRM_OPEN_COUNT) {
+		retcode = -EPERM;
+		goto err_undo;
+	}
+
 	/* share address_space across all char-devs of a single device */
 	filp->f_mapping = dev->anon_inode->i_mapping;
 
@@ -198,6 +205,7 @@ static int drm_open_helper(struct file *filp, struct drm_minor *minor)
 		return -ENOMEM;
 
 	filp->private_data = priv;
+	filp->f_mode |= FMODE_UNSIGNED_OFFSET;
 	priv->filp = filp;
 	priv->pid = get_pid(task_pid(current));
 	priv->minor = minor;

@@ -3,7 +3,7 @@
  *
  * This code is based on drivers/scsi/ufs/ufshcd.h
  * Copyright (C) 2011-2013 Samsung India Software Operations
- * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -630,6 +630,7 @@ enum ufshcd_scsi_mod_ctx {
 	UNGATE_WORK,
 	REQ_H8_EXIT,
 	H8_EXIT,
+	FATAL_MODE_HNDLR,
 };
 
 struct ufshcd_mode_ctx {
@@ -679,6 +680,11 @@ struct ufs_stats {
 	struct ufs_uic_err_reg_hist nl_err;
 	struct ufs_uic_err_reg_hist tl_err;
 	struct ufs_uic_err_reg_hist dme_err;
+	u32 pa_err_cnt_total;
+	u32 pa_err_cnt[UFS_EC_PA_MAX];
+	u32 dl_err_cnt_total;
+	u32 dl_err_cnt[UFS_EC_DL_MAX];
+	u32 dme_err_cnt;
 };
 
 /* UFS Host Controller debug print bitmask */
@@ -1098,7 +1104,8 @@ struct ufs_hba {
 	struct pinctrl *pctrl;
 
 	int latency_hist_enabled;
-	struct io_latency_state io_lat_s;
+	struct io_latency_state io_lat_read;
+	struct io_latency_state io_lat_write;
 
 	char unique_number[UFS_UN_MAX_DIGITS + 1];
 
@@ -1113,7 +1120,12 @@ struct ufs_hba {
 #if defined(SEC_UFS_ERROR_COUNT)
 	struct SEC_UFS_counting SEC_err_info;
 #endif
+	bool UFS_fatal_mode_done;
 	bool restore_needed;
+	struct work_struct fatal_mode_work;
+#if defined(CONFIG_UFS_DATA_LOG)
+	atomic_t	log_count;
+#endif
 };
 
 static inline void ufshcd_mark_shutdown_ongoing(struct ufs_hba *hba)

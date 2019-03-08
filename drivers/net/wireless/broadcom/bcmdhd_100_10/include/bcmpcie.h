@@ -26,13 +26,13 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: bcmpcie.h 737203 2017-12-20 05:55:03Z $
+ * $Id: bcmpcie.h 755866 2018-04-05 05:07:41Z $
  */
 
 #ifndef	_bcmpcie_h_
 #define	_bcmpcie_h_
 
-#include <bcmutils.h>
+#include <typedefs.h>
 
 #define ADDR_64(x)			(x.addr)
 #define HIGH_ADDR_32(x)     ((uint32) (((sh_addr_t) x).high_addr))
@@ -279,8 +279,6 @@ typedef struct ring_mem {
 	sh_addr_t	base_addr; /* 64 bits address, either in host or device memory */
 } ring_mem_t;
 
-#define HOSTCAP_PKT_TXSTATUS		    0x00400000
-
 /**
  * Per flow ring, information is maintained in device memory, eg at what address the ringmem and
  * ringstate are located. The flow ring itself can be instantiated in either host or device memory.
@@ -406,6 +404,7 @@ typedef struct {
 #define HOSTCAP_BT_LOGGING			0x00080000
 #define HOSTCAP_SNAPSHOT_UPLOAD			0x00100000
 #define HOSTCAP_FAST_DELETE_RING		0x00200000
+#define HOSTCAP_PKT_TXSTATUS			0x00400000
 #define HOSTCAP_UR_FW_NO_TRAP			0x00800000 /* Don't trap on UR */
 #define HOSTCAP_HSCB				0x02000000
 /* Host support for extended device trap debug buffer */
@@ -454,6 +453,11 @@ typedef struct {
 #define D2H_DEV_EXT_TRAP_DATA			0x20000000
 #define D2H_DEV_TRAP_IN_TRAP			0x40000000
 #define D2H_DEV_TRAP_DUE_TO_BT			0x01000000
+/* Indicates trap due to HMAP violation */
+#define D2H_DEV_TRAP_DUE_TO_HMAP		0x02000000
+/* Indicates whether HMAP violation was Write */
+#define D2H_DEV_TRAP_HMAP_WRITE			0x04000000
+
 #define D2HMB_DS_HOST_SLEEP_ACK         D2H_DEV_D3_ACK
 #define D2HMB_DS_DEVICE_SLEEP_ENTER_REQ D2H_DEV_DS_ENTER_REQ
 #define D2HMB_DS_DEVICE_SLEEP_EXIT      D2H_DEV_DS_EXIT_NOTE

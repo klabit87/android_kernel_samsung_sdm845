@@ -1,5 +1,4 @@
-/*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -86,6 +85,8 @@ static struct wcd_mbhc_register
 			  WCD934X_MBHC_NEW_CTL_2, 0x03, 0, 0),
 	WCD_MBHC_REGISTER("WCD_MBHC_HS_COMP_RESULT",
 			  WCD934X_ANA_MBHC_RESULT_3, 0x08, 3, 0),
+	WCD_MBHC_REGISTER("WCD_MBHC_IN2P_CLAMP_STATE",
+			  WCD934X_ANA_MBHC_RESULT_3, 0x10, 4, 0),
 	WCD_MBHC_REGISTER("WCD_MBHC_MIC_SCHMT_RESULT",
 			  WCD934X_ANA_MBHC_RESULT_3, 0x20, 5, 0),
 	WCD_MBHC_REGISTER("WCD_MBHC_HPHL_SCHMT_RESULT",
@@ -1091,6 +1092,7 @@ int tavil_mbhc_init(struct wcd934x_mbhc **mbhc, struct snd_soc_codec *codec,
 	struct wcd934x_mbhc *wcd934x_mbhc;
 	struct wcd_mbhc *wcd_mbhc;
 	int ret;
+	struct wcd9xxx_pdata *pdata;
 
 	wcd934x_mbhc = devm_kzalloc(codec->dev, sizeof(struct wcd934x_mbhc),
 				    GFP_KERNEL);
@@ -1110,6 +1112,14 @@ int tavil_mbhc_init(struct wcd934x_mbhc **mbhc, struct snd_soc_codec *codec,
 
 	/* Setting default mbhc detection logic to ADC for Tavil */
 	wcd_mbhc->mbhc_detection_logic = WCD_DETECTION_ADC;
+
+	pdata = dev_get_platdata(codec->dev->parent);
+	if (!pdata) {
+		dev_err(codec->dev, "%s: pdata pointer is NULL\n", __func__);
+		ret = -EINVAL;
+		goto err;
+	}
+	wcd_mbhc->micb_mv = pdata->micbias.micb2_mv;
 
 	ret = wcd_mbhc_init(wcd_mbhc, codec, &mbhc_cb,
 				&intr_ids, wcd_mbhc_registers,

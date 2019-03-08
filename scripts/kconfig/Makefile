@@ -103,10 +103,6 @@ ifneq ($(SELINUX_LOG_DEFCONFIG),)
 export KCONFIG_LOG_SELINUX := arch/$(SRCARCH)/configs/$(SELINUX_LOG_DEFCONFIG)
 endif
 
-ifneq ($(TIMA_DEFCONFIG),)
-export KCONFIG_TIMA := arch/$(SRCARCH)/configs/$(TIMA_DEFCONFIG)
-endif
-
 ifneq ($(KASLR_DEFCONFIG),)
 export KCONFIG_KASLR := arch/$(SRCARCH)/configs/$(KASLR_DEFCONFIG)
 endif

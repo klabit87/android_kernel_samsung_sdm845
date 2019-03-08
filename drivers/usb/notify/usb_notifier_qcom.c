@@ -459,8 +459,7 @@ static int usb_notifier_remove(struct platform_device *pdev)
 	struct usb_notifier_platform_data *pdata = dev_get_platdata(&pdev->dev);
 #if defined(CONFIG_CCIC_NOTIFIER)
 #ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
-	manager_notifier_register(&pdata->ccic_usb_nb, ccic_usb_handle_notification,
-		MANAGER_NOTIFY_CCIC_USB);
+	manager_notifier_unregister(&pdata->ccic_usb_nb);
 #else
 	ccic_notifier_unregister(&pdata->ccic_usb_nb);
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -157,6 +157,10 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_SECURITY_LEVEL,
 	CRTC_PROP_IDLE_TIMEOUT,
 	CRTC_PROP_DEST_SCALER,
+	CRTC_PROP_CAPTURE_OUTPUT,
+
+	CRTC_PROP_ENABLE_SUI_ENHANCEMENT,
+	CRTC_PROP_IDLE_PC_STATE,
 
 	/* total # of properties */
 	CRTC_PROP_COUNT
@@ -200,6 +204,7 @@ struct msm_vblank_ctrl {
 	struct kthread_work work;
 	struct list_head event_list;
 	spinlock_t lock;
+	struct msm_drm_private *priv;
 };
 
 #define MAX_H_TILES_PER_DISPLAY 2
@@ -580,6 +585,9 @@ struct msm_drm_private {
 	struct msm_drm_thread disp_thread[MAX_CRTCS];
 	struct msm_drm_thread event_thread[MAX_CRTCS];
 
+	struct task_struct *pp_event_thread;
+	struct kthread_worker pp_event_worker;
+
 	unsigned int num_encoders;
 	struct drm_encoder *encoders[MAX_ENCODERS];
 
@@ -610,7 +618,7 @@ struct msm_drm_private {
 	struct notifier_block vmap_notifier;
 	struct shrinker shrinker;
 
-	struct msm_vblank_ctrl vblank_ctrl;
+	struct msm_vblank_ctrl vblank_ctrl[MAX_CRTCS];
 
 	/* task holding struct_mutex.. currently only used in submit path
 	 * to detect and reject faults from copy_from_user() for submit
@@ -729,6 +737,7 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 void msm_gem_shrinker_init(struct drm_device *dev);
 void msm_gem_shrinker_cleanup(struct drm_device *dev);
 
+void msm_gem_sync(struct drm_gem_object *obj);
 int msm_gem_mmap_obj(struct drm_gem_object *obj,
 			struct vm_area_struct *vma);
 int msm_gem_mmap(struct file *filp, struct vm_area_struct *vma);

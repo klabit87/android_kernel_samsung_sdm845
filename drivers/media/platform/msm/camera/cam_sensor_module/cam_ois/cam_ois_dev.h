@@ -27,7 +27,7 @@
 #include <cam_mem_mgr.h>
 #include <cam_subdev.h>
 #include "cam_soc_util.h"
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 #include <linux/wait.h>
 #include <linux/freezer.h>
 #include <linux/slab.h>
@@ -36,7 +36,7 @@
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) 
 #define MAX_BRIDGE_COUNT (2)
 #define OIS_VER_SIZE  (7)
 #define NUM_AF_POSITION (512)
@@ -60,7 +60,31 @@ struct cam_ois_thread_msg_t {
 	struct i2c_settings_array *i2c_reg_settings;
 };
 #endif
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+#define MAX_BRIDGE_COUNT (2)
+#define OIS_VER_SIZE  (8)
+#define NUM_AF_POSITION (512)
 
+struct cam_ois_shift_table_t {
+	bool ois_shift_used;
+	int16_t ois_shift_x[NUM_AF_POSITION];
+	int16_t ois_shift_y[NUM_AF_POSITION];
+};
+
+enum cam_ois_thread_msg_type {
+	CAM_OIS_THREAD_MSG_START,
+	CAM_OIS_THREAD_MSG_APPLY_SETTING,
+	CAM_OIS_THREAD_MSG_MAX
+};
+
+struct cam_ois_thread_msg_t {
+	struct list_head list;
+	int msg_type;
+	uint16_t ois_mode;
+	struct i2c_settings_array *i2c_reg_settings;
+};
+
+#endif
 enum cam_ois_state {
 	CAM_OIS_INIT,
 	CAM_OIS_ACQUIRE,
@@ -118,6 +142,13 @@ struct cam_ois_intf_params {
 	struct cam_req_mgr_crm_cb *crm_cb;
 };
 
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+typedef struct sysboot_info_type_t{
+  uint32_t ver;
+  uint32_t id;
+} sysboot_info_type;
+#endif
+
 /**
  * struct cam_ois_ctrl_t - OIS ctrl private data
  * @pdev            :   platform device
@@ -146,7 +177,7 @@ struct cam_ois_ctrl_t {
 	struct camera_io_master io_master_info;
 	enum cci_i2c_master_t cci_i2c_master;
 	struct cam_subdev v4l2_dev_str;
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 	struct cam_ois_intf_params bridge_intf[MAX_BRIDGE_COUNT];
 	int bridge_cnt;
 #else
@@ -162,7 +193,7 @@ struct cam_ois_ctrl_t {
 	uint8_t ois_fw_flag;
 	uint8_t is_ois_calib;
 	struct cam_ois_opcode opcode;
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 	int start_cnt;
 	bool is_power_up;
 	bool is_servo_on;
@@ -185,6 +216,14 @@ struct cam_ois_ctrl_t {
 	wait_queue_head_t wait;
 	struct mutex i2c_init_data_mutex;
 	struct mutex i2c_mode_data_mutex;
+#endif
+
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	uint32_t slave_addr;
+	uint32_t slave_id;
+	sysboot_info_type info;
+	uint32_t reset_ctrl_gpio;
+	uint32_t boot0_ctrl_gpio;	
 #endif
 };
 

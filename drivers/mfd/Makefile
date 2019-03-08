@@ -217,3 +217,4 @@ obj-$(CONFIG_MFD_MT6397)	+= mt6397-core.o
 obj-$(CONFIG_MFD_ALTERA_A10SR)	+= altera-a10sr.o
 
 obj-$(CONFIG_MFD_S2MPB02)       += s2mpb02-core.o s2mpb02-irq.o
+obj-$(CONFIG_SEC_PM)	+= sec_ap_pmic.o

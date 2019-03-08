@@ -73,7 +73,7 @@ int32_t cam_aperture_establish_link(
  */
 int32_t cam_aperture_driver_cmd(struct cam_aperture_ctrl_t *a_ctrl, void *arg);
 
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 int cam_aperture_init_for_ois_test(struct cam_aperture_ctrl_t *a_ctrl);
 #endif
 int32_t cam_aperture_power_up(struct cam_aperture_ctrl_t *a_ctrl);

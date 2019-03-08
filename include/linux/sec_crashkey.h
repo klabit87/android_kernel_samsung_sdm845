@@ -31,7 +31,7 @@ struct sec_crash_key {
 	unsigned int *keycode;			/* keycode array */
 	unsigned int size;			/* number of used keycode */
 	unsigned int timeout;			/* msec timeout */
-	unsigned int long_keypress;		/* trigger by pressing key combination longger */
+	unsigned long long_keypress;		/* trigger by pressing key combination longger */
 	unsigned int unlock;			/* unlocking mask value */
 	unsigned int trigger;			/* trigger key code */
 	unsigned int knock;			/* number of triggered */
@@ -41,6 +41,13 @@ struct sec_crash_key {
 
 #ifdef CONFIG_SEC_DEBUG
 extern int sec_debug_register_crash_key(struct sec_crash_key *crash_key);
+
+#ifdef CONFIG_INPUT_QPNP_POWER_ON
+extern int qpnp_control_s2_reset_onoff(int on);
+#else
+static int qpnp_control_s2_reset_onoff(int on) { return 0; };
+#endif
+
 #else
 static inline int sec_debug_register_crash_key(
 				struct sec_crash_key *crash_key) { }

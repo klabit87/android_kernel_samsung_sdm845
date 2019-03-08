@@ -460,6 +460,9 @@ static ssize_t show_nad_stat(struct device *dev,
 {
 	int nad_result;
 
+	// refer to qpnp_pon_reason (index=boot_reason-1)
+	NAD_PRINT("%s : boot_reason was %d\n", __func__, boot_reason);
+
 	if (!sec_get_param(param_index_qnad, &param_qnad_data)) {
 		pr_err("%s : fail - get param!! param_qnad_data\n", __func__);
 		goto err_out;
@@ -1044,6 +1047,32 @@ err_out:
 
 static DEVICE_ATTR(nad_info, S_IRUGO | S_IWUSR, show_nad_info, store_nad_info);
 
+static ssize_t show_nad_version(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	#if 0
+		//QNAD_2.0.0_SS_09012017 - Trial version
+		return snprintf(buf, BUFF_SZ, "S845.0201.01.TR\n");	
+
+		//QNAD_2.0.0_SS_10152017 - Offical version
+		return snprintf(buf, BUFF_SZ, "S845.0202.01.OF\n");	
+
+		//QNAD_2.0.0_SS_11152017 - S/R, Storage added
+		return snprintf(buf, BUFF_SZ, "S845.0203.01.SRSTO\n");	
+
+		//QNAD_2.0.0_SS_12152017 - QMESA Version up
+		return snprintf(buf, BUFF_SZ, "S845.0204.01.QM\n");	
+
+		//QNAD_2.0.0_SS_12152017 - HMAC, AES parallel Disable
+		return snprintf(buf, BUFF_SZ, "S845.0204.02.HAESd\n");	
+	#else
+		//QNAD_2.0.0_SS_12152017 - HOT PLUG Enable
+		return snprintf(buf, BUFF_SZ, "S845.0204.03.HOTe\n");
+	#endif
+}
+
+static DEVICE_ATTR(nad_version, 0444, show_nad_version, NULL);
+
 static ssize_t store_nad_main(struct device *dev,
 			      struct device_attribute *attr,
 			      const char *buf, size_t count)
@@ -1233,6 +1262,12 @@ static int __init sec_nad_init(void)
 	}
 
 	ret = device_create_file(sec_nad, &dev_attr_nad_info);
+	if (ret) {
+		pr_err("%s: Failed to create device file\n", __func__);
+		goto err_create_nad_sysfs;
+	}
+
+	ret = device_create_file(sec_nad, &dev_attr_nad_version);
 	if (ret) {
 		pr_err("%s: Failed to create device file\n", __func__);
 		goto err_create_nad_sysfs;

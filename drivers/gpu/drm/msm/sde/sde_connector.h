@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -220,17 +220,53 @@ struct sde_connector_ops {
 	int (*post_kickoff)(struct drm_connector *connector);
 
 	/**
-	 * send_hpd_event - send HPD uevent notification to userspace
+	 * post_open - calls connector to process post open functionalities
 	 * @display: Pointer to private display structure
 	 */
-	void (*send_hpd_event)(void *display);
+	void (*post_open)(void *display);
 
 	/**
 	 * check_status - check status of connected display panel
 	 * @display: Pointer to private display handle
+	 * @te_check_override: Whether check TE from panel or default check
 	 * Returns: positive value for success, negetive or zero for failure
 	 */
-	int (*check_status)(void *display);
+	int (*check_status)(void *display, bool te_check_override);
+
+	/**
+	 * cmd_transfer - Transfer command to the connected display panel
+	 * @display: Pointer to private display handle
+	 * @cmd_buf: Command buffer
+	 * @cmd_buf_len: Command buffer length in bytes
+	 * Returns: Zero for success, negetive for failure
+	 */
+	int (*cmd_transfer)(void *display, const char *cmd_buf,
+			u32 cmd_buf_len);
+
+	/**
+	 * config_hdr - configure HDR
+	 * @display: Pointer to private display handle
+	 * @c_state: Pointer to connector state
+	 * Returns: Zero on success, negative error code for failures
+	 */
+	int (*config_hdr)(void *display,
+		struct sde_connector_state *c_state);
+
+	/**
+	 * cont_splash_config - initialize splash resources
+	 * @display: Pointer to private display handle
+	 * Returns: zero for success, negetive for failure
+	 */
+	int (*cont_splash_config)(void *display);
+
+	/**
+	 * get_panel_vfp - returns original panel vfp
+	 * @display: Pointer to private display handle
+	 * @h_active: width
+	 * @v_active: height
+	 * Returns: v_front_porch on success error-code on failure
+	 */
+	int (*get_panel_vfp)(void *display, int h_active, int v_active);
 };
 
 /**
@@ -287,9 +323,13 @@ struct sde_connector_evt {
  * @bl_device: backlight device node
  * @status_work: work object to perform status checks
  * @force_panel_dead: variable to trigger forced ESD recovery
+ * @esd_status_interval: variable to change ESD check interval in millisec
+ * @panel_dead: Flag to indicate if panel has gone bad
+ * @esd_status_check: Flag to indicate if ESD thread is scheduled or not
  * @bl_scale_dirty: Flag to indicate PP BL scale value(s) is changed
  * @bl_scale: BL scale value for ABA feature
  * @bl_scale_ad: BL scale value for AD feature
+ * last_cmd_tx_sts: status of the last command transfer
  */
 struct sde_connector {
 	struct drm_connector base;
@@ -325,11 +365,14 @@ struct sde_connector {
 	struct backlight_device *bl_device;
 	struct delayed_work status_work;
 	u32 force_panel_dead;
+	u32 esd_status_interval;
+	bool panel_dead;
+	bool esd_status_check;
 
 	bool bl_scale_dirty;
 	u32 bl_scale;
 	u32 bl_scale_ad;
-	bool first_doze;
+	bool last_cmd_tx_sts;
 };
 
 /**
@@ -540,8 +583,10 @@ void sde_connector_prepare_fence(struct drm_connector *connector);
  * sde_connector_complete_commit - signal completion of current commit
  * @connector: Pointer to drm connector object
  * @ts: timestamp to be updated in the fence signalling
+ * @fence_event: enum value to indicate nature of fence event
  */
-void sde_connector_complete_commit(struct drm_connector *connector, ktime_t ts);
+void sde_connector_complete_commit(struct drm_connector *connector,
+		ktime_t ts, enum sde_fence_event fence_event);
 
 /**
  * sde_connector_commit_reset - reset the completion signal
@@ -718,5 +763,27 @@ void sde_conn_timeline_status(struct drm_connector *conn);
  * @connector: Pointer to DRM connector object
  */
 void sde_connector_helper_bridge_disable(struct drm_connector *connector);
+
+/**
+ * sde_connector_helper_bridge_enable - helper function for drm bridge enable
+ * @connector: Pointer to DRM connector object
+ */
+void sde_connector_helper_bridge_enable(struct drm_connector *connector);
+
+/**
+ * sde_connector_get_panel_vfp - helper to get panel vfp
+ * @connector: pointer to drm connector
+ * @h_active: panel width
+ * @v_active: panel heigth
+ * Returns: v_front_porch on success error-code on failure
+ */
+int sde_connector_get_panel_vfp(struct drm_connector *connector,
+	struct drm_display_mode *mode);
+
+/**
+ * sde_connector_esd_status - helper function to check te status
+ * @connector: Pointer to DRM connector object
+ */
+int sde_connector_esd_status(struct drm_connector *connector);
 
 #endif /* _SDE_CONNECTOR_H_ */

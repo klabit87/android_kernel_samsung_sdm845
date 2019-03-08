@@ -1025,6 +1025,7 @@ vdev_fail:
 static int cam_sync_remove(struct platform_device *pdev)
 {
 	v4l2_device_unregister(sync_dev->vdev->v4l2_dev);
+	video_unregister_device(sync_dev->vdev);
 	cam_sync_media_controller_cleanup(sync_dev);
 	video_device_release(sync_dev->vdev);
 	kfree(sync_dev);
@@ -1044,6 +1045,7 @@ static struct platform_driver cam_sync_driver = {
 	.driver = {
 		.name = "cam_sync",
 		.owner = THIS_MODULE,
+		.suppress_bind_attrs = true,
 	},
 };
 

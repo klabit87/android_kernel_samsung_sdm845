@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -48,9 +48,11 @@ enum ad_property {
 	AD_SUSPEND,
 	AD_ASSERTIVE,
 	AD_BACKLIGHT,
+	AD_STRENGTH,
 	AD_IPC_SUSPEND,
 	AD_IPC_RESUME,
 	AD_IPC_RESET,
+	AD_VSYNC_UPDATE,
 	AD_PROPMAX,
 };
 
@@ -58,7 +60,7 @@ enum ad_property {
  * enum ad_intr_resp_property - ad4 interrupt response enum
  */
 enum ad_intr_resp_property {
-	AD4_BACKLIGHT,
+	AD4_IN_OUT_BACKLIGHT,
 	AD4_RESPMAX,
 };
 
@@ -92,8 +94,10 @@ void sde_setup_dspp_ad4(struct sde_hw_dspp *dspp, void *cfg);
  * sde_read_intr_resp_ad4 - api to get ad4 interrupt status for event
  * @dspp: pointer to dspp object
  * @event: event for which response is needed
- * @resp: value of event requested
+ * @resp_in: read ad4 input value of event requested
+ * @resp_out: read ad4 output value of event requested
  */
-void sde_read_intr_resp_ad4(struct sde_hw_dspp *dspp, u32 event, u32 *resp);
+void sde_read_intr_resp_ad4(struct sde_hw_dspp *dspp, u32 event,
+			u32 *resp_in, u32 *resp_out);
 
 #endif /* _SDE_AD4_H_ */

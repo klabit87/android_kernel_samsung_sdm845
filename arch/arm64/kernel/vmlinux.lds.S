@@ -60,7 +60,7 @@ jiffies = jiffies_64;
 #define TRAMP_TEXT					\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_start) = .;	\
-	*(.entry.tramp.text)				\
+	KEEP(*(.entry.tramp.text))			\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_end) = .;
 #else
@@ -161,13 +161,12 @@ SECTIONS
 		*(.rkp.dblmap)
 	}
 #ifdef CONFIG_RKP_KDP
+	. = ALIGN(PAGE_SIZE);
 	 /* Creating a new section to store task credentials */
-	. = ALIGN(PAGE_SIZE);
 	.rkp.prot.page : {
-		__rkp_ro_start = .;
+		__rkp_start_prot_page = .;
 	}
-	. = __rkp_ro_start + 0x4000;
-	. = ALIGN(PAGE_SIZE);
+	__rkp_end_prot_page = .;
 #endif /* CONFIG_RKP_KDP*/
 
 	. = ALIGN(PAGE_SIZE);
@@ -211,11 +210,11 @@ SECTIONS
 	. = ALIGN(4);
 	.altinstructions : {
 		__alt_instructions = .;
-		*(.altinstructions)
+		KEEP(*(.altinstructions))
 		__alt_instructions_end = .;
 	}
 	.altinstr_replacement : {
-		*(.altinstr_replacement)
+		KEEP(*(.altinstr_replacement))
 	}
 	.rela : ALIGN(8) {
 		__reloc_start = .;

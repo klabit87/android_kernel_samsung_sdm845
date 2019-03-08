@@ -184,6 +184,15 @@ config INPUT_QPNP_POWER_ON
 	  reporting the change in status of the KPDPWR_N line (connected to the
 	  power-key) as well as reset features.
 
+config INPUT_QTI_HAPTICS
+	tristate "Haptics support for QTI PMIC"
+	depends on MFD_SPMI_PMIC
+	help
+	  This option enables device driver support for the haptics peripheral
+	  found on Qualcomm Technologies, Inc. PMICs.  The haptics peripheral
+	  is capable of driving both LRA and ERM vibrators.  This module provides
+	  haptic feedback for user actions such as a long press on the touch screen.
+
 config INPUT_SPARCSPKR
 	tristate "SPARC Speaker support"
 	depends on PCI && SPARC64
@@ -397,6 +406,18 @@ config INPUT_KEYCHORD
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called keychord.
+
+
+config STMVL53L0X
+        tristate "STM VL53L0X Ranging Sensor"
+        depends on I2C
+        help
+	  Say Y here if you want to enable the key chord driver
+          This is a Time-of-Flight (ToF) laser-ranging sensor, provide
+	  the distance from obstacle.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called vl5310x.
 
 config INPUT_KEYSPAN_REMOTE
 	tristate "Keyspan DMR USB remote control"

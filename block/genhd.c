@@ -23,7 +23,7 @@
 #include <linux/badblocks.h>
 
 #ifdef CONFIG_BLOCK_SUPPORT_STLOG
-#include <linux/stlog.h>
+#include <linux/fslog.h>
 #else
 #define ST_LOG(fmt, ...)
 #endif
@@ -628,7 +628,7 @@ void device_add_disk(struct device *parent, struct gendisk *disk)
 	disk_alloc_events(disk);
 
 	/* Register BDI before referencing it from bdev */
-	bdi = &disk->queue->backing_dev_info;
+	bdi = disk->queue->backing_dev_info;
 	bdi_register_owner(bdi, disk_to_dev(disk));
 
 	blk_register_region(disk_devt(disk), disk->minors, NULL,
@@ -668,16 +668,27 @@ void del_gendisk(struct gendisk *disk)
 			     DISK_PITER_INCL_EMPTY | DISK_PITER_REVERSE);
 	while ((part = disk_part_iter_next(&piter))) {
 		invalidate_partition(disk, part->partno);
+		bdev_unhash_inode(part_devt(part));
 		delete_partition(disk, part->partno);
 	}
 	disk_part_iter_exit(&piter);
 
 	invalidate_partition(disk, 0);
+	bdev_unhash_inode(disk_devt(disk));
 	set_capacity(disk, 0);
 	disk->flags &= ~GENHD_FL_UP;
 
 	sysfs_remove_link(&disk_to_dev(disk)->kobj, "bdi");
-	blk_unregister_queue(disk);
+	if (disk->queue) {
+		/*
+		 * Unregister bdi before releasing device numbers (as they can
+		 * get reused and we'd get clashes in sysfs).
+		 */
+		bdi_unregister(disk->queue->backing_dev_info);
+		blk_unregister_queue(disk);
+	} else {
+		WARN_ON(1);
+	}
 	blk_unregister_region(disk_devt(disk), disk->minors);
 
 	part_stat_set_all(&disk->part0, 0);
@@ -934,6 +945,66 @@ static int partitions_open(struct inode *inode, struct file *file)
 
 static const struct file_operations proc_partitions_operations = {
 	.open		= partitions_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
+static void *show_iodevs_start(struct seq_file *seqf, loff_t *pos)
+{
+	void *p;
+
+	p = disk_seqf_start(seqf, pos);
+	if (!IS_ERR_OR_NULL(p) && !*pos)
+		seq_printf(seqf, "%12s\t%12s\n", "name", "#blocks");
+	return p;
+}
+
+static int show_iodevs(struct seq_file *seqf, void *v)
+{
+	struct gendisk *sgp = v;
+	struct disk_part_iter piter;
+	struct hd_struct *part;
+	char buf[BDEVNAME_SIZE];
+
+	/* Don't show non-partitionable removeable devices or empty devices */
+	if (!get_capacity(sgp) || (!disk_max_parts(sgp) &&
+				(sgp->flags & GENHD_FL_REMOVABLE)))
+		return 0;
+	if (sgp->flags & GENHD_FL_SUPPRESS_PARTITION_INFO)
+		return 0;
+
+	/* show the full disk and all 500MB size or more partitions of it */
+	disk_part_iter_init(&piter, sgp, DISK_PITER_INCL_PART0);
+#define MB(x) ((x) * 1024)
+	while ((part = disk_part_iter_next(&piter))) {
+		unsigned long long size = part_nr_sects_read(part) >> 1;
+
+		if (size < MB(500))
+			continue;
+
+		seq_printf(seqf, "%12s\t%12llu\n",
+				disk_name(sgp, part->partno, buf), size);
+	}
+	disk_part_iter_exit(&piter);
+
+	return 0;
+}
+
+static const struct seq_operations iodevs_op = {
+	.start	= show_iodevs_start,
+	.next	= disk_seqf_next,
+	.stop	= disk_seqf_stop,
+	.show	= show_iodevs
+};
+
+static int iodevs_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &iodevs_op);
+}
+
+static const struct file_operations proc_iodevs_operations = {
+	.open		= iodevs_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
 	.release	= seq_release,
@@ -1375,7 +1446,7 @@ static int iostats_show(struct seq_file *seqf, void *v)
 		part_stat_unlock();
 		uptime = ktime_to_ns(ktime_get());
 		uptime /= 1000000; /* in ms */
-		bdi = &gp->queue->backing_dev_info;
+		bdi = gp->queue->backing_dev_info;
 		nread = part_in_flight_read(hd);
 		nwrite = part_in_flight_write(hd);
 		seq_printf(seqf, "%4d %7d %s %lu %lu %lu %u "
@@ -1443,6 +1514,7 @@ static int __init proc_genhd_init(void)
 {
 	proc_create("iostats", 0, NULL, &proc_iostats_operations);
 	proc_create("diskstats", 0, NULL, &proc_diskstats_operations);
+	proc_create("iodevs", 0, NULL, &proc_iodevs_operations);
 	proc_create("partitions", 0, NULL, &proc_partitions_operations);
 	return 0;
 }
@@ -1544,7 +1616,7 @@ struct kobject *get_disk(struct gendisk *disk)
 	owner = disk->fops->owner;
 	if (owner && !try_module_get(owner))
 		return NULL;
-	kobj = kobject_get(&disk_to_dev(disk)->kobj);
+	kobj = kobject_get_unless_zero(&disk_to_dev(disk)->kobj);
 	if (kobj == NULL) {
 		module_put(owner);
 		return NULL;

@@ -27,6 +27,10 @@
 
 #define INVALID_VREG 100
 
+#if defined(CONFIG_SEC_FACTORY)
+#define CONFIG_CAMERA_FAC_LN_TEST 1 // Factory Low Noise Test
+#endif
+
 #define CONFIG_SENSOR_RETENTION 1
 #if defined(CONFIG_SENSOR_RETENTION)
 #define SENSOR_RETENTION_READ_RETRY_CNT 10

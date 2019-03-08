@@ -53,7 +53,7 @@
 #include "sdio_ops.h"
 
 #ifdef CONFIG_MMC_SUPPORT_STLOG
-#include <linux/stlog.h>
+#include <linux/fslog.h>
 #else
 #define ST_LOG(fmt, ...)
 #endif
@@ -478,6 +478,9 @@ int mmc_recovery_fallback_lower_speed(struct mmc_host *host)
 		ST_LOG("%s: %s: blocked SDR104, lower the bus-speed %s\n",
 			mmc_hostname(host), __func__, err ? "failed" : "OK");
 		host->card->sdr104_blocked = true;
+	} else if (mmc_card_sd(host->card)) {
+		/* If sdr104_wa is not present, just return status */
+		err = host->bus_ops->alive(host);
 	}
 	if (err)
 		pr_err("%s: %s: Fallback to lower speed mode failed with err=%d\n",
@@ -1067,9 +1070,10 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 				completion = ktime_get();
 				delta_us = ktime_us_delta(completion,
 							  mrq->io_start);
-				blk_update_latency_hist(&host->io_lat_s,
-					(mrq->data->flags & MMC_DATA_READ),
-					delta_us);
+				blk_update_latency_hist(
+					(mrq->data->flags & MMC_DATA_READ) ?
+					&host->io_lat_read :
+					&host->io_lat_write, delta_us);
 			}
 #endif
 		}
@@ -1669,7 +1673,8 @@ void mmc_wait_for_req_done(struct mmc_host *host, struct mmc_request *mrq)
 		    mmc_card_removed(host->card)) {
 			if (cmd->error && !cmd->retries &&
 			     cmd->opcode != MMC_SEND_STATUS &&
-			     cmd->opcode != MMC_SEND_TUNING_BLOCK)
+			     cmd->opcode != MMC_SEND_TUNING_BLOCK &&
+			     cmd->opcode != MMC_SEND_TUNING_BLOCK_HS200)
 				mmc_recovery_fallback_lower_speed(host);
 			break;
 		}
@@ -2328,8 +2333,10 @@ int __mmc_claim_host(struct mmc_host *host, atomic_t *abort)
 	spin_unlock_irqrestore(&host->lock, flags);
 	remove_wait_queue(&host->wq, &wait);
 
-	if (pm)
+	if (pm) {
+		mmc_host_clk_hold(host);
 		pm_runtime_get_sync(mmc_dev(host));
+	}
 
 	if (host->ops->enable && !stop && host->claim_cnt == 1)
 		host->ops->enable(host);
@@ -2368,8 +2375,10 @@ int mmc_try_claim_host(struct mmc_host *host, unsigned int delay_ms)
 			mmc_delay(10);
 	} while (!claimed_host && retry_cnt--);
 
-	if (pm)
+	if (pm) {
+		mmc_host_clk_hold(host);
 		pm_runtime_get_sync(mmc_dev(host));
+	}
 
 	if (host->ops->enable && claimed_host && host->claim_cnt == 1)
 		host->ops->enable(host);
@@ -2404,6 +2413,7 @@ void mmc_release_host(struct mmc_host *host)
 		wake_up(&host->wq);
 		pm_runtime_mark_last_busy(mmc_dev(host));
 		pm_runtime_put_autosuspend(mmc_dev(host));
+		mmc_host_clk_release(host);
 	}
 }
 EXPORT_SYMBOL(mmc_release_host);
@@ -3378,6 +3388,7 @@ int mmc_resume_bus(struct mmc_host *host)
 {
 	unsigned long flags;
 	int err = 0;
+	int card_present = true;
 
 	if (!mmc_bus_needs_resume(host))
 		return -EINVAL;
@@ -3391,10 +3402,28 @@ int mmc_resume_bus(struct mmc_host *host)
 	spin_unlock_irqrestore(&host->lock, flags);
 
 	mmc_bus_get(host);
-	if (host->bus_ops && !host->bus_dead && host->card) {
+	if (host->ops->get_cd)
+		card_present = host->ops->get_cd(host);
+
+	if (host->bus_ops && !host->bus_dead && host->card && card_present) {
 		mmc_power_up(host, host->card->ocr);
 		BUG_ON(!host->bus_ops->resume);
-		host->bus_ops->resume(host);
+		err = host->bus_ops->resume(host);
+		if (err) {
+			pr_err("%s: %s: resume failed: %d\n",
+				       mmc_hostname(host), __func__, err);
+			/*
+			 * If we have cd-gpio based detection mechanism and
+			 * deferred resume is supported, we will not detect
+			 * card removal event when system is suspended. So if
+			 * resume fails after a system suspend/resume,
+			 * schedule the work to detect card presence.
+			 */
+			if (mmc_card_is_removable(host) &&
+					!(host->caps & MMC_CAP_NEEDS_POLL)) {
+				mmc_detect_change(host, 0);
+			}
+		}
 		if (mmc_card_cmdq(host->card)) {
 			err = mmc_cmdq_halt(host, false);
 			if (err)
@@ -4620,7 +4649,9 @@ int mmc_power_save_host(struct mmc_host *host)
 
 	mmc_bus_put(host);
 
+	mmc_claim_host(host);
 	mmc_power_off(host);
+	mmc_release_host(host);
 
 	return ret;
 }
@@ -4641,8 +4672,8 @@ int mmc_power_restore_host(struct mmc_host *host)
 		return -EINVAL;
 	}
 
-	mmc_power_up(host, host->card->ocr);
 	mmc_claim_host(host);
+	mmc_power_up(host, host->card->ocr);
 	ret = host->bus_ops->power_restore(host);
 	mmc_release_host(host);
 
@@ -4729,12 +4760,14 @@ static int mmc_pm_notify(struct notifier_block *notify_block,
 	struct mmc_host *host = container_of(
 		notify_block, struct mmc_host, pm_notify);
 	unsigned long flags;
-	int err = 0;
+	int err = 0, present = 0;
 
 	switch (mode) {
-	case PM_HIBERNATION_PREPARE:
-	case PM_SUSPEND_PREPARE:
 	case PM_RESTORE_PREPARE:
+	case PM_HIBERNATION_PREPARE:
+		if (host->bus_ops && host->bus_ops->pre_hibernate)
+			host->bus_ops->pre_hibernate(host);
+	case PM_SUSPEND_PREPARE:
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 1;
 		spin_unlock_irqrestore(&host->lock, flags);
@@ -4756,6 +4789,14 @@ static int mmc_pm_notify(struct notifier_block *notify_block,
 		if (!err)
 			break;
 
+		if (!mmc_card_is_removable(host)) {
+			dev_warn(mmc_dev(host),
+				 "pre_suspend failed for non-removable host: "
+				 "%d\n", err);
+			/* Avoid removing non-removable hosts */
+			break;
+		}
+
 		/* Calling bus_ops->remove() with a claimed host can deadlock */
 		host->bus_ops->remove(host);
 		mmc_claim_host(host);
@@ -4765,15 +4806,23 @@ static int mmc_pm_notify(struct notifier_block *notify_block,
 		host->pm_flags = 0;
 		break;
 
-	case PM_POST_SUSPEND:
-	case PM_POST_HIBERNATION:
 	case PM_POST_RESTORE:
+	case PM_POST_HIBERNATION:
+		if (host->bus_ops && host->bus_ops->post_hibernate)
+			host->bus_ops->post_hibernate(host);
+	case PM_POST_SUSPEND:
 
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 0;
+		if (host->ops->get_cd) {
+			present = host->ops->get_cd(host);
+			mmc_gpiod_update_status(host, present);
+		}
+
 #ifndef CONFIG_MMC_BLOCK_DEFERRED_RESUME        /* This is not needed to resume on pm_notifier */
 		if (mmc_bus_manual_resume(host) &&
-				!host->ignore_bus_resume_flags) {
+				!host->ignore_bus_resume_flags &&
+				present) {
 			spin_unlock_irqrestore(&host->lock, flags);
 			break;
 		}
@@ -4868,8 +4917,14 @@ static ssize_t
 latency_hist_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+	size_t written_bytes;
 
-	return blk_latency_hist_show(&host->io_lat_s, buf);
+	written_bytes = blk_latency_hist_show("Read", &host->io_lat_read,
+			buf, PAGE_SIZE);
+	written_bytes += blk_latency_hist_show("Write", &host->io_lat_write,
+			buf + written_bytes, PAGE_SIZE - written_bytes);
+
+	return written_bytes;
 }
 
 /*
@@ -4887,9 +4942,10 @@ latency_hist_store(struct device *dev, struct device_attribute *attr,
 
 	if (kstrtol(buf, 0, &value))
 		return -EINVAL;
-	if (value == BLK_IO_LAT_HIST_ZERO)
-		blk_zero_latency_hist(&host->io_lat_s);
-	else if (value == BLK_IO_LAT_HIST_ENABLE ||
+	if (value == BLK_IO_LAT_HIST_ZERO) {
+		memset(&host->io_lat_read, 0, sizeof(host->io_lat_read));
+		memset(&host->io_lat_write, 0, sizeof(host->io_lat_write));
+	} else if (value == BLK_IO_LAT_HIST_ENABLE ||
 		 value == BLK_IO_LAT_HIST_DISABLE)
 		host->latency_hist_enabled = value;
 	return count;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017 TRUSTONIC LIMITED
+ * Copyright (c) 2015-2018 TRUSTONIC LIMITED
  * All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or

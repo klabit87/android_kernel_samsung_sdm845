@@ -549,9 +549,8 @@ static int msm_transcode_stream_cmd_put(struct snd_kcontrol *kcontrol,
 		goto done;
 	}
 
-
-	if ((sizeof(struct msm_adsp_event_data) + event_data->payload_len) >=
-					sizeof(ucontrol->value.bytes.data)) {
+	if (event_data->payload_len > sizeof(ucontrol->value.bytes.data)
+			- sizeof(struct msm_adsp_event_data)) {
 		pr_err("%s param length=%d  exceeds limit",
 			 __func__, event_data->payload_len);
 		ret = -EINVAL;
@@ -957,6 +956,7 @@ static struct platform_driver msm_transcode_loopback_driver = {
 		.name = "msm-transcode-loopback",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_transcode_loopback_dt_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = msm_transcode_dev_probe,
 	.remove = msm_transcode_remove,

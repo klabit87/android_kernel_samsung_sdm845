@@ -56,12 +56,12 @@ enum {
 #define IRC_MODERATO_MODE_VAL	0x69
 #define IRC_FLAT_GAMMA_MODE_VAL	0x29
 
-u8 vint_array_revA[2] = {
+static u8 vint_array_revA[2] = {
 	0x28, /* 700~15nit*/
 	0x23, /* 14~2nit*/
 };
 
-u8 vint_array_revG[5] = {
+static u8 vint_array_revG[5] = {
 	0x26, /*  HBM(700nit) */
 	0x25, /*  675nit */
 	0x25, /*  650nit */
@@ -1605,6 +1605,7 @@ static int dsi_update_mdnie_data(struct samsung_display_driver_data *vdd)
 	mdnie_data->DSI_NEGATIVE_MDNIE = DSI_NEGATIVE_MDNIE;
 	mdnie_data->DSI_COLOR_BLIND_MDNIE = DSI_COLOR_BLIND_MDNIE;
 	mdnie_data->DSI_HBM_CE_MDNIE = DSI_HBM_CE_MDNIE;
+	mdnie_data->DSI_HBM_CE_D65_MDNIE = DSI_HBM_CE_D65_MDNIE;
 	mdnie_data->DSI_RGB_SENSOR_MDNIE = DSI_RGB_SENSOR_MDNIE;
 	mdnie_data->DSI_UI_DYNAMIC_MDNIE = DSI_UI_DYNAMIC_MDNIE;
 	mdnie_data->DSI_UI_STANDARD_MDNIE = DSI_UI_STANDARD_MDNIE;
@@ -1673,7 +1674,7 @@ static int dsi_update_mdnie_data(struct samsung_display_driver_data *vdd)
 	mdnie_data->dsi_adjust_ldu_table = adjust_ldu_data;
 	mdnie_data->dsi_max_adjust_ldu = 6;
 	mdnie_data->dsi_night_mode_table = night_mode_data;
-	mdnie_data->dsi_max_night_mode_index = 11;
+	mdnie_data->dsi_max_night_mode_index = 12;
 	mdnie_data->dsi_color_lens_table = color_lens_data;
 	mdnie_data->dsi_white_default_r = 0xff;
 	mdnie_data->dsi_white_default_g = 0xff;
@@ -1784,8 +1785,10 @@ static int ss_gct_write(struct samsung_display_driver_data *vdd)
 	 * So, on commands should be sent before wake up the waitq
 	 * and set exclusive_tx.enable to false.
 	 */
+	vdd->panel_state = PANEL_PWR_OFF;
 	dsi_panel_power_off(panel);
 	dsi_panel_power_on(panel);
+	vdd->panel_state = PANEL_PWR_ON_READY;
 
 	ss_set_exclusive_tx_packet(vdd, DSI_CMD_SET_ON, 1);
 	ss_set_exclusive_tx_packet(vdd, TX_LEVEL0_KEY_ENABLE, 1);
@@ -1793,7 +1796,7 @@ static int ss_gct_write(struct samsung_display_driver_data *vdd)
 	ss_set_exclusive_tx_packet(vdd, TX_LEVEL0_KEY_DISABLE, 1);
 
 	ss_send_cmd(vdd, DSI_CMD_SET_ON);
-	dsi_panel_update_pps_nolock(panel);
+	dsi_panel_update_pps(panel);
 
 	ss_set_exclusive_tx_packet(vdd, DSI_CMD_SET_ON, 0);
 	ss_set_exclusive_tx_packet(vdd, TX_LEVEL0_KEY_ENABLE, 0);
@@ -1841,6 +1844,538 @@ static int ss_self_display_init(struct samsung_display_driver_data *vdd)
 	make_self_dispaly_img_cmds(TX_SELF_VIDEO_IMAGE, FLAG_SELF_VIDEO);
 
 	return 1;
+}
+
+static int poc_comp_table[][2] = {
+					/*idx  cd*/
+	{0x0C, 0x68},	/*0 	2*/
+	{0x0C, 0x68},	/*1 	3*/
+	{0x0C, 0x68},	/*2 	4*/
+	{0x0C, 0x68},	/*3 	5*/
+	{0x0C, 0x68},	/*4 	6*/
+	{0x0C, 0x68},	/*5 	7*/
+	{0x0C, 0x68},	/*6 	8*/
+	{0x0C, 0x68},	/*7 	9*/
+	{0x0C, 0x68},	/*8 	10*/
+	{0x0C, 0x68},	/*9 	11*/
+	{0x0C, 0x68},	/*10	12*/
+	{0x0C, 0x68},	/*11	13*/
+	{0x0C, 0x68},	/*12	14*/
+	{0x0C, 0x68},	/*13	15*/
+	{0x0C, 0x6A},	/*14	16*/
+	{0x0C, 0x6C},	/*15	17*/
+	{0x0C, 0x6E},	/*16	18*/
+	{0x0C, 0x70},	/*17	19*/
+	{0x0C, 0x72},	/*18	20*/
+	{0x0C, 0x74},	/*19	21*/
+	{0x0C, 0x78},	/*20	23*/
+	{0x0C, 0x7A},	/*21	24*/
+	{0x0C, 0x7E},	/*22	26*/
+	{0x0C, 0x80},	/*23	27*/
+	{0x0C, 0x84},	/*24	29*/
+	{0x0C, 0x88},	/*25	31*/
+	{0x0C, 0x8C},	/*26	33*/
+	{0x0C, 0x90},	/*27	35*/
+	{0x0C, 0x94},	/*28	37*/
+	{0x0C, 0x98},	/*29	39*/
+	{0x0C, 0x9E},	/*30	42*/
+	{0x0C, 0xA4},	/*31	45*/
+	{0x0C, 0xAA},	/*32	48*/
+	{0x0C, 0xB0},	/*33	51*/
+	{0x0C, 0xB6},	/*34	54*/
+	{0x0C, 0xBC},	/*35	57*/
+	{0x0C, 0xC4},	/*36	61*/
+	{0x0C, 0xCC},	/*37	65*/
+	{0x0C, 0xE0},	/*38	69*/
+	{0x0C, 0xF4},	/*39	73*/
+	{0x0D, 0x0C},	/*40	78*/
+	{0x0D, 0x25},	/*41	83*/
+	{0x0D, 0x3E},	/*42	88*/
+	{0x0D, 0x5B},	/*43	94*/
+	{0x0D, 0x78},	/*44	100*/
+	{0x0D, 0x85},	/*45	106*/
+	{0x0D, 0x95},	/*46	113*/
+	{0x0D, 0xA4},	/*47	120*/
+	{0x0D, 0xB5},	/*48	128*/
+	{0x0D, 0xC6},	/*49	136*/
+	{0x0D, 0xDA},	/*50	145*/
+	{0x0D, 0xED},	/*51	154*/
+	{0x0E, 0x03},	/*52	164*/
+	{0x0E, 0x19},	/*53	174*/
+	{0x0E, 0x30},	/*54	185*/
+	{0x0E, 0x47},	/*55	197*/
+	{0x0E, 0x5F},	/*56	210*/
+	{0x0E, 0x77},	/*57	223*/
+	{0x0E, 0x91},	/*58	237*/
+	{0x0E, 0xAF},	/*59	253*/
+	{0x0E, 0xCC},	/*60	269*/
+	{0x0E, 0xF5},	/*61	286*/
+	{0x0F, 0x18},	/*62	301*/
+	{0x0F, 0x3E},	/*63	317*/
+	{0x0F, 0x64},	/*64	333*/
+	{0x0F, 0x74},	/*65	340*/
+	{0x0F, 0x84},	/*66	347*/
+	{0x0F, 0x94},	/*67	354*/
+	{0x0F, 0xA6},	/*68	362*/
+	{0x0F, 0xB6},	/*69	369*/
+	{0x0F, 0xC6},	/*70	376*/
+	{0x0F, 0xD8},	/*71	384*/
+	{0x0F, 0xEA},	/*72	392*/
+	{0x0F, 0xFC},	/*73	400*/
+	{0x0F, 0xFF},	/*74	hbm*/
+};
+
+static void poc_comp(struct samsung_display_driver_data *vdd)
+{
+	struct dsi_panel_cmd_set *poc_comp_cmds = ss_get_cmds(vdd, TX_POC_COMP);
+	int cd_idx;
+
+	if (IS_ERR_OR_NULL(vdd) || SS_IS_CMDS_NULL(poc_comp_cmds)) {
+		LCD_ERR("Invalid data vdd : 0x%zx cmds : 0x%zx", (size_t)vdd, (size_t)poc_comp_cmds);
+		return;
+	}
+
+	if (is_hbm_level(vdd))
+		cd_idx = ARRAY_SIZE(poc_comp_table) - 1;
+	else
+		cd_idx = vdd->cd_idx;
+
+	LCD_DEBUG("cd_idx (%d) val (%02x %02x)\n", cd_idx, poc_comp_table[cd_idx][0], poc_comp_table[cd_idx][1]);
+
+	poc_comp_cmds->cmds[4].msg.tx_buf[1] = poc_comp_table[cd_idx][0];
+	poc_comp_cmds->cmds[4].msg.tx_buf[2] = poc_comp_table[cd_idx][1];
+
+	ss_send_cmd(vdd, TX_POC_COMP);
+
+	return;
+}
+
+static int poc_erase(struct samsung_display_driver_data *vdd, u32 erase_pos, u32 erase_size)
+{
+	struct dsi_display *display = NULL;
+	struct dsi_panel_cmd_set *poc_erase_sector_tx_cmds = NULL;
+	int delay_us = 0;
+	int image_size = 0;
+	int type;
+	int ret = 0;
+
+	struct msm_drm_private *priv = NULL;
+	struct sde_kms *sde_kms = NULL;
+	u64 sde_mnoc_ab, sde_mnoc_ib;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd\n");
+		return -EINVAL;
+	}
+
+	display = GET_DSI_DISPLAY(vdd);
+	if (IS_ERR_OR_NULL(display)) {
+		LCD_ERR("no display");
+		return -EINVAL;
+	}
+
+	if (vdd->poc_driver.erase_sector_addr_idx[0] < 0) {
+		LCD_ERR("sector addr index is not implemented.. %d\n",
+			vdd->poc_driver.erase_sector_addr_idx[0]);
+		return -EINVAL;
+	}
+
+	poc_erase_sector_tx_cmds = ss_get_cmds(vdd, TX_POC_ERASE_SECTOR);
+	if (SS_IS_CMDS_NULL(poc_erase_sector_tx_cmds)) {
+		LCD_ERR("No cmds for TX_POC_ERASE_SECTOR..\n");
+		return -ENODEV;
+	}
+
+	image_size = vdd->poc_driver.image_size;
+	delay_us = vdd->poc_driver.erase_delay_us;
+
+	LCD_INFO("[ERASE] erase_pos (%6d / %6d), delay %dus\n",
+		erase_pos, image_size, delay_us);
+
+	/* MAX CPU ON */
+	priv = display->drm_dev->dev_private;
+	sde_kms = (struct sde_kms *)priv->kms;
+	sde_mnoc_ab = sde_kms->core_client->ab[SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT];
+	sde_mnoc_ib = sde_kms->core_client->ib[SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT];
+
+	ss_set_max_cpufreq(vdd, true, CPUFREQ_CLUSTER_ALL);
+	sde_power_data_bus_set_quota(&priv->phandle,
+			sde_kms->core_client,
+			SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT,
+			SDE_POWER_HANDLE_DBUS_ID_MNOC,
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_AB_QUOTA,
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_IB_QUOTA);
+	dsi_display_clk_ctrl(display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_ON);
+
+	/* Enter exclusive mode */
+	mutex_lock(&vdd->exclusive_tx.ex_tx_lock);
+	vdd->exclusive_tx.permit_frame_update = 1;
+	vdd->exclusive_tx.enable = 1;
+	for (type = TX_POC_CMD_START; type < TX_POC_CMD_END + 1 ; type++)
+		ss_set_exclusive_tx_packet(vdd, type, 1);
+
+	/* POC MODE ENABLE */
+	ss_send_cmd(vdd, TX_POC_ENABLE);
+
+	LCD_INFO("WRITE [TX_POC_PRE_ERASE_SECTOR]");
+	ss_send_cmd(vdd, TX_POC_PRE_ERASE_SECTOR);
+
+	poc_erase_sector_tx_cmds->cmds[2].msg.tx_buf[vdd->poc_driver.erase_sector_addr_idx[0]]
+											= (erase_pos & 0xFF0000) >> 16;
+	poc_erase_sector_tx_cmds->cmds[2].msg.tx_buf[vdd->poc_driver.erase_sector_addr_idx[1]]
+											= (erase_pos & 0x00FF00) >> 8;
+	poc_erase_sector_tx_cmds->cmds[2].msg.tx_buf[vdd->poc_driver.erase_sector_addr_idx[2]]
+											= erase_pos & 0x0000FF;
+
+	ss_send_cmd(vdd, TX_POC_ERASE_SECTOR);
+
+	usleep_range(delay_us, delay_us);
+
+	if ((erase_pos > image_size - POC_PAGE ) || ret == -EIO) {
+		LCD_INFO("WRITE [TX_POC_POST_ERASE_SECTOR] - cur_erase_pos(%d) image_size(%d) ret(%d)\n",
+			erase_pos, image_size, ret);
+		ss_send_cmd(vdd, TX_POC_POST_ERASE_SECTOR);
+	}
+
+	/* POC MODE DISABLE */
+	ss_send_cmd(vdd, TX_POC_DISABLE);
+
+	/* exit exclusive mode*/
+	for (type = TX_POC_CMD_START; type < TX_POC_CMD_END + 1 ; type++)
+		ss_set_exclusive_tx_packet(vdd, type, 0);
+	vdd->exclusive_tx.permit_frame_update = 0;
+	vdd->exclusive_tx.enable = 0;
+	mutex_unlock(&vdd->exclusive_tx.ex_tx_lock);
+	wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+
+	/* MAX CPU OFF */
+	dsi_display_clk_ctrl(display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_OFF);
+	sde_power_data_bus_set_quota(&priv->phandle,
+			sde_kms->core_client,
+			SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT,
+			SDE_POWER_HANDLE_DBUS_ID_MNOC,
+			sde_mnoc_ab,
+			sde_mnoc_ib);
+	ss_set_max_cpufreq(vdd, false, CPUFREQ_CLUSTER_ALL);
+
+	return ret;
+}
+
+static int poc_write(struct samsung_display_driver_data *vdd, u8 *data, u32 write_pos, u32 write_size)
+{
+	struct dsi_panel_cmd_set *write_cmd = NULL;
+	struct dsi_panel_cmd_set *write_data_add = NULL;
+
+	int pos, type, ret = 0;
+	int last_pos, delay_us, image_size, loop_cnt, poc_w_size;
+	int tx_size;
+
+	struct msm_drm_private *priv = NULL;
+	struct sde_kms *sde_kms = NULL;
+	u64 sde_mnoc_ab, sde_mnoc_ib;
+	struct dsi_display *display = NULL;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd\n");
+		return -EINVAL;
+	}
+
+	display = GET_DSI_DISPLAY(vdd);
+	if (IS_ERR_OR_NULL(display)) {
+		LCD_ERR("no display");
+		return -EINVAL;
+	}
+
+	write_cmd = ss_get_cmds(vdd, TX_POC_WRITE_LOOP_DATA);
+	if (SS_IS_CMDS_NULL(write_cmd)) {
+		LCD_ERR("no cmds for TX_POC_WRITE_LOOP_DATA..\n");
+		return -EINVAL;
+	}
+
+	write_data_add = ss_get_cmds(vdd, TX_POC_WRITE_LOOP_DATA_ADD);
+	if (SS_IS_CMDS_NULL(write_data_add)) {
+		LCD_ERR("no cmds for TX_POC_WRITE_LOOP_DATA_ADD..\n");
+		return -EINVAL;
+	}
+
+	if (vdd->poc_driver.write_addr_idx[0] < 0) {
+		LCD_ERR("write addr index is not implemented.. %d\n",
+			vdd->poc_driver.write_addr_idx[0]);
+		return -EINVAL;
+	}
+
+	delay_us = vdd->poc_driver.write_delay_us; /* Panel dtsi set */
+	image_size = vdd->poc_driver.image_size;
+	last_pos = write_pos + write_size;
+	poc_w_size = vdd->poc_driver.write_data_size;
+	loop_cnt = vdd->poc_driver.write_loop_cnt;
+
+	LCD_INFO("[WRITE] write_pos : %6d, write_size : %6d, last_pos %6d, poc_w_sise : %d delay %dus\n",
+		write_pos, write_size, last_pos, poc_w_size, delay_us);
+
+	/* MAX CPU ON */
+	priv = display->drm_dev->dev_private;
+	sde_kms = (struct sde_kms *)priv->kms;
+	sde_mnoc_ab = sde_kms->core_client->ab[SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT];
+	sde_mnoc_ib = sde_kms->core_client->ib[SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT];
+
+	ss_set_max_cpufreq(vdd, true, CPUFREQ_CLUSTER_ALL);
+
+	sde_power_data_bus_set_quota(&priv->phandle,
+			sde_kms->core_client,
+			SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT,
+			SDE_POWER_HANDLE_DBUS_ID_MNOC,
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_AB_QUOTA,
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_IB_QUOTA);
+
+	dsi_display_clk_ctrl(display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_ON);
+
+	/* Enter exclusive mode */
+	mutex_lock(&vdd->exclusive_tx.ex_tx_lock);
+	vdd->exclusive_tx.permit_frame_update = 1;
+	vdd->exclusive_tx.enable = 1;
+	for (type = TX_POC_CMD_START; type < TX_POC_CMD_END + 1 ; type++)
+		ss_set_exclusive_tx_packet(vdd, type, 1);
+
+	/* POC MODE ENABLE */
+	ss_send_cmd(vdd, TX_POC_ENABLE);
+
+	if (write_pos == 0) {
+		LCD_INFO("WRITE [TX_POC_PRE_WRITE]");
+		ss_send_cmd(vdd, TX_POC_PRE_WRITE);
+	}
+
+	for (pos = write_pos; pos < last_pos; ) {
+		if (!(pos % DEBUG_POC_CNT))
+			LCD_INFO("cur_write_pos : %d data : 0x%x\n", pos, data[pos]);
+
+		if (unlikely(atomic_read(&vdd->poc_driver.cancel))) {
+			LCD_ERR("cancel poc write by user\n");
+			ret = -EIO;
+			goto cancel_poc;
+		}
+
+		if (pos % loop_cnt == 0) {
+			if (pos > 0) {
+				LCD_DEBUG("WRITE_LOOP_END pos : %d \n", pos);
+				ss_send_cmd(vdd, TX_POC_WRITE_LOOP_END);
+			}
+
+			LCD_DEBUG("WRITE_LOOP_START pos : %d \n", pos);
+			ss_send_cmd(vdd, TX_POC_WRITE_LOOP_START);
+
+			usleep_range(delay_us, delay_us);
+
+			/*	Multi Data Address */
+			write_data_add->cmds[0].msg.tx_buf[vdd->poc_driver.write_addr_idx[0]]
+											= (pos & 0xFF0000) >> 16;
+			write_data_add->cmds[0].msg.tx_buf[vdd->poc_driver.write_addr_idx[1]]
+											= (pos & 0x00FF00) >> 8;
+			write_data_add->cmds[0].msg.tx_buf[vdd->poc_driver.write_addr_idx[2]]
+											= (pos & 0x0000FF);
+			ss_send_cmd(vdd, TX_POC_WRITE_LOOP_DATA_ADD);
+		}
+
+		/* 1 Byte Write */
+		tx_size = poc_w_size;
+
+		/* data copy */
+		write_cmd->cmds[0].msg.tx_buf[1] = data[pos];
+
+		ss_send_cmd(vdd, TX_POC_WRITE_LOOP_DATA);
+
+		usleep_range(delay_us, delay_us);
+
+		pos += tx_size;
+	}
+
+cancel_poc:
+	if (unlikely(atomic_read(&vdd->poc_driver.cancel))) {
+		LCD_ERR("cancel poc write by user\n");
+		atomic_set(&vdd->poc_driver.cancel, 0);
+		ret = -EIO;
+	}
+
+	if (pos == image_size || ret == -EIO) {
+		LCD_DEBUG("WRITE_LOOP_END pos : %d \n", pos);
+		ss_send_cmd(vdd, TX_POC_WRITE_LOOP_END);
+
+		LCD_INFO("WRITE [TX_POC_POST_WRITE] - image_size(%d) cur_write_pos(%d) ret(%d)\n", image_size, pos, ret);
+		ss_send_cmd(vdd, TX_POC_POST_WRITE);
+	}
+
+	/* POC MODE DISABLE */
+	ss_send_cmd(vdd, TX_POC_DISABLE);
+
+	/* exit exclusive mode*/
+	for (type = TX_POC_CMD_START; type < TX_POC_CMD_END + 1 ; type++)
+		ss_set_exclusive_tx_packet(vdd, type, 0);
+	vdd->exclusive_tx.permit_frame_update = 0;
+	vdd->exclusive_tx.enable = 0;
+	mutex_unlock(&vdd->exclusive_tx.ex_tx_lock);
+	wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+
+	/* MAX CPU OFF */
+	dsi_display_clk_ctrl(display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_OFF);
+
+	sde_power_data_bus_set_quota(&priv->phandle,
+			sde_kms->core_client,
+			SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT,
+			SDE_POWER_HANDLE_DBUS_ID_MNOC,
+			sde_mnoc_ab,
+			sde_mnoc_ib);
+	ss_set_max_cpufreq(vdd, false, CPUFREQ_CLUSTER_ALL);
+
+	return ret;
+}
+
+#define read_buf_size 1
+static int poc_read(struct samsung_display_driver_data *vdd, u8 *buf, u32 read_pos, u32 read_size)
+{
+	struct msm_drm_private *priv = NULL;
+	struct sde_kms *sde_kms = NULL;
+	u64 sde_mnoc_ab, sde_mnoc_ib;
+
+	struct dsi_display *display = NULL;
+	struct dsi_panel_cmd_set *poc_read_tx_cmds = NULL;
+	struct dsi_panel_cmd_set *poc_read_rx_cmds = NULL;
+	int delay_us;
+	int image_size;
+	u8 rx_buf[read_buf_size];
+	int pos;
+	int type;
+	int ret = 0;
+
+	if (IS_ERR_OR_NULL(vdd)) {
+		LCD_ERR("no vdd\n");
+		return -EINVAL;
+	}
+
+	display = GET_DSI_DISPLAY(vdd);
+	if (IS_ERR_OR_NULL(display)) {
+		LCD_ERR("no display");
+		return -EINVAL;
+	}
+
+	poc_read_tx_cmds = ss_get_cmds(vdd, TX_POC_READ);
+	if (SS_IS_CMDS_NULL(poc_read_tx_cmds)) {
+		LCD_ERR("no cmds for TX_POC_READ..\n");
+		return -EINVAL;
+	}
+
+	poc_read_rx_cmds = ss_get_cmds(vdd, RX_POC_READ);
+	if (SS_IS_CMDS_NULL(poc_read_rx_cmds)) {
+		LCD_ERR("no cmds for RX_POC_READ..\n");
+		return -EINVAL;
+	}
+
+	if (vdd->poc_driver.read_addr_idx[0] < 0) {
+		LCD_ERR("read addr index is not implemented.. %d\n",
+			vdd->poc_driver.read_addr_idx[0]);
+		return -EINVAL;
+	}
+
+	delay_us = vdd->poc_driver.read_delay_us; /* Panel dtsi set */
+	image_size = vdd->poc_driver.image_size;
+
+	LCD_INFO("[READ] read_pos : %6d, read_size : %6d, delay %dus\n", read_pos, read_size, delay_us);
+
+	/* MAX CPU ON */
+	priv = display->drm_dev->dev_private;
+	sde_kms = (struct sde_kms *)priv->kms;
+	sde_mnoc_ab = sde_kms->core_client->ab[SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT];
+	sde_mnoc_ib = sde_kms->core_client->ib[SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT];
+
+	ss_set_max_cpufreq(vdd, true, CPUFREQ_CLUSTER_ALL);
+	sde_power_data_bus_set_quota(&priv->phandle,
+			sde_kms->core_client,
+			SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT,
+			SDE_POWER_HANDLE_DBUS_ID_MNOC,
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_AB_QUOTA,
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_IB_QUOTA);
+	dsi_display_clk_ctrl(display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_ON);
+
+	/* Enter exclusive mode */
+	mutex_lock(&vdd->exclusive_tx.ex_tx_lock);
+	vdd->exclusive_tx.permit_frame_update = 1;
+	vdd->exclusive_tx.enable = 1;
+	for (type = TX_POC_CMD_START; type < TX_POC_CMD_END + 1 ; type++)
+		ss_set_exclusive_tx_packet(vdd, type, 1);
+	ss_set_exclusive_tx_packet(vdd, RX_POC_READ, 1);
+
+	/* For sending direct rx cmd  */
+	poc_read_rx_cmds->cmds[0].msg.rx_buf = rx_buf;
+	poc_read_rx_cmds->state = DSI_CMD_SET_STATE_HS;
+
+	/* POC MODE ENABLE */
+	ss_send_cmd(vdd, TX_POC_ENABLE);
+
+	if (read_pos == 0) {
+		LCD_INFO("WRITE [TX_POC_PRE_READ]");
+		ss_send_cmd(vdd, TX_POC_PRE_READ);
+	}
+
+	for (pos = read_pos; pos < (read_pos + read_size); pos++) {
+		if (unlikely(atomic_read(&vdd->poc_driver.cancel))) {
+			LCD_ERR("cancel poc read by user\n");
+			ret = -EIO;
+			goto cancel_poc;
+		}
+
+		poc_read_tx_cmds->cmds[0].msg.tx_buf[vdd->poc_driver.read_addr_idx[0]]
+									= (pos & 0xFF0000) >> 16;
+		poc_read_tx_cmds->cmds[0].msg.tx_buf[vdd->poc_driver.read_addr_idx[1]]
+									= (pos & 0x00FF00) >> 8;
+		poc_read_tx_cmds->cmds[0].msg.tx_buf[vdd->poc_driver.read_addr_idx[2]]
+									= pos & 0x0000FF;
+
+		ss_send_cmd(vdd, TX_POC_READ);
+
+		usleep_range(delay_us, delay_us);
+
+		ss_send_cmd(vdd, RX_POC_READ);
+
+		buf[pos] = rx_buf[0];
+
+		if (!(pos % DEBUG_POC_CNT))
+			LCD_INFO("buf[%d] = 0x%x\n", pos, buf[pos]);
+	}
+
+cancel_poc:
+	if (unlikely(atomic_read(&vdd->poc_driver.cancel))) {
+		LCD_ERR("cancel poc read by user\n");
+		atomic_set(&vdd->poc_driver.cancel, 0);
+		ret = -EIO;
+	}
+
+	if (pos == image_size || ret == -EIO) {
+		LCD_INFO("WRITE [TX_POC_POST_READ] - image_size(%d) cur_read_pos(%d) ret(%d)\n", image_size, pos, ret);
+		ss_send_cmd(vdd, TX_POC_POST_READ);
+	}
+
+	/* POC MODE DISABLE */
+	ss_send_cmd(vdd, TX_POC_DISABLE);
+
+	/* MAX CPU OFF */
+	dsi_display_clk_ctrl(display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_OFF);
+	sde_power_data_bus_set_quota(&priv->phandle,
+			sde_kms->core_client,
+			SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT,
+			SDE_POWER_HANDLE_DBUS_ID_MNOC,
+			sde_mnoc_ab,
+			sde_mnoc_ib);
+	ss_set_max_cpufreq(vdd, false, CPUFREQ_CLUSTER_ALL);
+
+	/* Exit exclusive mode*/
+	for (type = TX_POC_CMD_START; type < TX_POC_CMD_END + 1 ; type++)
+		ss_set_exclusive_tx_packet(vdd, type, 0);
+	ss_set_exclusive_tx_packet(vdd, RX_POC_READ, 0);
+	vdd->exclusive_tx.permit_frame_update = 0;
+	vdd->exclusive_tx.enable = 0;
+	mutex_unlock(&vdd->exclusive_tx.ex_tx_lock);
+	wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+
+	return ret;
 }
 
 static void samsung_panel_init(struct samsung_display_driver_data *vdd)
@@ -1954,6 +2489,12 @@ static void samsung_panel_init(struct samsung_display_driver_data *vdd)
 	/* Self display */
 	vdd->self_disp.is_support = true;
 	vdd->panel_func.samsung_self_display_init = ss_self_display_init;
+
+	/* POC */
+	vdd->poc_driver.poc_erase = poc_erase;
+	vdd->poc_driver.poc_write = poc_write;
+	vdd->poc_driver.poc_read = poc_read;
+	vdd->poc_driver.poc_comp = poc_comp;
 }
 
 static int __init samsung_panel_initialize(void)

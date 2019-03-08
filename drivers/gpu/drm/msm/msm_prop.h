@@ -317,7 +317,7 @@ int msm_property_set_dirty(struct msm_property_info *info,
 
 /**
  * msm_property_is_dirty - check whether a property is dirty
- *	Note: May not work if msm_property_pop_dirty has been called
+ *	Note: Intended for use during atomic_check before pop_dirty usage
  * @info: Pointer to property info container struct
  * @property_state: Pointer to property state container struct
  * @property_idx: Property index

@@ -148,8 +148,6 @@
 #define CAMERA_CAL_CRC_FRONT                    0x1F
 #define REAR_PAF_CAL_INFO_SIZE                  1024
 
-#define	CRITERION_REV                           14
-
 extern uint32_t front_af_cal_pan;
 extern uint32_t front_af_cal_macro;
 #if defined(CONFIG_SAMSUNG_MULTI_CAMERA)
@@ -211,18 +209,31 @@ extern char module_info[SYSFS_MODULE_INFO_SIZE];
 #define PROCESS_INFO_MAX_SIZE 2
 
 #if defined(CONFIG_SAMSUNG_MULTI_CAMERA)
-#define HW_INFO "I12QS"
+#if defined(CONFIG_SEC_CROWNQLTE_PROJECT)
+#define HW_INFO                                 ("J12QS")
+#define SW_INFO                                 ("LD01")
+#define VENDOR_INFO                             ("V")
+#define PROCESS_INFO                            ("A")
+#define CRITERION_REV                           (10)
 #else
-#define HW_INFO "H12QS"
+#define HW_INFO                                 ("I12QS")
+#define SW_INFO                                 ("KK01")
+#define VENDOR_INFO                             ("V")
+#define PROCESS_INFO                            ("A")
+#define CRITERION_REV                           (14)
 #endif
-#define SW_INFO "KK01"
-#define VENDOR_INFO "V"
-#define PROCESS_INFO "A"
+#else
+#define HW_INFO                                 ("H12QS")
+#define SW_INFO                                 ("KK01")
+#define VENDOR_INFO                             ("V")
+#define PROCESS_INFO                            ("A")
+#define CRITERION_REV                           (14)
+#endif
 
-#define FRONT_HW_INFO "W08QS"
-#define FRONT_SW_INFO "JA01"
-#define FRONT_VENDOR_INFO "A"
-#define FRONT_PROCESS_INFO "A"
+#define FRONT_HW_INFO                           ("W08QS")
+#define FRONT_SW_INFO                           ("JA01")
+#define FRONT_VENDOR_INFO                       ("A")
+#define FRONT_PROCESS_INFO                      ("A")
 /**
  * struct cam_eeprom_map_t - eeprom map
  * @data_type       :   Data type

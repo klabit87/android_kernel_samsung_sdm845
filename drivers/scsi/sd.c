@@ -238,11 +238,15 @@ manage_start_stop_store(struct device *dev, struct device_attribute *attr,
 {
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct scsi_device *sdp = sdkp->device;
+	bool v;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 
-	sdp->manage_start_stop = simple_strtoul(buf, NULL, 10);
+	if (kstrtobool(buf, &v))
+		return -EINVAL;
+
+	sdp->manage_start_stop = v;
 
 	return count;
 }
@@ -260,6 +264,7 @@ static ssize_t
 allow_restart_store(struct device *dev, struct device_attribute *attr,
 		    const char *buf, size_t count)
 {
+	bool v;
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct scsi_device *sdp = sdkp->device;
 
@@ -269,7 +274,10 @@ allow_restart_store(struct device *dev, struct device_attribute *attr,
 	if (sdp->type != TYPE_DISK)
 		return -EINVAL;
 
-	sdp->allow_restart = simple_strtoul(buf, NULL, 10);
+	if (kstrtobool(buf, &v))
+		return -EINVAL;
+
+	sdp->allow_restart = v;
 
 	return count;
 }
@@ -1935,6 +1943,8 @@ sd_spinup_disk(struct scsi_disk *sdkp)
 				break;	/* standby */
 			if (sshdr.asc == 4 && sshdr.ascq == 0xc)
 				break;	/* unavailable */
+			if (sshdr.asc == 4 && sshdr.ascq == 0x1b)
+				break;	/* sanitize in progress */
 			/*
 			 * Issue command to spin up drive when not ready
 			 */
@@ -2394,6 +2404,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 	int res;
 	struct scsi_device *sdp = sdkp->device;
 	struct scsi_mode_data data;
+	int disk_ro = get_disk_ro(sdkp->disk);
 
 	set_disk_ro(sdkp->disk, 0);
 	if (sdp->skip_ms_page_3f) {
@@ -2433,7 +2444,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 			  "Test WP failed, assume Write Enabled\n");
 	} else {
 		sdkp->write_prot = ((data.device_specific & 0x80) != 0);
-		set_disk_ro(sdkp->disk, sdkp->write_prot);
+		set_disk_ro(sdkp->disk, sdkp->write_prot || disk_ro);
 	}
 }
 
@@ -3138,6 +3149,36 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 	if (sdkp->capacity)
 		sd_dif_config_host(sdkp);
 
+#if defined(CONFIG_UFS_DATA_LOG)
+	if (sdp->host->by_ufs && !strcmp(gd->disk_name, "sda")) {
+		struct hd_struct *part;
+		int i;
+		sdp->host->ufs_system_start = 0;
+		sdp->host->ufs_system_end = 0;
+		sdp->host->ufs_sys_log_en = false;
+
+		for (i = 1; i < 30 ; i++) {
+			if (!gd->part_tbl)
+				break;
+			part = gd->part_tbl->part[i];
+			if (!part)
+				break;
+			if (!strncmp(part->info->volname, "SYSTEM", 6) ||
+					!strncmp(part->info->volname, "system", 6)) {
+				sdp->host->ufs_system_start = part->start_sect;
+				sdp->host->ufs_system_end = (part->start_sect + part->nr_sects);
+				sdp->host->ufs_sys_log_en = true;
+				sd_printk(KERN_NOTICE, sdkp, "UFS data logging enabled\n");
+				sd_printk(KERN_NOTICE, sdkp, "UFS %s partition, from : %ld, to %ld\n",
+						part->info->volname,
+						(unsigned long)sdp->host->ufs_system_start,
+						(unsigned long)sdp->host->ufs_system_end);
+				break;
+			}
+		}
+	}
+#endif
+
 	sd_revalidate_disk(gd);
 
 	scsi_autopm_put_device(sdp);
@@ -3250,17 +3291,17 @@ static int sd_probe(struct device *dev)
 			q->nr_requests = 32;
 #ifdef CONFIG_LARGE_DIRTY_BUFFER
 		/* apply more throttle on non-ufs scsi device */
-		q->backing_dev_info.capabilities |= BDI_CAP_STRICTLIMIT;
-		bdi_set_min_ratio(&q->backing_dev_info, 20);
-		bdi_set_max_ratio(&q->backing_dev_info, 20);
+		q->backing_dev_info->capabilities |= BDI_CAP_STRICTLIMIT;
+		bdi_set_min_ratio(q->backing_dev_info, 20);
+		bdi_set_max_ratio(q->backing_dev_info, 20);
 #endif
 		pr_info("Parameters for SCSI-dev(%s): min/max_ratio: %u/%u "
 			"strictlimit: on nr_requests: %lu read_ahead_kb: %lu\n",
 			gd->disk_name,
-			q->backing_dev_info.min_ratio,
-			q->backing_dev_info.max_ratio,
+			q->backing_dev_info->min_ratio,
+			q->backing_dev_info->max_ratio,
 			q->nr_requests,
-			q->backing_dev_info.ra_pages * 4);
+			q->backing_dev_info->ra_pages * 4);
 	}
 
 	device_initialize(&sdkp->dev);

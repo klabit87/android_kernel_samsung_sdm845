@@ -100,12 +100,8 @@ static int __apr_tal_write(struct apr_svc_ch_dev *apr_ch, void *data,
 	rc = glink_tx(apr_ch->handle, pkt_priv, data, len, GLINK_TX_ATOMIC);
 	spin_unlock_irqrestore(&apr_ch->w_lock, flags);
 
-	if (rc)	{
+	if (rc)
 		pr_err("%s: glink_tx failed, rc[%d]\n", __func__, rc);
-#ifdef CONFIG_SEC_SND_DEBUG
-		panic("glink_tx failed\n");
-#endif /* CONFIG_SEC_SND_DEBUG */
-	}
 	else
 		rc = len;
 
@@ -146,6 +142,9 @@ int apr_tal_write(struct apr_svc_ch_dev *apr_ch, void *data,
 
 	if (rc < 0) {
 		pr_err("%s: Unable to send the packet, rc:%d\n", __func__, rc);
+#ifdef CONFIG_SEC_SND_DEBUG
+		panic("Unable to send the packet\n");
+#endif /* CONFIG_SEC_SND_DEBUG */
 		if (pkt_priv->pkt_owner == APR_PKT_OWNER_DRIVER)
 			kfree(tx_buf);
 	}

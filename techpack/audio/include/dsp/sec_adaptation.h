@@ -92,10 +92,12 @@ struct afe_dsm_filter_set_params_t {
 	uint32_t STImpedModel_Flag;
 	uint32_t Q_Notch;
 	uint32_t Power_Measurement;
-	uint32_t Reserve_1;
-	uint32_t Reserve_2;
-	uint32_t Reserve_3;
-	uint32_t Reserve_4;
+	uint32_t StereoCrossOverEnable;
+	uint32_t StereoCrossOverFreq;
+	uint32_t StereoCrossOverQ;
+	uint32_t power_measurement;
+	uint32_t v_validation;
+	uint32_t amp_screening;
 } __packed;
 
 struct afe_dsm_spkr_prot_set_command {
@@ -164,10 +166,12 @@ struct afe_dsm_filter_get_params_t {
 	uint32_t STImpedModel_Flag;
 	uint32_t Q_Notch;
 	uint32_t Power_Measurement;
-	uint32_t Reserve_1;
-	uint32_t Reserve_2;
-	uint32_t Reserve_3;
-	uint32_t Reserve_4;
+	uint32_t StereoCrossOverEnable;
+	uint32_t StereoCrossOverFreq;
+	uint32_t StereoCrossOverQ;
+	uint32_t power_measurement;
+	uint32_t v_validation;
+	uint32_t amp_screening;
 } __packed;
 
 struct afe_dsm_spkr_prot_get_command {
@@ -341,10 +345,12 @@ struct asm_stream_cmd_set_pp_params_sb_rotation {
 /****************************************************************************/
 /*//////////////////////////// VOICE SOLUTION //////////////////////////////*/
 /****************************************************************************/
-/* NXP LVVEFQ */
+/* NXP */
 #define VPM_TX_SM_LVVEFQ_COPP_TOPOLOGY      0x1000BFF0
 #define VPM_TX_DM_LVVEFQ_COPP_TOPOLOGY      0x1000BFF1
-#define VPM_TX_SM_LVSAFQ_COPP_TOPOLOGY      0x1000BFF4
+#define VPM_TX_SM_LVSAFQ_COPP_TOPOLOGY      0x1000B200
+#define VPM_TX_DM_LVSAFQ_COPP_TOPOLOGY      0x1000B201
+
 /* Fotemeia */
 #define VOICE_TX_DIAMONDVOICE_FVSAM_SM      0x1000110B
 #define VOICE_TX_DIAMONDVOICE_FVSAM_DM      0x1000110A
@@ -362,6 +368,9 @@ struct asm_stream_cmd_set_pp_params_sb_rotation {
 #define VOICE_NBMODE_PARAM					0x10001023
 #define VOICE_SPKMODE_PARAM					0x10001025
 #define VOICE_RCVMODE_PARAM					0x10001027
+
+#define VOICE_MODULE_LVVEFQ_TX              0x1000B500
+#define VOICE_ECHO_REF_LCH_MUTE_PARAM       0x10001028
 
 #define VOICE_MODULE_SET_DEVICE				0x10041000
 #define VOICE_MODULE_SET_DEVICE_PARAM		0x10041001

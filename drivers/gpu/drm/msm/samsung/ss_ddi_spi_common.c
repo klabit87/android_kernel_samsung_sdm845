@@ -103,7 +103,7 @@ static int ss_spi_probe(struct spi_device *client)
 
 	LCD_ERR("np name : %s\n", np->full_name);
 
-	client->max_speed_hz = 12000000;
+	client->max_speed_hz = 1200000; /* 1.2Mhz */
 	client->bits_per_word = 9;
 	client->mode =  SPI_MODE_0;
 

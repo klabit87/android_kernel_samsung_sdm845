@@ -499,6 +499,7 @@ void s2mm005_control_option_command(struct s2mm005_data *usbpd_data, int cmd)
         s2mm005_write_byte(i2c, REG_ADD, &W_DATA[0], 2);
 }
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 static void s2mm005_new_toggling_control(struct s2mm005_data *usbpd_data, u8 mode)
 {
 	struct i2c_client *i2c = usbpd_data->i2c;
@@ -531,6 +532,7 @@ static void s2mm005_toggling_control(struct s2mm005_data *usbpd_data, u8 mode)
 	REG_ADD = 0x10;
 	s2mm005_write_byte(i2c, REG_ADD, &W_DATA[0], 5);
 }
+#endif
 
 int s2mm005_fw_ver_check(void * data)
 {
@@ -1210,9 +1212,9 @@ static int s2mm005_usbpd_probe(struct i2c_client *i2c,
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	struct dual_role_phy_desc *desc;
 	struct dual_role_phy_instance *dual_role;
-#endif
 #if defined(CONFIG_USB_HOST_NOTIFY)
 	struct otg_notify *o_notify = get_otg_notify();
+#endif
 #endif
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA)) {
@@ -1262,7 +1264,9 @@ static int s2mm005_usbpd_probe(struct i2c_client *i2c,
 	usbpd_data->water_det = 0;
 	usbpd_data->run_dry = 1;
 	usbpd_data->booting_run_dry = 1;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	usbpd_data->try_state_change = 0;
+#endif
 #if defined(CONFIG_SEC_FACTORY)
 	usbpd_data->fac_water_enable = 0;
 #endif

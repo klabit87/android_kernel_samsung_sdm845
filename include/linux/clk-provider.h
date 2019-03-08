@@ -43,7 +43,7 @@
 					 */
 #define CLK_IS_MEASURE          BIT(14) /* measure clock */
 /* do not call clk_change_rate on the clock's children */
-#define CLK_NO_CHILD_CHANGE_RATE BIT(15)
+#define CLK_CHILD_NO_RATE_PROP	BIT(15)
 
 struct clk;
 struct clk_hw;
@@ -1006,6 +1006,12 @@ static inline void clk_writel(u32 val, u32 __iomem *reg)
 struct dentry *clk_debugfs_add_file(struct clk_hw *hw, char *name, umode_t mode,
 				void *data, const struct file_operations *fops);
 #endif
+#else
+struct of_device_id;
+
+static inline void __init of_clk_init(const struct of_device_id *matches)
+{
+}
 
 #endif /* CONFIG_COMMON_CLK */
 #endif /* CLK_PROVIDER_H */

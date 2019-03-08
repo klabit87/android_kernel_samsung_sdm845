@@ -77,7 +77,7 @@
 #define SEC_BAT_CURRENT_EVENT_WPC_VOUT_LOCK		0x04000
 #define SEC_BAT_CURRENT_EVENT_AICL			0x08000
 #define SEC_BAT_CURRENT_EVENT_HV_DISABLE		0x10000
-
+#define SEC_BAT_CURRENT_EVENT_SELECT_PDO		0x20000
 
 #define SIOP_EVENT_NONE 	0x0000
 #define SIOP_EVENT_WPC_CALL 	0x0001
@@ -110,11 +110,14 @@
 #define SIOP_HV_12V_INPUT_LIMIT_CURRENT			535
 #define SIOP_HV_12V_CHARGING_LIMIT_CURRENT		1000
 
+#define WIRELESS_OTG_INPUT_CURRENT 900
+
 #define BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE	0x00000001
 #define BATT_MISC_EVENT_WIRELESS_BACKPACK_TYPE	0x00000002
-#define BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE	0x00000004
-#define BATT_MISC_EVENT_BATT_RESET_SOC		0x00000008
-#define BATT_MISC_EVENT_HICCUP_TYPE		0x00000020
+#define BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE		0x00000004
+#define BATT_MISC_EVENT_BATT_RESET_SOC			0x00000008
+#define BATT_MISC_EVENT_HICCUP_TYPE				0x00000020
+#define BATT_MISC_EVENT_WIRELESS_FOD			0x00000100
 
 #define SEC_INPUT_VOLTAGE_0V	0
 #define SEC_INPUT_VOLTAGE_5V	5
@@ -194,13 +197,18 @@ struct sec_battery_info {
 	bool is_vbatovlo;
 	bool is_abnormal_temp;
 
+	bool revise_temp_value;
+
 	bool safety_timer_set;
 	bool lcd_status;
 	bool skip_swelling;
+	bool mst_status;
+	bool temp_control;
 
 	int status;
 	int health;
 	bool present;
+	unsigned int charger_mode;
 
 	int voltage_now;		/* cell voltage (mV) */
 	int voltage_avg;		/* average voltage (mV) */
@@ -295,6 +303,8 @@ struct sec_battery_info {
 	int coil_temp;
 	int slave_chg_temp;
 
+	int prev_bat_temp;
+
 	int temp_adc;
 	int temp_ambient_adc;
 	int usb_temp_adc;
@@ -384,7 +394,6 @@ struct sec_battery_info {
 	int test_mode;
 	bool factory_mode;
 	bool store_mode;
-	bool slate_mode;
 
 	/* MTBF test for CMCC */
 	bool is_hc_usb;
@@ -442,20 +451,6 @@ struct sec_battery_info {
 	int fg_reset;
 };
 
-ssize_t sec_bat_show_attrs(struct device *dev,
-				struct device_attribute *attr, char *buf);
-
-ssize_t sec_bat_store_attrs(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count);
-
-#define SEC_BATTERY_ATTR(_name)						\
-{									\
-	.attr = {.name = #_name, .mode = 0664},	\
-	.show = sec_bat_show_attrs,					\
-	.store = sec_bat_store_attrs,					\
-}
-
 /* event check */
 #define EVENT_NONE				(0)
 #define EVENT_2G_CALL			(0x1 << 0)
@@ -474,164 +469,16 @@ ssize_t sec_bat_store_attrs(struct device *dev,
 #define EVENT_GPS			(0x1 << 13)
 
 enum {
-	BATT_RESET_SOC = 0,
-	BATT_READ_RAW_SOC,
-	BATT_READ_ADJ_SOC,
-	BATT_TYPE,
-	BATT_VFOCV,
-	BATT_VOL_ADC,
-	BATT_VOL_ADC_CAL,
-	BATT_VOL_AVER,
-	BATT_VOL_ADC_AVER,
-	BATT_CURRENT_UA_NOW,
-	BATT_CURRENT_UA_AVG,
-	BATT_FILTER_CFG,
-	BATT_TEMP,
-	BATT_TEMP_ADC,
-	BATT_TEMP_AVER,
-	BATT_TEMP_ADC_AVER,
-	USB_TEMP,
-	USB_TEMP_ADC,
-	BATT_CHG_TEMP,
-	BATT_CHG_TEMP_ADC,
-	SLAVE_CHG_TEMP,
-	SLAVE_CHG_TEMP_ADC,
-	BATT_VF_ADC,
-	BATT_SLATE_MODE,
-	BATT_LP_CHARGING,
-	SIOP_ACTIVATED,
-	SIOP_LEVEL,
-	SIOP_EVENT,
-	BATT_CHARGING_SOURCE,
-	FG_REG_DUMP,
-	FG_RESET_CAP,
-	FG_CAPACITY,
-	FG_ASOC,
-	AUTH,
-	CHG_CURRENT_ADC,
-	WC_ADC,
-	WC_STATUS,
-	WC_ENABLE,
-	WC_CONTROL,
-	WC_CONTROL_CNT,
-	LED_COVER,
-	HV_CHARGER_STATUS,
-	HV_WC_CHARGER_STATUS,
-	HV_CHARGER_SET,
-	FACTORY_MODE,
-	STORE_MODE,
-	UPDATE,
-	TEST_MODE,
-	BATT_EVENT_CALL,
-	BATT_EVENT_2G_CALL,
-	BATT_EVENT_TALK_GSM,
-	BATT_EVENT_3G_CALL,
-	BATT_EVENT_TALK_WCDMA,
-	BATT_EVENT_MUSIC,
-	BATT_EVENT_VIDEO,
-	BATT_EVENT_BROWSER,
-	BATT_EVENT_HOTSPOT,
-	BATT_EVENT_CAMERA,
-	BATT_EVENT_CAMCORDER,
-	BATT_EVENT_DATA_CALL,
-	BATT_EVENT_WIFI,
-	BATT_EVENT_WIBRO,
-	BATT_EVENT_LTE,
-	BATT_EVENT_LCD,
-	BATT_EVENT_GPS,
-	BATT_EVENT,
-	BATT_TEMP_TABLE,
-	BATT_HIGH_CURRENT_USB,
-#if defined(CONFIG_ENG_BATTERY_CONCEPT)
-	TEST_CHARGE_CURRENT,
-#endif
-	SET_STABILITY_TEST,
-	BATT_CAPACITY_MAX,
-	BATT_INBAT_VOLTAGE,
-	BATT_INBAT_VOLTAGE_OCV,
-	CHECK_SLAVE_CHG,
-	BATT_INBAT_WIRELESS_CS100,
-	HMT_TA_CONNECTED,
-	HMT_TA_CHARGE,
-#if defined(CONFIG_BATTERY_AGE_FORECAST)
-	FG_CYCLE,
-	FG_FULL_VOLTAGE,
-	FG_FULLCAPNOM,
-	BATTERY_CYCLE,
-#endif
-	BATT_WPC_TEMP,
-	BATT_WPC_TEMP_ADC,
-	BATT_COIL_TEMP,
-	BATT_COIL_TEMP_ADC,
-	BATT_WIRELESS_MST_SWITCH_TEST,
-#if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
-	BATT_WIRELESS_FIRMWARE_UPDATE,
-	OTP_FIRMWARE_RESULT,
-	WC_IC_GRADE,
-	OTP_FIRMWARE_VER_BIN,
-	OTP_FIRMWARE_VER,
-	TX_FIRMWARE_RESULT,
-	TX_FIRMWARE_VER,
-	BATT_TX_STATUS,
-#endif
-	WC_VOUT,
-	WC_VRECT,
-	BATT_HV_WIRELESS_STATUS,
-	BATT_HV_WIRELESS_PAD_CTRL,
-	WC_OP_FREQ,
-	WC_CMD_INFO,
-	BATT_TUNE_FLOAT_VOLTAGE,
-	BATT_TUNE_INPUT_CHARGE_CURRENT,
-	BATT_TUNE_FAST_CHARGE_CURRENT,
-	BATT_TUNE_UI_TERM_CURRENT_1ST,
-	BATT_TUNE_UI_TERM_CURRENT_2ND,
-	BATT_TUNE_TEMP_HIGH_NORMAL,
-	BATT_TUNE_TEMP_HIGH_REC_NORMAL,
-	BATT_TUNE_TEMP_LOW_NORMAL,
-	BATT_TUNE_TEMP_LOW_REC_NORMAL,
-	BATT_TUNE_CHG_TEMP_HIGH,
-	BATT_TUNE_CHG_TEMP_REC,
-	BATT_TUNE_CHG_LIMMIT_CUR,
-	BATT_TUNE_COIL_TEMP_HIGH,
-	BATT_TUNE_COIL_TEMP_REC,
-	BATT_TUNE_COIL_LIMMIT_CUR,
-#if defined(CONFIG_UPDATE_BATTERY_DATA)
-	BATT_UPDATE_DATA,
-#endif
-	BATT_MISC_EVENT,
-	BATT_EXT_DEV_CHG,
-	BATT_WDT_CONTROL,
-	MODE,
-	CHECK_PS_READY,
-	BATT_CHIP_ID,
-	CISD_FULLCAPREP_MAX,
-#if defined(CONFIG_BATTERY_CISD)
-	CISD_DATA,
-	CISD_DATA_JSON,
-	CISD_DATA_D_JSON,
-	CISD_WIRE_COUNT,
-	CISD_WC_DATA,
-	CISD_WC_DATA_JSON,
-	PREV_BATTERY_DATA,
-	PREV_BATTERY_INFO,
-#endif
-	SAFETY_TIMER_SET,
-	BATT_SWELLING_CONTROL,
-	SAFETY_TIMER_INFO,
-#if defined(CONFIG_ENG_BATTERY_CONCEPT)
-	BATT_TEMP_TEST,
-#endif
-	BATT_CURRENT_EVENT,
-};
-
-enum {
 	EXT_DEV_NONE = 0,
 	EXT_DEV_GAMEPAD_CHG,
 	EXT_DEV_GAMEPAD_OTG,
 };
 
-extern void select_pdo(int num);
+extern bool sleep_mode;
+extern unsigned int lpcharge;
+extern int fg_reset;
 
+extern void select_pdo(int num);
 extern int adc_read(struct sec_battery_info *battery, int channel);
 extern void adc_init(struct platform_device *pdev, struct sec_battery_info *battery);
 extern void adc_exit(struct sec_battery_info *battery);
@@ -643,7 +490,16 @@ extern int sec_bat_get_adc_value(struct sec_battery_info *battery, int channel);
 extern bool sec_bat_check_vf_adc(struct sec_battery_info *battery);
 extern void btm_init(struct sec_battery_info *battery);
 extern unsigned int is_boot_recovery(void);
+extern void sec_bat_set_misc_event(struct sec_battery_info *battery, const int misc_event_type, bool do_clear);
+extern void sec_bat_set_current_event(struct sec_battery_info *battery, unsigned int current_event_val, unsigned int current_event_mask);
+extern void sec_bat_get_battery_info(struct sec_battery_info *battery);
+extern int sec_bat_set_charge(struct sec_battery_info *battery, int chg_mode);
+extern int sec_bat_set_charging_current(struct sec_battery_info *battery);
+extern void sec_bat_aging_check(struct sec_battery_info *battery);
 
+#if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
+extern void sec_bat_fw_update_work(struct sec_battery_info *battery, int mode);
+#endif
 
 #if defined(CONFIG_STEP_CHARGING)
 extern void sec_bat_reset_step_charging(struct sec_battery_info *battery);
@@ -658,6 +514,7 @@ extern int sec_battery_update_data(const char* file_path);
 #if defined(CONFIG_BATTERY_CISD)
 extern bool sec_bat_cisd_check(struct sec_battery_info *battery);
 extern void sec_battery_cisd_init(struct sec_battery_info *battery);
+extern void set_cisd_pad_data(struct sec_battery_info *battery, const char* buf);
 #endif
 
 #endif /* __SEC_BATTERY_H */

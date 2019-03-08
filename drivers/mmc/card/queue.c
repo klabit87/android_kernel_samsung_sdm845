@@ -99,18 +99,20 @@ static inline void mmc_cmdq_ready_wait(struct mmc_host *host,
 	 *    be any other direct command active.
 	 * 3. cmdq state should be unhalted.
 	 * 4. cmdq state shouldn't be in error state.
-	 * 5. free tag available to process the new request.
+	 * 5. There is no outstanding RPMB request pending.
+	 * 6. free tag available to process the new request.
+	 *    (This must be the last condtion to check)
 	 */
 	wait_event(ctx->wait, kthread_should_stop()
 		|| (mmc_peek_request(mq) &&
-		!(((req_op(mq->cmdq_req_peeked) == REQ_OP_FLUSH) ||
-		   (req_op(mq->cmdq_req_peeked) == REQ_OP_DISCARD))
+		!(mmc_req_is_special(mq->cmdq_req_peeked)
 		  && test_bit(CMDQ_STATE_DCMD_ACTIVE, &ctx->curr_state))
 		&& !(!host->card->part_curr && !mmc_card_suspended(host->card)
 		     && mmc_host_halt(host))
 		&& !(!host->card->part_curr && mmc_host_cq_disable(host) &&
 			!mmc_card_suspended(host->card))
 		&& !test_bit(CMDQ_STATE_ERR, &ctx->curr_state)
+		&& !atomic_read(&host->rpmb_req_pending)
 		&& !mmc_check_blk_queue_start_tag(q, mq->cmdq_req_peeked)));
 }
 
@@ -313,6 +315,8 @@ void mmc_cmdq_setup_queue(struct mmc_queue *mq, struct mmc_card *card)
 						host->max_req_size / 512));
 	blk_queue_max_segment_size(mq->queue, host->max_seg_size);
 	blk_queue_max_segments(mq->queue, host->max_segs);
+	if (host->inlinecrypt_support)
+		queue_flag_set_unlocked(QUEUE_FLAG_INLINECRYPT, mq->queue);
 }
 
 /**
@@ -482,6 +486,9 @@ cur_sg_alloc_failed:
 success:
 	sema_init(&mq->thread_sem, 1);
 
+	if (host->inlinecrypt_support)
+		queue_flag_set_unlocked(QUEUE_FLAG_INLINECRYPT, mq->queue);
+
 	/* hook for pm qos legacy init */
 	if (card->host->ops->init)
 		card->host->ops->init(card->host);
@@ -499,16 +506,16 @@ success:
 			mq->queue->nr_requests = 32;
 #ifdef CONFIG_LARGE_DIRTY_BUFFER
 		/* apply more throttle on external sdcard */
-		mq->queue->backing_dev_info.capabilities |= BDI_CAP_STRICTLIMIT;
-		bdi_set_min_ratio(&mq->queue->backing_dev_info, 20);
-		bdi_set_max_ratio(&mq->queue->backing_dev_info, 20);
+		mq->queue->backing_dev_info->capabilities |= BDI_CAP_STRICTLIMIT;
+		bdi_set_min_ratio(mq->queue->backing_dev_info, 20);
+		bdi_set_max_ratio(mq->queue->backing_dev_info, 20);
 #endif
 		pr_info("Parameters for external-sdcard: min/max_ratio: %u/%u "
 			"strictlimit: on nr_requests: %lu read_ahead_kb: %lu\n",
-			mq->queue->backing_dev_info.min_ratio,
-			mq->queue->backing_dev_info.max_ratio,
+			mq->queue->backing_dev_info->min_ratio,
+			mq->queue->backing_dev_info->max_ratio,
 			mq->queue->nr_requests,
-			mq->queue->backing_dev_info.ra_pages * 4);
+			mq->queue->backing_dev_info->ra_pages * 4);
 	}
 
 	if (IS_ERR(mq->thread)) {

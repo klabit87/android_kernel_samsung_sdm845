@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,7 +28,7 @@
 #include <asm/cacheflush.h>
 #include <asm/dma-iommu.h>
 
-#if defined(CONFIG_IOMMU_DEBUG_TRACKING) || defined(CONFIG_IOMMU_TESTS)
+#if defined(CONFIG_IOMMU_TESTS)
 
 static const char *iommu_debug_attr_to_string(enum iommu_attr attr)
 {
@@ -1488,6 +1488,10 @@ static ssize_t iommu_debug_pte_read(struct file *file, char __user *ubuf,
 	ssize_t retval;
 	size_t buflen;
 
+	if (kptr_restrict != 0) {
+		pr_err("kptr_restrict needs to be disabled.\n");
+		return -EPERM;
+	}
 	if (!dev->archdata.mapping) {
 		pr_err("No mapping. Did you already attach?\n");
 		return -EINVAL;
@@ -1608,6 +1612,10 @@ static ssize_t iommu_debug_dma_atos_read(struct file *file, char __user *ubuf,
 	ssize_t retval;
 	size_t buflen;
 
+	if (kptr_restrict != 0) {
+		pr_err("kptr_restrict needs to be disabled.\n");
+		return -EPERM;
+	}
 	if (!dev->archdata.mapping) {
 		pr_err("No mapping. Did you already attach?\n");
 		return -EINVAL;
@@ -2128,10 +2136,10 @@ static int snarf_iommu_devices(struct device *dev, void *ignored)
 	struct iommu_debug_device *ddev;
 	struct dentry *dir;
 
-	if (!of_device_is_compatible(dev->of_node, "iommu-debug-test"))
+	if (!of_find_property(dev->of_node, "iommus", NULL))
 		return 0;
 
-	if (!of_find_property(dev->of_node, "iommus", NULL))
+	if (!of_device_is_compatible(dev->of_node, "iommu-debug-test"))
 		return 0;
 
 	/* Hold a reference count */

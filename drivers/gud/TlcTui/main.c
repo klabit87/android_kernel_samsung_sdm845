@@ -50,6 +50,11 @@ static long tui_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	pr_info("t-base-tui module: ioctl 0x%x ", cmd);
 
 	switch (cmd) {
+	case TUI_IO_SET_RESOLUTION:
+		pr_info("TLC_TUI_CMD_SET_RESOLUTION\n");
+		/* NOT IMPLEMENTED */
+		ret = 0;
+		break;
 	case TUI_IO_NOTIFY:
 		pr_info("TUI_IO_NOTIFY\n");
 

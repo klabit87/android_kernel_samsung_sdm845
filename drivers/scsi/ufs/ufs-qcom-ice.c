@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,6 +26,8 @@
 #define UFS_QCOM_ICE_COMPLETION_TIMEOUT_MS 500
 
 #define UFS_QCOM_ICE_DEFAULT_DBG_PRINT_EN	0
+
+static struct workqueue_struct *ice_workqueue;
 
 static void ufs_qcom_ice_dump_regs(struct ufs_qcom_host *qcom_host, int offset,
 					int len, char *prefix)
@@ -195,6 +197,7 @@ static void ufs_qcom_ice_cfg_work(struct work_struct *work)
 	qcom_host->req_pending = NULL;
 	qcom_host->work_pending = false;
 	spin_unlock_irqrestore(&qcom_host->ice_work_lock, flags);
+
 }
 
 /**
@@ -223,6 +226,13 @@ int ufs_qcom_ice_init(struct ufs_qcom_host *qcom_host)
 	}
 
 	qcom_host->dbg_print_en |= UFS_QCOM_ICE_DEFAULT_DBG_PRINT_EN;
+	ice_workqueue = alloc_workqueue("ice-set-key",
+			WQ_MEM_RECLAIM | WQ_HIGHPRI, 0);
+	if (!ice_workqueue) {
+		dev_err(ufs_dev, "%s: workqueue allocation failed.\n",
+			__func__);
+		goto out;
+	}
 	INIT_WORK(&qcom_host->ice_cfg_work, ufs_qcom_ice_cfg_work);
 
 out:
@@ -282,7 +292,8 @@ int ufs_qcom_ice_req_setup(struct ufs_qcom_host *qcom_host,
 
 				if (!qcom_host->work_pending) {
 					qcom_host->req_pending = cmd->request;
-					if (!schedule_work(
+
+					if (!queue_work(ice_workqueue,
 						&qcom_host->ice_cfg_work)) {
 						qcom_host->req_pending = NULL;
 
@@ -394,13 +405,15 @@ int ufs_qcom_ice_cfg_start(struct ufs_qcom_host *qcom_host,
 			 * propagate so it will be re-queued.
 			 */
 			if (err == -EAGAIN) {
+
 				dev_dbg(qcom_host->hba->dev,
 					"%s: scheduling task for ice setup\n",
 					__func__);
 
-				if (!qcom_host->req_pending) {
+				if (!qcom_host->work_pending) {
+
 					qcom_host->req_pending = cmd->request;
-					if (!schedule_work(
+					if (!queue_work(ice_workqueue,
 						&qcom_host->ice_cfg_work)) {
 						qcom_host->req_pending = NULL;
 
@@ -412,6 +425,7 @@ int ufs_qcom_ice_cfg_start(struct ufs_qcom_host *qcom_host,
 					}
 					qcom_host->work_pending = true;
 				}
+
 			} else {
 				if (err != -EBUSY)
 					dev_err(qcom_host->hba->dev,

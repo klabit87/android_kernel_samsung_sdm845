@@ -32,10 +32,10 @@ static struct qpnp_vadc_chip *adc_client;
 static struct qpnp_adc_tm_btm_param	adc_param;
 
 struct adc_list {
-	const char*	name;
-	struct iio_channel *channel;
-	struct qpnp_vadc_result prev_value;
-	//bool is_used;
+	const char *name;
+	int channel;
+	bool is_used;
+	int prev_value;
 };
 
 static struct adc_list batt_adc_list[SEC_BAT_ADC_CHANNEL_NUM] = {
@@ -121,91 +121,88 @@ void btm_init(struct sec_battery_info *battery)
 static void sec_bat_adc_ap_init(struct platform_device *pdev,
 		struct sec_battery_info *battery)
 {
-	int rc = 0;
+	struct device_node *np;
+	const char *channel_str[SEC_BAT_ADC_CHANNEL_NUM];
+	int channel_num[SEC_BAT_ADC_CHANNEL_NUM];
+	int channel_cells = 0;
+	unsigned int i , j = 0;
+	int ret = 0;
+	u32 temp = 0;	
+	
 	adc_client = qpnp_get_vadc(battery->dev, "sec-battery");
 
 	if (IS_ERR(adc_client)) {
+		int rc;
 		rc = PTR_ERR(adc_client);
 		if (rc != -EPROBE_DEFER)
 			pr_err("%s: Fail to get vadc %d\n", __func__, rc);
 	}
-
-	battery->adc_tm_dev = qpnp_get_adc_tm(battery->dev, "sec-battery");
-	if (IS_ERR(battery->adc_tm_dev)) {
-		rc = PTR_ERR(battery->adc_tm_dev);
-		if (rc != -EPROBE_DEFER)
-			pr_err("adc_tm property missing\n");
+	
+	np = of_find_node_by_name(NULL, "battery");
+	if (!np) {
+		pr_err("%s: np NULL\n", __func__);
+		return;
 	}
-	pr_err("%s = %d\n", __func__, rc);
-}
 
-static void sec_bat_read_adc(struct qpnp_vadc_chip *vadc, int channel,
-		struct qpnp_vadc_result *result, int adc_channel)
-{
-	int ret = 0;
-	int retry_cnt = RETRY_CNT;
-
-	do { 
-		ret = qpnp_vadc_read(vadc, channel, result);
-		retry_cnt--; 
-	} while ((retry_cnt > 0) && ret);
-
-	if (retry_cnt <= 0) { 
-		pr_err("%s: Error in ADC(%d) retry_cnt(%d)\n", __func__, adc_channel, retry_cnt); 
-		result->adc_code = batt_adc_list[adc_channel].prev_value.adc_code;
-		result->physical = batt_adc_list[adc_channel].prev_value.physical;
-	} else {
-		batt_adc_list[adc_channel].prev_value.adc_code = result->adc_code;
-		batt_adc_list[adc_channel].prev_value.physical = result->physical;
+	ret = of_property_read_u32(np, "battery,channel_cells", &channel_cells);
+	if (ret) {
+		pr_err("%s : battery,channel_cells is Empty\n", __func__);
+		return;
 	}
+
+	ret = of_property_read_string_array(np,
+			"battery,channel_names",
+			channel_str, SEC_BAT_ADC_CHANNEL_NUM);
+	if (ret < 0) {
+		pr_err("%s: Looking up %s property in node battery failed",
+			__func__, "battery,channel_names");
+	}
+
+	for (i = 0; i < channel_cells; i++) {
+		ret = of_property_read_u32_index(np,
+				"battery,adc_channels", i, &temp);
+		if (ret)		
+			pr_err("%s : battery,adc_channels is Empty\n", __func__);		
+		channel_num[i] = (int)temp;
+	}
+
+	for (i = 0; i < channel_cells; i++) {
+		for (j = 0; j < SEC_BAT_ADC_CHANNEL_NUM; j++) {
+			if(!strcmp(batt_adc_list[j].name, channel_str[i])) {
+				batt_adc_list[j].channel = channel_num[i];
+				batt_adc_list[j].is_used = true;
+			}
+		}
+	}
+
+	for (j = 0; j < SEC_BAT_ADC_CHANNEL_NUM; j++) {
+		pr_info("%s %s[0x%x] - %s \n",
+			__func__, batt_adc_list[j].name, batt_adc_list[j].channel,
+			batt_adc_list[j].is_used ? "used" : "not used");
+	}	
 }
 
 static int sec_bat_adc_ap_read(struct sec_battery_info *battery, int channel)
 {
-	struct qpnp_vadc_result results;
 	int data = -1;
+	int ret = 0;
+	int retry_cnt = RETRY_CNT;
+	struct qpnp_vadc_result result;
 
-	switch (channel)
-	{
-	case SEC_BAT_ADC_CHANNEL_TEMP:
-#if defined(CONFIG_SEC_KELLYLTE_PROJECT)
-		sec_bat_read_adc(adc_client, VADC_AMUX5_GPIO_PU2, &results, channel);
-#else
-		sec_bat_read_adc(adc_client, VADC_AMUX3_GPIO_PU2, &results, channel);
-#endif
-		data = results.adc_code;
-		break;
-	case SEC_BAT_ADC_CHANNEL_TEMP_AMBIENT:
-		data = 33000;
-		break;
-	case SEC_BAT_ADC_CHANNEL_BAT_CHECK:
-		sec_bat_read_adc(NULL, LR_MUX2_BAT_ID, &results, channel);
-		pr_debug("BAT_ID physical= %lld, raw = 0x%x\n", results.physical, results.adc_code);
-		data = results.physical;
-		break;
-	case SEC_BAT_ADC_CHANNEL_USB_TEMP:
-		sec_bat_read_adc(adc_client, VADC_AMUX5_GPIO_PU2, &results, channel);
-		data = results.adc_code;
-		break;
-	case SEC_BAT_ADC_CHANNEL_CHG_TEMP:
-		sec_bat_read_adc(adc_client, VADC_AMUX_THM4_PU2, &results, channel);
-		data = results.adc_code;
-		break;
-	case SEC_BAT_ADC_CHANNEL_WPC_TEMP:
-#if defined(CONFIG_SEC_KELLYLTE_PROJECT)
-		sec_bat_read_adc(adc_client, VADC_AMUX_THM4_PU2, &results, channel);
-#else
-		sec_bat_read_adc(adc_client, VADC_AMUX3_GPIO_PU2, &results, channel);
-#endif
-		data = results.adc_code;
-		break;
-	case SEC_BAT_ADC_CHANNEL_INBAT_VOLTAGE:
-		sec_bat_read_adc(adc_client, VBAT_SNS, &results, channel);
-		data = ((int)results.physical)/1000;
-		break;
-	default :
-		break;
+	if (batt_adc_list[channel].is_used) {
+		do {
+			ret = (batt_adc_list[channel].is_used) ?
+			qpnp_vadc_read(adc_client, batt_adc_list[channel].channel, &result) : 0;
+			data = result.adc_code;
+			retry_cnt--;
+		} while ((retry_cnt > 0) && (data < 0));
 	}
+
+	if (retry_cnt <= 0) {
+		pr_err("%s: Error in ADC\n", __func__);
+		data = batt_adc_list[channel].prev_value;
+	} else
+		batt_adc_list[channel].prev_value = data;
 
 	return data;
 }
@@ -244,64 +241,61 @@ static int adc_read_type(struct sec_battery_info *battery, int channel)
 {
 	int adc = 0;
 
-	switch (battery->pdata->temp_adc_type)
-	{
-	case SEC_BATTERY_ADC_TYPE_NONE :
+	switch (battery->pdata->temp_adc_type) {
+	case SEC_BATTERY_ADC_TYPE_NONE:
 		adc = sec_bat_adc_none_read(channel);
 		break;
-	case SEC_BATTERY_ADC_TYPE_AP :
+	case SEC_BATTERY_ADC_TYPE_AP:
 		adc = sec_bat_adc_ap_read(battery, channel);
 		break;
-	case SEC_BATTERY_ADC_TYPE_IC :
+	case SEC_BATTERY_ADC_TYPE_IC:
 		adc = sec_bat_adc_ic_read(channel);
 		break;
-	case SEC_BATTERY_ADC_TYPE_NUM :
+	case SEC_BATTERY_ADC_TYPE_NUM:
 		break;
-	default :
+	default:
 		break;
 	}
 	pr_debug("[%s] [%d] ADC = %d\n", __func__, channel, adc);
-	return adc;
 
+	return adc;
 }
 
 static void adc_init_type(struct platform_device *pdev,
 			  struct sec_battery_info *battery)
 {
-	switch (battery->pdata->temp_adc_type)
-	{
-	case SEC_BATTERY_ADC_TYPE_NONE :
+	switch (battery->pdata->temp_adc_type) {
+	case SEC_BATTERY_ADC_TYPE_NONE:
 		sec_bat_adc_none_init(pdev);
 		break;
-	case SEC_BATTERY_ADC_TYPE_AP :
+	case SEC_BATTERY_ADC_TYPE_AP:
 		sec_bat_adc_ap_init(pdev, battery);
 		break;
-	case SEC_BATTERY_ADC_TYPE_IC :
+	case SEC_BATTERY_ADC_TYPE_IC:
 		sec_bat_adc_ic_init(pdev);
 		break;
-	case SEC_BATTERY_ADC_TYPE_NUM :
+	case SEC_BATTERY_ADC_TYPE_NUM:
 		break;
-	default :
+	default:
 		break;
 	}
 }
 
 static void adc_exit_type(struct sec_battery_info *battery)
 {
-	switch (battery->pdata->temp_adc_type)
-	{
-	case SEC_BATTERY_ADC_TYPE_NONE :
+	switch (battery->pdata->temp_adc_type) {
+	case SEC_BATTERY_ADC_TYPE_NONE:
 		sec_bat_adc_none_exit();
 		break;
-	case SEC_BATTERY_ADC_TYPE_AP :
+	case SEC_BATTERY_ADC_TYPE_AP:
 		sec_bat_adc_ap_exit();
 		break;
-	case SEC_BATTERY_ADC_TYPE_IC :
+	case SEC_BATTERY_ADC_TYPE_IC:
 		sec_bat_adc_ic_exit();
 		break;
-	case SEC_BATTERY_ADC_TYPE_NUM :
+	case SEC_BATTERY_ADC_TYPE_NUM:
 		break;
-	default :
+	default:
 		break;
 	}
 }
@@ -311,21 +305,21 @@ int sec_bat_get_adc_data(struct sec_battery_info *battery,
 {
 	int adc_data = 0;
 	int adc_max = 0;
-	int adc_min = 0;
+	int adc_min = 0xFFFF;
 	int adc_total = 0;
 	int i = 0;
+
+	if (count < 3)
+		count = 3;
 
 	for (i = 0; i < count; i++) {
 		mutex_lock(&battery->adclock);
 #ifdef CONFIG_OF
 		adc_data = adc_read_type(battery, adc_ch);
 #else
-		adc_data = adc_read(battery->pdata, adc_ch);
+		adc_data = adc_read_type(battery->pdata, adc_ch);
 #endif
 		mutex_unlock(&battery->adclock);
-
-		if (adc_data < 0)
-			goto err;
 
 		if (i != 0) {
 			if (adc_data > adc_max)
@@ -340,36 +334,6 @@ int sec_bat_get_adc_data(struct sec_battery_info *battery,
 	}
 
 	return (adc_total - adc_max - adc_min) / (count - 2);
-err:
-	return adc_data;
-}
-
-int adc_read(struct sec_battery_info *battery, int channel)
-{
-	int adc = 0;
-
-	adc = adc_read_type(battery, channel);
-
-	dev_dbg(battery->dev, "[%s]adc = %d\n", __func__, adc);
-
-	return adc;
-}
-
-int sec_bat_get_adc_value(
-		struct sec_battery_info *battery, int channel)
-{
-	int adc = 0;
-
-	adc = sec_bat_get_adc_data(battery, channel,
-		battery->pdata->adc_check_count);
-
-	if (adc < 0) {
-		dev_err(battery->dev,
-			"%s: Error in ADC\n", __func__);
-		return adc;
-	}
-
-	return adc;
 }
 
 int sec_bat_get_charger_type_adc
@@ -390,8 +354,9 @@ int sec_bat_get_charger_type_adc
 	    !battery->pdata->cable_switch_check())
 		return battery->cable_type;
 
-	adc = sec_bat_get_adc_value(battery,
-		SEC_BAT_ADC_CHANNEL_CABLE_CHECK);
+	adc = sec_bat_get_adc_data(battery,
+		SEC_BAT_ADC_CHANNEL_CABLE_CHECK,
+		battery->pdata->adc_check_count);
 
 	/* Do NOT check cable type when cable_switch_normal() returns false
 	 * and keep current cable type
@@ -429,9 +394,9 @@ bool sec_bat_get_value_by_adc(
 	const sec_bat_adc_table_data_t *temp_adc_table = {0 , };
 	unsigned int temp_adc_table_size = 0;
 
-	temp_adc = sec_bat_get_adc_value(battery, channel);
+	temp_adc = sec_bat_get_adc_data(battery, channel, battery->pdata->adc_check_count);
 	if (temp_adc < 0)
-		return true;
+		return false;
 
 	switch (channel) {
 	case SEC_BAT_ADC_CHANNEL_TEMP:
@@ -455,7 +420,7 @@ bool sec_bat_get_value_by_adc(
 	case SEC_BAT_ADC_CHANNEL_CHG_TEMP:
 		temp_adc_table = battery->pdata->chg_temp_adc_table;
 		temp_adc_table_size =
-			battery->pdata->chg_temp_adc_table_size;
+		battery->pdata->chg_temp_adc_table_size;
 		battery->chg_temp_adc = temp_adc;
 		break;
 	case SEC_BAT_ADC_CHANNEL_WPC_TEMP: /* Coil Therm */
@@ -547,4 +512,3 @@ void adc_exit(struct sec_battery_info *battery)
 {
 	adc_exit_type(battery);
 }
-

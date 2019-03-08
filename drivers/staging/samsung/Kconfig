@@ -19,3 +19,9 @@ config SEC_HEAVY_TASK_CPU
 	default n
 	help
 	  This option enables heavy cpu core counting.
+
+config SEC_HQM_DEVICE
+	bool "Samsung sec hqm device"
+	default n
+	help
+	  Samsung hqm device feature

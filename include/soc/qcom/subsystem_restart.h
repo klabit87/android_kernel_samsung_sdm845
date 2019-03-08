@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -44,6 +44,30 @@ enum {
 struct device;
 struct module;
 
+enum ssr_comm {
+	SUBSYS_TO_SUBSYS_SYSMON,
+	SUBSYS_TO_HLOS,
+	HLOS_TO_SUBSYS_SYSMON_SHUTDOWN,
+	NUM_SSR_COMMS,
+};
+
+/**
+ * struct subsys_notif_timeout - timeout data used by notification timeout hdlr
+ * @comm_type: Specifies if the type of communication being tracked is
+ * through sysmon between two subsystems, subsystem notifier call chain, or
+ * sysmon shutdown.
+ * @dest_name: subsystem to which sysmon notification is being sent to
+ * @source_name: subsystem which generated event that notification is being sent
+ * for
+ * @timer: timer for scheduling timeout
+ */
+struct subsys_notif_timeout {
+	enum ssr_comm comm_type;
+	const char *dest_name;
+	const char *source_name;
+	struct timer_list timer;
+};
+
 /**
  * struct subsys_desc - subsystem descriptor
  * @name: name of subsystem
@@ -84,7 +108,6 @@ struct subsys_desc {
 	irqreturn_t (*err_fatal_handler)(int irq, void *dev_id);
 	irqreturn_t (*stop_ack_handler)(int irq, void *dev_id);
 	irqreturn_t (*wdog_bite_handler)(int irq, void *dev_id);
-	irqreturn_t (*periph_hang_handler)(int irq, void *dev_id);
 	irqreturn_t (*generic_handler)(int irq, void *dev_id);
 	void (*wdog_resp_wait)(struct work_struct *work);
 	int is_not_loadable;
@@ -93,7 +116,6 @@ struct subsys_desc {
 	unsigned int err_ready_irq;
 	unsigned int stop_ack_irq;
 	unsigned int wdog_bite_irq;
-	unsigned int periph_hang_irq;
 	unsigned int generic_irq;
 	int force_stop_gpio;
 	int stop_reason_0_gpio;
@@ -109,6 +131,9 @@ struct subsys_desc {
 	bool system_debug;
 	bool ignore_ssr_failure;
 	const char *edge;
+#ifdef CONFIG_SETUP_SSR_NOTIF_TIMEOUTS
+	struct subsys_notif_timeout timeout_data;
+#endif /* CONFIG_SETUP_SSR_NOTIF_TIMEOUTS */
 	struct work_struct wdog_work;
 #ifdef CONFIG_SENSORS_SSC
 	int gpio_sensor_ldo;

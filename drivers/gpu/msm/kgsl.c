@@ -458,6 +458,10 @@ static void kgsl_mem_entry_detach_process(struct kgsl_mem_entry *entry)
 
 	type = kgsl_memdesc_usermem_type(&entry->memdesc);
 	entry->priv->stats[type].cur -= entry->memdesc.size;
+
+	if (type != KGSL_MEM_ENTRY_ION)
+		entry->priv->gpumem_mapped -= entry->memdesc.mapsize;
+
 	spin_unlock(&entry->priv->mem_lock);
 
 	kgsl_mmu_put_gpuaddr(&entry->memdesc);
@@ -531,14 +535,21 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 	int ret = 0, id;
 	struct kgsl_process_private  *proc_priv = dev_priv->process_priv;
 
+	/*
+	 * Read and increment the context count under lock to make sure
+	 * no process goes beyond the specified context limit.
+	 */
+	spin_lock(&proc_priv->ctxt_count_lock);
 	if (atomic_read(&proc_priv->ctxt_count) > KGSL_MAX_CONTEXTS_PER_PROC) {
-		KGSL_DRV_ERR(device,
+		KGSL_DRV_ERR_RATELIMIT(device,
 			"Per process context limit reached for pid %u",
 			dev_priv->process_priv->pid);
+		spin_unlock(&proc_priv->ctxt_count_lock);
 		return -ENOSPC;
 	}
 
 	atomic_inc(&proc_priv->ctxt_count);
+	spin_unlock(&proc_priv->ctxt_count_lock);
 
 	id = _kgsl_get_context_id(device);
 	if (id == -ENOSPC) {
@@ -633,7 +644,7 @@ void kgsl_context_detach(struct kgsl_context *context)
 	trace_kgsl_context_detach(device, context);
 
 	context->timers[1] = local_clock();
-	pr_err("KGSL: Detaching context %d, clock:%llu\n", context->id, context->timers[1]);
+	pr_debug("KGSL: Detaching context %d, clock:%llu\n", context->id, context->timers[1]);
 	context->device->ftbl->drawctxt_detach(context);
 
 	/*
@@ -694,12 +705,12 @@ kgsl_context_destroy(struct kref *kref)
 	kgsl_process_private_put(context->proc_priv);
 
 	context->timers[2] = local_clock();
-	pr_err("KGSL: Destroying context %d alive:%llu detached:%llu\n", id,
+	pr_debug("KGSL: Destroying context %d alive:%llu detached:%llu\n", id,
 			context->timers[1] - context->timers[0],
 			context->timers[2] - context->timers[1]);
 
 	device->ftbl->drawctxt_destroy(context);
-	pr_err("KGSL: Destroyed  context %d\n", id);
+	pr_debug("KGSL: Destroyed  context %d\n", id);
 }
 
 struct kgsl_device *kgsl_get_device(int dev_idx)
@@ -764,6 +775,8 @@ static int kgsl_suspend_device(struct kgsl_device *device, pm_message_t state)
 
 	mutex_lock(&device->mutex);
 	status = kgsl_pwrctrl_change_state(device, KGSL_STATE_SUSPEND);
+	if (status == 0 && device->state == KGSL_STATE_SUSPEND)
+		device->ftbl->dispatcher_halt(device);
 	mutex_unlock(&device->mutex);
 
 	KGSL_PWR_WARN(device, "suspend end\n");
@@ -778,6 +791,7 @@ static int kgsl_resume_device(struct kgsl_device *device)
 	KGSL_PWR_WARN(device, "resume start\n");
 	mutex_lock(&device->mutex);
 	if (device->state == KGSL_STATE_SUSPEND) {
+		device->ftbl->dispatcher_unhalt(device);
 		kgsl_pwrctrl_change_state(device, KGSL_STATE_SLUMBER);
 	} else if (device->state != KGSL_STATE_INIT) {
 		/*
@@ -929,6 +943,7 @@ static struct kgsl_process_private *kgsl_process_private_new(
 
 	spin_lock_init(&private->mem_lock);
 	spin_lock_init(&private->syncsource_lock);
+	spin_lock_init(&private->ctxt_count_lock);
 
 	idr_init(&private->mem_idr);
 	idr_init(&private->syncsource_idr);
@@ -977,24 +992,6 @@ static void process_release_memory(struct kgsl_process_private *private)
 	}
 }
 
-static void process_release_sync_sources(struct kgsl_process_private *private)
-{
-	struct kgsl_syncsource *syncsource;
-	int next = 0;
-
-	while (1) {
-		spin_lock(&private->syncsource_lock);
-		syncsource = idr_get_next(&private->syncsource_idr, &next);
-		spin_unlock(&private->syncsource_lock);
-
-		if (syncsource == NULL)
-			break;
-
-		kgsl_syncsource_cleanup(private, syncsource);
-		next = next + 1;
-	}
-}
-
 static void kgsl_process_private_close(struct kgsl_device_private *dev_priv,
 		struct kgsl_process_private *private)
 {
@@ -1013,7 +1010,8 @@ static void kgsl_process_private_close(struct kgsl_device_private *dev_priv,
 
 	kgsl_process_uninit_sysfs(private);
 
-	process_release_sync_sources(private);
+	/* Release all syncsource objects from process private */
+	kgsl_syncsource_process_release_syncsources(private);
 
 	/* When using global pagetables, do not detach global pagetable */
 	if (private->pagetable->name != KGSL_MMU_GLOBAL_PT)
@@ -1132,7 +1130,8 @@ static int kgsl_release(struct inode *inodep, struct file *filep)
 	/* Close down the process wide resources for the file */
 	kgsl_process_private_close(dev_priv, dev_priv->process_priv);
 
-	kfree(dev_priv);
+	/* Destroy the device-specific structure */
+	device->ftbl->device_private_destroy(dev_priv);
 
 	result = kgsl_close_device(device);
 	pm_runtime_put(&device->pdev->dev);
@@ -1200,7 +1199,7 @@ static int kgsl_open(struct inode *inodep, struct file *filep)
 	}
 	result = 0;
 
-	dev_priv = kzalloc(sizeof(struct kgsl_device_private), GFP_KERNEL);
+	dev_priv = device->ftbl->device_private_create();
 	if (dev_priv == NULL) {
 		result = -ENOMEM;
 		goto err;
@@ -1407,6 +1406,45 @@ long kgsl_ioctl_device_getproperty(struct kgsl_device_private *dev_priv,
 		}
 
 		kgsl_context_put(context);
+		break;
+	}
+	case KGSL_PROP_SECURE_BUFFER_ALIGNMENT:
+	{
+		unsigned int align;
+
+		if (param->sizebytes != sizeof(unsigned int)) {
+			result = -EINVAL;
+			break;
+		}
+		/*
+		 * XPUv2 impose the constraint of 1MB memory alignment,
+		 * on the other hand Hypervisor does not have such
+		 * constraints. So driver should fulfill such
+		 * requirements when allocating secure memory.
+		 */
+		align = MMU_FEATURE(&dev_priv->device->mmu,
+				KGSL_MMU_HYP_SECURE_ALLOC) ? PAGE_SIZE : SZ_1M;
+
+		if (copy_to_user(param->value, &align, sizeof(align)))
+			result = -EFAULT;
+
+		break;
+	}
+	case KGSL_PROP_SECURE_CTXT_SUPPORT:
+	{
+		unsigned int secure_ctxt;
+
+		if (param->sizebytes != sizeof(unsigned int)) {
+			result = -EINVAL;
+			break;
+		}
+
+		secure_ctxt = dev_priv->device->mmu.secured ? 1 : 0;
+
+		if (copy_to_user(param->value, &secure_ctxt,
+				sizeof(secure_ctxt)))
+			result = -EFAULT;
+
 		break;
 	}
 	default:
@@ -1799,7 +1837,7 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 		goto done;
 	}
 	context->timers[0] = local_clock();
-	pr_err("KGSL: Creating   context %d, clock:%llu tid:%d\n",
+	pr_debug("KGSL: Creating   context %d, clock:%llu tid:%d\n",
 			context->id, context->timers[0], context->tid);
 	trace_kgsl_context_create(dev_priv->device, context, param->flags);
 
@@ -2404,7 +2442,6 @@ long kgsl_ioctl_gpuobj_import(struct kgsl_device_private *dev_priv,
 	struct kgsl_gpuobj_import *param = data;
 	struct kgsl_mem_entry *entry;
 	int ret, fd = -1;
-	struct kgsl_mmu *mmu = &dev_priv->device->mmu;
 
 	entry = kgsl_mem_entry_create();
 	if (entry == NULL)
@@ -2418,15 +2455,10 @@ long kgsl_ioctl_gpuobj_import(struct kgsl_device_private *dev_priv,
 			| KGSL_MEMFLAGS_FORCE_32BIT
 			| KGSL_MEMFLAGS_IOCOHERENT;
 
-	/* Disable IO coherence if it is not supported on the chip */
-	if (!MMU_FEATURE(mmu, KGSL_MMU_IO_COHERENT))
-		param->flags &= ~((uint64_t)KGSL_MEMFLAGS_IOCOHERENT);
+	if (kgsl_is_compat_task())
+		param->flags |= KGSL_MEMFLAGS_FORCE_32BIT;
 
-	entry->memdesc.flags = param->flags;
-
-	if (MMU_FEATURE(mmu, KGSL_MMU_NEED_GUARD_PAGE))
-		entry->memdesc.priv |= KGSL_MEMDESC_GUARD_PAGE;
-
+	kgsl_memdesc_init(dev_priv->device, &entry->memdesc, param->flags);
 	if (param->type == KGSL_USER_MEM_TYPE_ADDR)
 		ret = _gpuobj_map_useraddr(dev_priv->device, private->pagetable,
 			entry, param);
@@ -2665,6 +2697,7 @@ long kgsl_ioctl_map_user_mem(struct kgsl_device_private *dev_priv,
 	struct kgsl_process_private *private = dev_priv->process_priv;
 	struct kgsl_mmu *mmu = &dev_priv->device->mmu;
 	unsigned int memtype;
+	uint64_t flags;
 
 	/*
 	 * If content protection is not enabled and secure buffer
@@ -2701,28 +2734,17 @@ long kgsl_ioctl_map_user_mem(struct kgsl_device_private *dev_priv,
 	 * Note: CACHEMODE is ignored for this call. Caching should be
 	 * determined by type of allocation being mapped.
 	 */
-	param->flags &= KGSL_MEMFLAGS_GPUREADONLY
-			| KGSL_MEMTYPE_MASK
-			| KGSL_MEMALIGN_MASK
-			| KGSL_MEMFLAGS_USE_CPU_MAP
-			| KGSL_MEMFLAGS_SECURE
-			| KGSL_MEMFLAGS_IOCOHERENT;
+	flags = param->flags & (KGSL_MEMFLAGS_GPUREADONLY
+				| KGSL_MEMTYPE_MASK
+				| KGSL_MEMALIGN_MASK
+				| KGSL_MEMFLAGS_USE_CPU_MAP
+				| KGSL_MEMFLAGS_SECURE
+				| KGSL_MEMFLAGS_IOCOHERENT);
 
-	/* Disable IO coherence if it is not supported on the chip */
-	if (!MMU_FEATURE(mmu, KGSL_MMU_IO_COHERENT))
-		param->flags &= ~((uint64_t)KGSL_MEMFLAGS_IOCOHERENT);
+	if (kgsl_is_compat_task())
+		flags |= KGSL_MEMFLAGS_FORCE_32BIT;
 
-	entry->memdesc.flags = ((uint64_t) param->flags)
-		| KGSL_MEMFLAGS_FORCE_32BIT;
-
-	if (!kgsl_mmu_use_cpu_map(mmu))
-		entry->memdesc.flags &= ~((uint64_t) KGSL_MEMFLAGS_USE_CPU_MAP);
-
-	if (MMU_FEATURE(mmu, KGSL_MMU_NEED_GUARD_PAGE))
-		entry->memdesc.priv |= KGSL_MEMDESC_GUARD_PAGE;
-
-	if (param->flags & KGSL_MEMFLAGS_SECURE)
-		entry->memdesc.priv |= KGSL_MEMDESC_SECURE;
+	kgsl_memdesc_init(dev_priv->device, &entry->memdesc, flags);
 
 	switch (memtype) {
 	case KGSL_MEM_ENTRY_USER:
@@ -3050,10 +3072,8 @@ long kgsl_ioctl_gpuobj_sync(struct kgsl_device_private *dev_priv,
 		full_flush = check_full_flush(size, objs[i].op);
 		if (full_flush) {
 			trace_kgsl_mem_sync_full_cache(i, size);
-			flush_cache_all();
 			goto out;
 		}
-
 
 		ptr += sizeof(*objs);
 	}
@@ -3120,10 +3140,6 @@ struct kgsl_mem_entry *gpumem_alloc_entry(
 		| KGSL_MEMFLAGS_FORCE_32BIT
 		| KGSL_MEMFLAGS_IOCOHERENT;
 
-	/* Turn off SVM if the system doesn't support it */
-	if (!kgsl_mmu_use_cpu_map(mmu))
-		flags &= ~((uint64_t) KGSL_MEMFLAGS_USE_CPU_MAP);
-
 	/* Return not supported error if secure memory isn't enabled */
 	if (!kgsl_mmu_is_secured(mmu) &&
 			(flags & KGSL_MEMFLAGS_SECURE)) {
@@ -3131,10 +3147,6 @@ struct kgsl_mem_entry *gpumem_alloc_entry(
 				"Secure memory not supported");
 		return ERR_PTR(-EOPNOTSUPP);
 	}
-
-	/* Secure memory disables advanced addressing modes */
-	if (flags & KGSL_MEMFLAGS_SECURE)
-		flags &= ~((uint64_t) KGSL_MEMFLAGS_USE_CPU_MAP);
 
 	/* Cap the alignment bits to the highest number we can handle */
 	align = MEMFLAGS(flags, KGSL_MEMALIGN_MASK, KGSL_MEMALIGN_SHIFT);
@@ -3154,19 +3166,9 @@ struct kgsl_mem_entry *gpumem_alloc_entry(
 
 	flags = kgsl_filter_cachemode(flags);
 
-	/* Disable IO coherence if it is not supported on the chip */
-	if (!MMU_FEATURE(mmu, KGSL_MMU_IO_COHERENT))
-		flags &= ~((uint64_t)KGSL_MEMFLAGS_IOCOHERENT);
-
 	entry = kgsl_mem_entry_create();
 	if (entry == NULL)
 		return ERR_PTR(-ENOMEM);
-
-	if (MMU_FEATURE(mmu, KGSL_MMU_NEED_GUARD_PAGE))
-		entry->memdesc.priv |= KGSL_MEMDESC_GUARD_PAGE;
-
-	if (flags & KGSL_MEMFLAGS_SECURE)
-		entry->memdesc.priv |= KGSL_MEMDESC_SECURE;
 
 	ret = kgsl_allocate_user(dev_priv->device, &entry->memdesc,
 		size, flags);
@@ -3219,6 +3221,9 @@ long kgsl_ioctl_gpuobj_alloc(struct kgsl_device_private *dev_priv,
 	struct kgsl_gpuobj_alloc *param = data;
 	struct kgsl_mem_entry *entry;
 
+	if (kgsl_is_compat_task())
+		param->flags |= KGSL_MEMFLAGS_FORCE_32BIT;
+
 	entry = gpumem_alloc_entry(dev_priv, param->size, param->flags);
 
 	if (IS_ERR(entry))
@@ -3246,7 +3251,9 @@ long kgsl_ioctl_gpumem_alloc(struct kgsl_device_private *dev_priv,
 
 	/* Legacy functions doesn't support these advanced features */
 	flags &= ~((uint64_t) KGSL_MEMFLAGS_USE_CPU_MAP);
-	flags |= KGSL_MEMFLAGS_FORCE_32BIT;
+
+	if (kgsl_is_compat_task())
+		flags |= KGSL_MEMFLAGS_FORCE_32BIT;
 
 	entry = gpumem_alloc_entry(dev_priv, (uint64_t) param->size, flags);
 
@@ -3270,7 +3277,8 @@ long kgsl_ioctl_gpumem_alloc_id(struct kgsl_device_private *dev_priv,
 	struct kgsl_mem_entry *entry;
 	uint64_t flags = param->flags;
 
-	flags |= KGSL_MEMFLAGS_FORCE_32BIT;
+	if (kgsl_is_compat_task())
+		flags |= KGSL_MEMFLAGS_FORCE_32BIT;
 
 	entry = gpumem_alloc_entry(dev_priv, (uint64_t) param->size, flags);
 
@@ -3345,6 +3353,7 @@ long kgsl_ioctl_sparse_phys_alloc(struct kgsl_device_private *dev_priv,
 	struct kgsl_process_private *process = dev_priv->process_priv;
 	struct kgsl_sparse_phys_alloc *param = data;
 	struct kgsl_mem_entry *entry;
+	uint64_t flags;
 	int ret;
 	int id;
 
@@ -3377,11 +3386,12 @@ long kgsl_ioctl_sparse_phys_alloc(struct kgsl_device_private *dev_priv,
 	entry->id = id;
 	entry->priv = process;
 
-	entry->memdesc.flags = KGSL_MEMFLAGS_SPARSE_PHYS;
-	kgsl_memdesc_set_align(&entry->memdesc, ilog2(param->pagesize));
+	flags = KGSL_MEMFLAGS_SPARSE_PHYS |
+		((ilog2(param->pagesize) << KGSL_MEMALIGN_SHIFT) &
+			KGSL_MEMALIGN_MASK);
 
 	ret = kgsl_allocate_user(dev_priv->device, &entry->memdesc,
-			param->size, entry->memdesc.flags);
+			param->size, flags);
 	if (ret)
 		goto err_remove_idr;
 
@@ -3434,7 +3444,13 @@ long kgsl_ioctl_sparse_phys_free(struct kgsl_device_private *dev_priv,
 	if (entry == NULL)
 		return -EINVAL;
 
+	if (!kgsl_mem_entry_set_pend(entry)) {
+		kgsl_mem_entry_put(entry);
+		return -EBUSY;
+	}
+
 	if (entry->memdesc.cur_bindings != 0) {
+		kgsl_mem_entry_unset_pend(entry);
 		kgsl_mem_entry_put(entry);
 		return -EINVAL;
 	}
@@ -3464,7 +3480,8 @@ long kgsl_ioctl_sparse_virt_alloc(struct kgsl_device_private *dev_priv,
 	if (entry == NULL)
 		return -ENOMEM;
 
-	entry->memdesc.flags = KGSL_MEMFLAGS_SPARSE_VIRT;
+	kgsl_memdesc_init(dev_priv->device, &entry->memdesc,
+			KGSL_MEMFLAGS_SPARSE_VIRT);
 	entry->memdesc.size = param->size;
 	entry->memdesc.cur_bindings = 0;
 	kgsl_memdesc_set_align(&entry->memdesc, ilog2(param->pagesize));
@@ -3503,7 +3520,13 @@ long kgsl_ioctl_sparse_virt_free(struct kgsl_device_private *dev_priv,
 	if (entry == NULL)
 		return -EINVAL;
 
+	if (!kgsl_mem_entry_set_pend(entry)) {
+		kgsl_mem_entry_put(entry);
+		return -EBUSY;
+	}
+
 	if (entry->bind_tree.rb_node != NULL) {
+		kgsl_mem_entry_unset_pend(entry);
 		kgsl_mem_entry_put(entry);
 		return -EINVAL;
 	}
@@ -4043,6 +4066,7 @@ long kgsl_ioctl_gpuobj_set_info(struct kgsl_device_private *dev_priv,
 	struct kgsl_process_private *private = dev_priv->process_priv;
 	struct kgsl_gpuobj_set_info *param = data;
 	struct kgsl_mem_entry *entry;
+	int ret = 0;
 
 	if (param->id == 0)
 		return -EINVAL;
@@ -4055,13 +4079,16 @@ long kgsl_ioctl_gpuobj_set_info(struct kgsl_device_private *dev_priv,
 		copy_metadata(entry, param->metadata, param->metadata_len);
 
 	if (param->flags & KGSL_GPUOBJ_SET_INFO_TYPE) {
-		entry->memdesc.flags &= ~((uint64_t) KGSL_MEMTYPE_MASK);
-		entry->memdesc.flags |= (uint64_t)(param->type <<
-						KGSL_MEMTYPE_SHIFT);
+		if (param->type <= (KGSL_MEMTYPE_MASK >> KGSL_MEMTYPE_SHIFT)) {
+			entry->memdesc.flags &= ~((uint64_t) KGSL_MEMTYPE_MASK);
+			entry->memdesc.flags |= (uint64_t)((param->type <<
+				KGSL_MEMTYPE_SHIFT) & KGSL_MEMTYPE_MASK);
+		} else
+			ret = -EINVAL;
 	}
 
 	kgsl_mem_entry_put(entry);
-	return 0;
+	return ret;
 }
 
 /**
@@ -4138,13 +4165,18 @@ static int
 kgsl_gpumem_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct kgsl_mem_entry *entry = vma->vm_private_data;
+	int ret;
 
 	if (!entry)
 		return VM_FAULT_SIGBUS;
 	if (!entry->memdesc.ops || !entry->memdesc.ops->vmfault)
 		return VM_FAULT_SIGBUS;
 
-	return entry->memdesc.ops->vmfault(&entry->memdesc, vma, vmf);
+	ret = entry->memdesc.ops->vmfault(&entry->memdesc, vma, vmf);
+	if ((ret == 0) || (ret == VM_FAULT_NOPAGE))
+		entry->priv->gpumem_mapped += PAGE_SIZE;
+
+	return ret;
 }
 
 static void

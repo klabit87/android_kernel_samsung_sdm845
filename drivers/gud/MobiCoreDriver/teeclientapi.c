@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 TRUSTONIC LIMITED
+ * Copyright (c) 2013-2018 TRUSTONIC LIMITED
  * All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -179,6 +179,7 @@ static u32 _teec_convert_error(int errno)
 u32 teec_initialize_context(const char *name, struct teec_context *context)
 {
 	struct tee_client *client;
+	int ret;
 	(void)name;
 
 	mc_dev_devel("== %s() ==============", __func__);
@@ -188,10 +189,17 @@ u32 teec_initialize_context(const char *name, struct teec_context *context)
 		return TEEC_ERROR_BAD_PARAMETERS;
 	}
 
+	/* Make sure TEE was started */
+	ret = mc_wait_tee_start();
+	if (ret) {
+		mc_dev_err("TEE failed to start, now or in the past");
+		return TEEC_ERROR_BAD_STATE;
+	}
+
 	/* Create client */
 	client = client_create(true);
 	if (!client)
-		return -ENOMEM;
+		return TEEC_ERROR_OUT_OF_MEMORY;
 
 	/* Store client in context */
 	context->imp.client = client;

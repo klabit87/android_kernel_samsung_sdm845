@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -46,6 +46,7 @@
 			"csiphy0_clk",
 			"csi0phytimer_clk_src",
 			"csi0phytimer_clk";
+		src-clock-name = "csi0phytimer_clk_src";
 		clock-cntl-level = "turbo";
 		clock-rates =
 			<0 0 0 0 384000000 0 269333333 0>;
@@ -81,6 +82,7 @@
 			"csiphy1_clk",
 			"csi1phytimer_clk_src",
 			"csi1phytimer_clk";
+		src-clock-name = "csi1phytimer_clk_src";
 		clock-cntl-level = "turbo";
 		clock-rates =
 			<0 0 0 0 384000000 0 269333333 0>;
@@ -117,6 +119,7 @@
 			"csiphy2_clk",
 			"csi2phytimer_clk_src",
 			"csi2phytimer_clk";
+		src-clock-name = "csi2phytimer_clk_src";
 		clock-cntl-level = "turbo";
 		clock-rates =
 			<0 0 0 0 384000000 0 269333333 0>;
@@ -229,13 +232,12 @@
 	qcom,cam_smmu {
 		compatible = "qcom,msm-cam-smmu";
 		status = "ok";
+		non-fatal-fault-disabled;
 
 		msm_cam_smmu_lrme {
 			compatible = "qcom,msm-cam-smmu-cb";
 			iommus = <&apps_smmu 0x1038 0x0>,
-				<&apps_smmu 0x1058 0x0>,
-				<&apps_smmu 0x1039 0x0>,
-				<&apps_smmu 0x1059 0x0>;
+				<&apps_smmu 0x1058 0x0>;
 			label = "lrme";
 			lrme_iova_mem_map: iova-mem-map {
 				iova-mem-region-shared {
@@ -337,11 +339,21 @@
 				};
 
 				iova-mem-region-io {
-					/* IO region is approximately 3.3 GB */
+					/* IO region is approximately 3 GB */
 					iova-region-name = "io";
-					iova-region-start = <0xd900000>;
-					iova-region-len = <0xd2700000>;
+					iova-region-start = <0xda00000>;
+					iova-region-len = <0xd2500000>;
 					iova-region-id = <0x3>;
+					status = "ok";
+				};
+
+				iova-mem-qdss-region {
+					/* qdss region is approximately 1MB */
+					iova-region-name = "qdss";
+					iova-region-start = <0xd900000>;
+					iova-region-len = <0x100000>;
+					iova-region-id = <0x5>;
+					qdss-phy-addr = <0x16790000>;
 					status = "ok";
 				};
 			};
@@ -392,13 +404,17 @@
 		label = "cpas";
 		arch-compat = "cpas_top";
 		status = "ok";
-		reg-names = "cam_cpas_top", "cam_camnoc";
+		reg-names = "cam_cpas_top", "cam_camnoc", "core_top_csr_tcsr";
 		reg = <0xac40000 0x1000>,
-			<0xac42000 0x5000>;
-		reg-cam-base = <0x40000 0x42000>;
+			<0xac42000 0x5000>,
+			<0x01fc0000 0x30000>;
+		reg-cam-base = <0x40000 0x42000 0x0>;
 		interrupt-names = "cpas_camnoc";
 		interrupts = <0 459 0>;
 		qcom,cpas-hw-ver = <0x170110>; /* Titan v170 v1.1.0 */
+		nvmem-cells = <&minor_rev>;
+		nvmem-cell-names = "minor_rev";
+		camnoc-axi-min-ib-bw = <3000000000>;
 		regulator-names = "camss-vdd";
 		camss-vdd-supply = <&titan_top_gdsc>;
 		clock-names = "gcc_ahb_clk",
@@ -875,7 +891,6 @@
 			"soc_ahb_clk",
 			"cpas_ahb_clk",
 			"camnoc_axi_clk",
-			"icp_apb_clk",
 			"icp_clk",
 			"icp_clk_src";
 		clocks = <&clock_gcc GCC_CAMERA_AHB_CLK>,
@@ -884,7 +899,6 @@
 				<&clock_camcc CAM_CC_SOC_AHB_CLK>,
 				<&clock_camcc CAM_CC_CPAS_AHB_CLK>,
 				<&clock_camcc CAM_CC_CAMNOC_AXI_CLK>,
-				<&clock_camcc CAM_CC_ICP_APB_CLK>,
 				<&clock_camcc CAM_CC_ICP_CLK>,
 				<&clock_camcc CAM_CC_ICP_CLK_SRC>;
 
@@ -893,13 +907,16 @@
 			<0 0 200000000 0 0 0 0 600000000>;
 		clock-cntl-level = "svs", "turbo";
 		fw_name = "CAMERA_ICP.elf";
-		ubwc-cfg = <0x77 0x1DF>;
+		ubwc-cfg = <0x73 0x1CF>;
 		status = "ok";
 	};
 
 	cam_ipe0: qcom,ipe0 {
 		cell-index = <0>;
 		compatible = "qcom,cam-ipe";
+		reg = <0xac87000 0x3000>;
+		reg-names = "ipe0_top";
+		reg-cam-base = <0x87000>;
 		regulator-names = "ipe0-vdd";
 		ipe0-vdd-supply = <&ipe_0_gdsc>;
 		clock-names = "ipe_0_ahb_clk",
@@ -927,6 +944,9 @@
 	cam_ipe1: qcom,ipe1 {
 		cell-index = <1>;
 		compatible = "qcom,cam-ipe";
+		reg = <0xac91000 0x3000>;
+		reg-names = "ipe1_top";
+		reg-cam-base = <0x91000>;
 		regulator-names = "ipe1-vdd";
 		ipe1-vdd-supply = <&ipe_1_gdsc>;
 		clock-names = "ipe_1_ahb_clk",
@@ -954,6 +974,9 @@
 	cam_bps: qcom,bps {
 		cell-index = <0>;
 		compatible = "qcom,cam-bps";
+		reg = <0xac6f000 0x3000>;
+		reg-names = "bps_top";
+		reg-cam-base = <0x6f000>;
 		regulator-names = "bps-vdd";
 		bps-vdd-supply = <&bps_gdsc>;
 		clock-names = "bps_ahb_clk",

@@ -427,6 +427,9 @@ int cam_isp_add_io_buffers(
 	int                                 mmu_hdl;
 	bool                                mode, is_buf_secure;
 	uint64_t                            iter = 0;
+	struct cam_isp_prepare_hw_update_data *hw_update_data = prepare->priv;
+	struct cam_isp_pf_hander_dbg_data *isp_pf_dbg;
+	int isp_pf_dbg_i = 0,isp_pf_dbg_j = 0;
 
 	io_cfg = (struct cam_buf_io_cfg *) ((uint8_t *)
 			&prepare->packet->payload +
@@ -434,6 +437,12 @@ int cam_isp_add_io_buffers(
 	num_out_buf = 0;
 	num_in_buf  = 0;
 	io_cfg_used_bytes = 0;
+
+	//req_isp = container_of(prepare->priv,struct cam_isp_ctx_req,hw_update_data);
+	isp_pf_dbg = &hw_update_data->cam_isp_pf_dbg;
+	if (fill_fence)
+		isp_pf_dbg->num_ports = isp_pf_dbg_i;
+
 
 	/* Max one hw entries required for each base */
 	if (prepare->num_hw_update_entries + 1 >=
@@ -446,7 +455,7 @@ int cam_isp_add_io_buffers(
 
 	for (i = 0; i < prepare->packet->num_io_configs; i++) {
 		CAM_DBG(CAM_ISP, "======= io config idx %d ============", i);
-		CAM_DBG(CAM_ISP, "i %d resource_type:%d fence:%d",
+		CAM_DBG(CAM_ISP, "i %d resource_type:%x fence:%d",
 			i, io_cfg[i].resource_type, io_cfg[i].fence);
 		CAM_DBG(CAM_ISP, "format: %d", io_cfg[i].format);
 		CAM_DBG(CAM_ISP, "direction %d",
@@ -531,6 +540,11 @@ int cam_isp_add_io_buffers(
 			}
 
 			memset(io_addr, 0, sizeof(io_addr));
+			if (fill_fence) {
+				isp_pf_dbg_j = 0;
+				isp_pf_dbg->port_map[isp_pf_dbg_i].port_id = io_cfg[i].resource_type;
+				isp_pf_dbg->port_map[isp_pf_dbg_i].format = io_cfg[i].format;
+			}
 
 			for (plane_id = 0; plane_id < CAM_PACKET_MAX_PLANES;
 						plane_id++) {
@@ -581,6 +595,16 @@ int cam_isp_add_io_buffers(
 				io_addr[plane_id] +=
 						io_cfg[i].offsets[plane_id];
 
+				if (fill_fence) {
+					isp_pf_dbg->port_map[isp_pf_dbg_i].plane_map[isp_pf_dbg_j].mapped_addr = (void*)io_addr[plane_id];
+					isp_pf_dbg->port_map[isp_pf_dbg_i].plane_map[isp_pf_dbg_j].mapped_total_size = size;
+					isp_pf_dbg->port_map[isp_pf_dbg_i].plane_map[isp_pf_dbg_j].mapped_buf_end_addr = (void*)(io_addr[plane_id] + size);
+					isp_pf_dbg->port_map[isp_pf_dbg_i].plane_map[isp_pf_dbg_j].width = io_cfg[i].planes[plane_id].width;
+					isp_pf_dbg->port_map[isp_pf_dbg_i].plane_map[isp_pf_dbg_j].height= io_cfg[i].planes[plane_id].height;
+					isp_pf_dbg->port_map[isp_pf_dbg_i].plane_map[isp_pf_dbg_j].plane_id = plane_id;
+					isp_pf_dbg_j++;
+				}
+
 				CAM_DBG(CAM_ISP,
                     "get io_addr for plane %d: 0x%llx,mem_hdl=0x%x,mmu_hdl=0x%x,size=%d",
 					plane_id, io_addr[plane_id],io_cfg[i].mem_handle[plane_id],mmu_hdl,(int)size);
@@ -594,6 +618,11 @@ int cam_isp_add_io_buffers(
 					ADD_IO_BUFS_INFO_MAX_SIZE;
 
 			}
+			if (fill_fence) {
+				isp_pf_dbg->port_map[isp_pf_dbg_i].num_planes = isp_pf_dbg_j;
+				isp_pf_dbg_i++;
+			}
+
 			if (!plane_id) {
 				CAM_ERR(CAM_ISP, "No valid planes for res%d",
 					res->res_id);
@@ -619,6 +648,8 @@ int cam_isp_add_io_buffers(
 				kmd_buf_info->used_bytes/4 +
 					io_cfg_used_bytes/4;
 			wm_update.image_buf = io_addr;
+
+
 			wm_update.num_buf   = plane_id;
 			wm_update.io_cfg    = &io_cfg[i];
 			update_buf.cmd.size = kmd_buf_remain_size;
@@ -639,6 +670,11 @@ int cam_isp_add_io_buffers(
 				return rc;
 			}
 			io_cfg_used_bytes += update_buf.cmd.used_bytes;
+		}
+		if (fill_fence) {
+			isp_pf_dbg->num_ports = isp_pf_dbg_i;
+			CAM_DBG(CAM_ISP, "num_ports %d",
+			isp_pf_dbg->num_ports);
 		}
 	}
 

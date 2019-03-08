@@ -52,6 +52,15 @@ static DEFINE_MUTEX(ap_health_work_lock);
 static DEFINE_MUTEX(debug_partition_mutex);
 static BLOCKING_NOTIFIER_HEAD(dbg_partition_notifier_list);
 
+static char debugpartition_path[60];
+static int __init get_bootdevice(char *str)
+{
+	snprintf(debugpartition_path, sizeof(debugpartition_path),
+		"/dev/block/platform/soc/%s/by-name/debug", str);
+	return 0;
+}
+early_param("androidboot.bootdevice", get_bootdevice);
+
 static void debug_partition_operation(struct work_struct *work)
 {
 	int ret;
@@ -77,9 +86,9 @@ static void debug_partition_operation(struct work_struct *work)
 
 	sched_data->error = 0;
 
-	filp = filp_open(DEBUG_PARTITION_NAME, flag, 0);
+	filp = filp_open(debugpartition_path, flag, 0);
 	if (IS_ERR(filp)) {
-		if (!(++err_cnt % PRINT_MSG_CYCLE))
+		if (!(err_cnt++ % PRINT_MSG_CYCLE))
 			pr_err("filp_open failed: %ld[%u]\n",
 			       PTR_ERR(filp), err_cnt);
 		sched_data->error = PTR_ERR(filp);
@@ -127,9 +136,9 @@ static void ap_health_work_write_fn(struct work_struct *work)
 	fs = get_fs();
 	set_fs(get_ds());
 
-	filp = filp_open(DEBUG_PARTITION_NAME, (O_RDWR | O_SYNC), 0);
+	filp = filp_open(debugpartition_path, (O_RDWR | O_SYNC), 0);
 	if (IS_ERR(filp)) {
-		if (!(++err_cnt % PRINT_MSG_CYCLE))
+		if (!(err_cnt++ % PRINT_MSG_CYCLE))
 			pr_err("filp_open failed: %ld[%u]\n",
 			       PTR_ERR(filp), err_cnt);
 		goto openfail_retry;
@@ -202,6 +211,7 @@ static bool init_lcd_debug_data(void)
 	return ret;
 }
 
+
 static void init_ap_health_data(void)
 {
 	pr_info("start\n");
@@ -226,12 +236,13 @@ static void init_ap_health_data(void)
 		schedule_work(&sched_debug_data.debug_partition_work);
 		wait_for_completion(&sched_debug_data.work);
 
-		mutex_unlock(&debug_partition_mutex);
 		if (!sched_debug_data.error)
 			break;
 
+		mutex_unlock(&debug_partition_mutex);
 		msleep(1000);
 	}
+	mutex_unlock(&debug_partition_mutex);
 
 	pr_info("end\n");
 }
@@ -261,13 +272,13 @@ static void init_debug_partition(void)
 		schedule_work(&sched_debug_data.debug_partition_work);
 		wait_for_completion(&sched_debug_data.work);
 
-		mutex_unlock(&debug_partition_mutex);
-
 		if (!sched_debug_data.error)
 			break;
 
+		mutex_unlock(&debug_partition_mutex);
 		msleep(1000);
 	}
+	mutex_unlock(&debug_partition_mutex);
 
 	pr_info("end\n");
 }
@@ -293,13 +304,13 @@ static void check_magic_data(void)
 		schedule_work(&sched_debug_data.debug_partition_work);
 		wait_for_completion(&sched_debug_data.work);
 
-		mutex_unlock(&debug_partition_mutex);
-
 		if (!sched_debug_data.error)
 			break;
 
+		mutex_unlock(&debug_partition_mutex);
 		msleep(1000);
 	}
+	mutex_unlock(&debug_partition_mutex);
 
 	if (partition_header.magic != DEBUG_PARTITION_MAGIC)
 		init_debug_partition();
@@ -398,15 +409,16 @@ bool write_debug_partition(enum debug_partition_index index, void *value)
 		// do nothing.
 		break;
 	case debug_index_lcd_debug_info:
-			mutex_lock(&debug_partition_mutex);
-			sched_debug_data.value = (struct lcd_debug_t *)value;
-			sched_debug_data.offset = SEC_DEBUG_LCD_DEBUG_OFFSET;
-			sched_debug_data.size = sizeof(struct lcd_debug_t);
-			sched_debug_data.direction = PARTITION_WR;
-			schedule_work(&sched_debug_data.debug_partition_work);
-			wait_for_completion(&sched_debug_data.work);
-			mutex_unlock(&debug_partition_mutex);
-			break;
+		mutex_lock(&debug_partition_mutex);
+		sched_debug_data.value = (struct lcd_debug_t *)value;
+		sched_debug_data.offset = SEC_DEBUG_LCD_DEBUG_OFFSET;
+		sched_debug_data.size = sizeof(struct lcd_debug_t);
+		sched_debug_data.direction = PARTITION_WR;
+		schedule_work(&sched_debug_data.debug_partition_work);
+		wait_for_completion(&sched_debug_data.work);
+		mutex_unlock(&debug_partition_mutex);
+		break;
+
 	default:
 		return false;
 	}
@@ -501,7 +513,7 @@ static int __init sec_debug_partition_init(void)
 			debug_partition_do_notify);
 	INIT_DELAYED_WORK(&ap_health_work, ap_health_work_write_fn);
 
-	dbg_part_wq = create_singlethread_workqueue("glink_lbsrv");
+	dbg_part_wq = create_singlethread_workqueue("dbg_part_wq");
 	if (!dbg_part_wq) {
 		pr_err("fail to create dbg_part_wq!\n");
 		return -EFAULT;

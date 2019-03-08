@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -80,6 +80,8 @@ struct dp_ctrl_private {
 	struct completion video_comp;
 
 	bool orientation;
+	bool power_on;
+
 	atomic_t aborted;
 
 	u32 pixel_rate;
@@ -135,9 +137,14 @@ static void dp_ctrl_push_idle(struct dp_ctrl *dp_ctrl)
 		return;
 	}
 
-	pr_debug("+++\n");
-
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
+
+	if (!ctrl->power_on) {
+		pr_err("CTRL off, return\n");
+		return;
+	}
+
+	pr_debug("+++\n");
 
 	reinit_completion(&ctrl->idle_comp);
 	dp_ctrl_state_ctrl(ctrl, ST_PUSH_IDLE);
@@ -829,6 +836,10 @@ static int dp_ctrl_link_train_1(struct dp_ctrl_private *ctrl)
 	u8 link_status[DP_LINK_STATUS_SIZE];
 	int const maximum_retries = 5;
 
+	ctrl->aux->state &= ~DP_STATE_TRAIN_1_FAILED;
+	ctrl->aux->state &= ~DP_STATE_TRAIN_1_SUCCEEDED;
+	ctrl->aux->state |= DP_STATE_TRAIN_1_STARTED;
+
 	dp_ctrl_state_ctrl(ctrl, 0);
 	/* Make sure to clear the current pattern before starting a new one */
 	wmb();
@@ -838,18 +849,18 @@ static int dp_ctrl_link_train_1(struct dp_ctrl_private *ctrl)
 		DP_LINK_SCRAMBLING_DISABLE); /* train_1 */
 	if (ret <= 0) {
 		ret = -EINVAL;
-		return ret;
+		goto end;
 	}
 
 	ret = dp_ctrl_update_vx_px(ctrl);
 	if (ret <= 0) {
 		ret = -EINVAL;
-		return ret;
+		goto end;
 	}
 
 	tries = 0;
 	old_v_level = ctrl->link->phy_params.v_level;
-	while (1) {
+	while (!atomic_read(&ctrl->aborted)) {
 		drm_dp_link_train_clock_recovery_delay(ctrl->panel->dpcd);
 
 		ret = dp_ctrl_read_link_status(ctrl, link_status);
@@ -888,6 +899,13 @@ static int dp_ctrl_link_train_1(struct dp_ctrl_private *ctrl)
 			break;
 		}
 	}
+end:
+	ctrl->aux->state &= ~DP_STATE_TRAIN_1_STARTED;
+
+	if (ret)
+		ctrl->aux->state |= DP_STATE_TRAIN_1_FAILED;
+	else
+		ctrl->aux->state |= DP_STATE_TRAIN_1_SUCCEEDED;
 
 	return ret;
 }
@@ -935,6 +953,10 @@ static int dp_ctrl_link_training_2(struct dp_ctrl_private *ctrl)
 	int const maximum_retries = 5;
 	u8 link_status[DP_LINK_STATUS_SIZE];
 
+	ctrl->aux->state &= ~DP_STATE_TRAIN_2_FAILED;
+	ctrl->aux->state &= ~DP_STATE_TRAIN_2_SUCCEEDED;
+	ctrl->aux->state |= DP_STATE_TRAIN_2_STARTED;
+
 	dp_ctrl_state_ctrl(ctrl, 0);
 	/* Make sure to clear the current pattern before starting a new one */
 	wmb();
@@ -947,14 +969,14 @@ static int dp_ctrl_link_training_2(struct dp_ctrl_private *ctrl)
 	ret = dp_ctrl_update_vx_px(ctrl);
 	if (ret <= 0) {
 		ret = -EINVAL;
-		return ret;
+		goto end;
 	}
 	ctrl->catalog->set_pattern(ctrl->catalog, pattern);
 	ret = dp_ctrl_train_pattern_set(ctrl,
 		pattern | DP_RECOVERED_CLOCK_OUT_EN);
 	if (ret <= 0) {
 		ret = -EINVAL;
-		return ret;
+		goto end;
 	}
 
 	do  {
@@ -981,8 +1003,14 @@ static int dp_ctrl_link_training_2(struct dp_ctrl_private *ctrl)
 			ret = -EINVAL;
 			break;
 		}
-	} while (1);
+	} while (!atomic_read(&ctrl->aborted));
+end:
+	ctrl->aux->state &= ~DP_STATE_TRAIN_2_STARTED;
 
+	if (ret)
+		ctrl->aux->state |= DP_STATE_TRAIN_2_FAILED;
+	else
+		ctrl->aux->state |= DP_STATE_TRAIN_2_SUCCEEDED;
 	return ret;
 }
 
@@ -997,10 +1025,9 @@ static int dp_ctrl_link_train(struct dp_ctrl_private *ctrl)
 		pr_info("cable is out\n");
 		return -EIO;
 	}
-#endif
 
 	pr_debug("+++\n");
-#ifdef CONFIG_SEC_DISPLAYPORT
+
 	ctrl->link_train_status = false;
 #endif
 
@@ -1157,8 +1184,7 @@ static int dp_ctrl_disable_mainlink_clocks(struct dp_ctrl_private *ctrl)
 	return ctrl->power->clk_enable(ctrl->power, DP_CTRL_PM, false);
 }
 
-static int dp_ctrl_host_init(struct dp_ctrl *dp_ctrl,
-	bool flip, bool multi_func)
+static int dp_ctrl_host_init(struct dp_ctrl *dp_ctrl, bool flip, bool reset)
 {
 	struct dp_ctrl_private *ctrl;
 	struct dp_catalog_ctrl *catalog;
@@ -1175,7 +1201,7 @@ static int dp_ctrl_host_init(struct dp_ctrl *dp_ctrl,
 	ctrl->orientation = flip;
 	catalog = ctrl->catalog;
 
-	if (!multi_func) {
+	if (reset) {
 		catalog->usb_reset(ctrl->catalog, flip);
 		catalog->phy_reset(ctrl->catalog);
 	}
@@ -1238,7 +1264,7 @@ static bool dp_ctrl_get_link_train_status(struct dp_ctrl *dp_ctrl)
 	}
 
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
-	pr_info("link train status : %s\n", ctrl->link_train_status ? "success": "failure");
+	pr_info("link_train_status: %s\n", ctrl->link_train_status ? "success": "failure");
 	return ctrl->link_train_status;
 }
 #endif
@@ -1257,6 +1283,15 @@ static int dp_ctrl_link_maintenance(struct dp_ctrl *dp_ctrl)
 	}
 
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
+
+	if (!ctrl->power_on || atomic_read(&ctrl->aborted)) {
+		pr_err("CTRL off, return\n");
+		return -EINVAL;
+	}
+
+	ctrl->aux->state &= ~DP_STATE_LINK_MAINTENANCE_COMPLETED;
+	ctrl->aux->state &= ~DP_STATE_LINK_MAINTENANCE_FAILED;
+	ctrl->aux->state |= DP_STATE_LINK_MAINTENANCE_STARTED;
 
 	ctrl->dp_ctrl.push_idle(&ctrl->dp_ctrl);
 	ctrl->dp_ctrl.reset(&ctrl->dp_ctrl);
@@ -1312,6 +1347,13 @@ static int dp_ctrl_link_maintenance(struct dp_ctrl *dp_ctrl)
 
 		ret = dp_ctrl_setup_main_link(ctrl, true);
 	} while (ret == -EAGAIN);
+
+	ctrl->aux->state &= ~DP_STATE_LINK_MAINTENANCE_STARTED;
+
+	if (ret)
+		ctrl->aux->state |= DP_STATE_LINK_MAINTENANCE_FAILED;
+	else
+		ctrl->aux->state |= DP_STATE_LINK_MAINTENANCE_COMPLETED;
 
 	return ret;
 }
@@ -1417,6 +1459,31 @@ static void dp_ctrl_reset(struct dp_ctrl *dp_ctrl)
 	ctrl->catalog->reset(ctrl->catalog);
 }
 
+#ifdef SECDP_OPTIMAL_LINK_RATE
+static u32 secdp_dp_gen_link_clk(struct dp_panel *dp_panel)
+{
+	u32 calc_link_rate;
+	u32 min_link_rate = dp_panel->get_min_req_link_rate(dp_panel);
+
+	pr_debug("+++, min_link_rate <%u>\n", min_link_rate);
+
+	if (min_link_rate <= 162000)
+		calc_link_rate = 162000;
+	else if (min_link_rate <= 270000)
+		calc_link_rate = 270000;
+	else if (min_link_rate <= 540000)
+		calc_link_rate = 540000;
+	else {
+		/* Cap the link rate to the max supported rate */
+		pr_debug("min_link_rate is not supported, setting 5.4G\n");
+		calc_link_rate = 540000;
+	}
+
+	pr_debug("---, calc_link_rate <%u>\n", calc_link_rate);
+	return calc_link_rate;
+}
+#endif
+
 static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 {
 	int rc = 0;
@@ -1435,7 +1502,6 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 	atomic_set(&ctrl->aborted, 0);
 	rate = ctrl->panel->link_info.rate;
 
-	ctrl->power->clk_enable(ctrl->power, DP_CORE_PM, true);
 	ctrl->catalog->hpd_config(ctrl->catalog, true);
 
 	if (ctrl->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN) {
@@ -1443,8 +1509,13 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 		if (!ctrl->panel->pinfo.pixel_clk_khz)
 			ctrl->pixel_rate = phy_cts_pixel_clk_khz;
 	} else {
+#ifndef SECDP_OPTIMAL_LINK_RATE
 		ctrl->link->link_params.bw_code =
 			drm_dp_link_rate_to_bw_code(rate);
+#else
+		ctrl->link->link_params.bw_code =
+			drm_dp_link_rate_to_bw_code(secdp_dp_gen_link_clk(ctrl->panel));
+#endif
 		ctrl->link->link_params.lane_count =
 			ctrl->panel->link_info.num_lanes;
 		ctrl->pixel_rate = ctrl->panel->pinfo.pixel_clk_khz;
@@ -1505,6 +1576,7 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 	if (ctrl->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN)
 		dp_ctrl_send_phy_test_pattern(ctrl);
 
+	ctrl->power_on = true;
 	pr_debug("End-\n");
 
 end:
@@ -1528,6 +1600,7 @@ static void dp_ctrl_off(struct dp_ctrl *dp_ctrl)
 
 	dp_ctrl_disable_mainlink_clocks(ctrl);
 
+	ctrl->power_on = false;
 	pr_debug("DP off done\n");
 }
 

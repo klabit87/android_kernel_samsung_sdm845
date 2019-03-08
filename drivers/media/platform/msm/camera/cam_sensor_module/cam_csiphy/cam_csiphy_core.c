@@ -32,7 +32,7 @@ static DEFINE_SPINLOCK(secure_mode_lock);
 
 static int cam_refcnt_status(bool rw, bool protect)
 {
-	int ret;
+	int ret = 0;
 
 	spin_lock(&secure_mode_lock);
 	switch (rw) {
@@ -58,6 +58,7 @@ static int cam_csiphy_notify_secure_mode(int phy, bool protect)
 	static struct qseecom_handle   *ta_qseecom_handle;
 	int32_t rc;
 	int ret = 0;
+	uint32_t retry = 0;
 
 	desc.arginfo = SCM_ARGS(2, SCM_VAL, SCM_VAL);
 	desc.args[0] = protect;
@@ -69,13 +70,27 @@ static int cam_csiphy_notify_secure_mode(int phy, bool protect)
 		if (cam_refcnt_status(0,0) == 0)
 		{
 			CAM_INFO(CAM_CSIPHY, "Loading TA.....\n");
+#if 1
+			do {
+				rc = qseecom_start_app(
+					&ta_qseecom_handle,
+					SECCAM_TA_NAME,
+					SECCAM_QSEECOM_SBUFF_SIZE);
+				if (rc == -ENOMEM) {
+					CAM_ERR(CAM_CSIPHY, "retry Loading TA");
+					msleep(10);
+				}
+			} while ((rc == -ENOMEM) && (++retry < 30));
+#else
 			rc = qseecom_start_app(
 				&ta_qseecom_handle,
 				SECCAM_TA_NAME,
 				SECCAM_QSEECOM_SBUFF_SIZE);
+#endif
 			if (rc) {
 				CAM_ERR(CAM_CSIPHY, "TA Load failed\n");
-				ret = -EINVAL;
+				//ret = -EINVAL;
+				return -EINVAL;
 			}
 		}
 
@@ -95,7 +110,40 @@ static int cam_csiphy_notify_secure_mode(int phy, bool protect)
 		if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
 			&desc)) {
 			CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
-			ret = -EINVAL;
+#if 1
+			CAM_INFO(CAM_CSIPHY, "[SCM_DBG] Try to recovery");
+			rc = qseecom_shutdown_app(&ta_qseecom_handle);
+			if (rc) {
+				CAM_ERR(CAM_CSIPHY, "TA UnLoad failed\n");
+				ret = -EINVAL;
+			}
+			CAM_INFO(CAM_CSIPHY, "[SCM_DBG] 1. TA Unload done");
+			msleep(10);
+
+			do {
+				rc = qseecom_start_app(
+					&ta_qseecom_handle,
+					SECCAM_TA_NAME,
+					SECCAM_QSEECOM_SBUFF_SIZE);
+				if (rc == -ENOMEM) {
+					CAM_ERR(CAM_CSIPHY, "[SCM_DBG] retry Loading TA");
+					msleep(10);
+				}
+			} while ((rc == -ENOMEM) && (++retry < 30));
+			CAM_INFO(CAM_CSIPHY, "[SCM_DBG] 2. TA load done");
+			msleep(10);
+
+			if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID),
+				&desc)) {
+				CAM_ERR(CAM_CSIPHY, "[SCM_DBG] scm call to hypervisor failed, recovery failed");
+				ret = -EINVAL;
+			} else {
+				CAM_ERR(CAM_CSIPHY, "[SCM_DBG] scm call to hypervisor success, recovery success");
+				ret = 0;
+			}
+			CAM_INFO(CAM_CSIPHY, "[SCM_DBG] 3. Recovery routine done %d", ret);
+#endif
+
 		}
 		cam_refcnt_status(1, protect);
 

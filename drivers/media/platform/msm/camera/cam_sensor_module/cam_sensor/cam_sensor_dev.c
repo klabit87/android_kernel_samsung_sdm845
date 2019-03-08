@@ -162,6 +162,8 @@ static int32_t cam_sensor_driver_i2c_probe(struct i2c_client *client,
 	s_ctrl->of_node = client->dev.of_node;
 	s_ctrl->io_master_info.master_type = I2C_MASTER;
 	s_ctrl->is_probe_succeed = 0;
+	s_ctrl->streamon_count = 0;
+	s_ctrl->streamoff_count = 0;
 
 	rc = cam_sensor_parse_dt(s_ctrl);
 	if (rc < 0) {

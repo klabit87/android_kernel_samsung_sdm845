@@ -128,11 +128,11 @@ struct cam_ois_opcode {
  *
  * @slave_addr            :    OIS i2c slave address
  * @i2c_freq_mode         :    i2c frequency mode
+ * @cmd_type              :    Explains type of command
  * @ois_fw_flag           :    indicates if fw is present or not
  * @is_ois_calib          :    indicates the calibration data is available
  * @ois_name              :    OIS name
  * @opcode                :    opcode
- * @cmd_type              :    Explains type of command
  */
 struct cam_cmd_ois_info {
 	uint32_t              slave_addr;

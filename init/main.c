@@ -80,6 +80,8 @@
 #include <linux/integrity.h>
 #include <linux/proc_ns.h>
 #include <linux/io.h>
+#include <linux/kaiser.h>
+#include <linux/cache.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -233,13 +235,21 @@ static bool __init obsolete_checksetup(char *line)
 			} else if (!p->setup_func) {
 				pr_warn("Parameter %s is obsolete, ignored\n",
 					p->str);
-				return true;
-			} else if (p->setup_func(line + n))
-				return true;
+				had_early_param = true;
+				goto fail;
+			} else {
+				set_memsize_reserved_name(p->str);
+				if (p->setup_func(line + n)) {
+					had_early_param = true;
+					goto fail;
+				}
+			}
 		}
 		p++;
 	} while (p < __setup_end);
 
+fail:
+	unset_memsize_reserved_name();
 	return had_early_param;
 }
 
@@ -482,9 +492,6 @@ static noinline void __ref rest_init(void)
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
-#ifdef CONFIG_RKP_KDP
-RKP_RO_AREA int is_recovery = 0;
-#endif
 /* Check for early params. */
 static int __init do_early_param(char *param, char *val,
 				 const char *unused, void *arg)
@@ -496,20 +503,13 @@ static int __init do_early_param(char *param, char *val,
 		    (strcmp(param, "console") == 0 &&
 		     strcmp(p->str, "earlycon") == 0)
 		) {
+			set_memsize_reserved_name(p->str);
 			if (p->setup_func(val) != 0)
 				pr_warn("Malformed early option '%s'\n", param);
 		}
 	}
 	/* We accept everything at this stage. */
-#ifdef CONFIG_RKP_KDP
-	if ((strncmp(param, "bootmode", 9) == 0)) {
-			//printk("\n RKP22 In Recovery Mode= %d\n",*val);
-			if ((strncmp(val, "2", 2) == 0)) {
-				is_recovery = 1;
-			}
-	}
-#endif
-
+	unset_memsize_reserved_name();
 	return 0;
 }
 
@@ -549,6 +549,7 @@ void __init __weak thread_stack_cache_init(void)
  */
 static void __init mm_init(void)
 {
+	set_memsize_kernel_type(MEMSIZE_KERNEL_MM_INIT);
 	/*
 	 * page_ext requires contiguous pages,
 	 * bigger than MAX_ORDER unless SPARSEMEM.
@@ -560,6 +561,8 @@ static void __init mm_init(void)
 	pgtable_init();
 	vmalloc_init();
 	ioremap_huge_init();
+	kaiser_init();
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 }
 
 #ifdef CONFIG_RKP_CFP_ROPP
@@ -597,13 +600,6 @@ static inline void ropp_primary_init(void)
 static inline void ropp_primary_init_finish(void)
 {
 #ifdef CONFIG_RKP_CFP_ROPP_SYSREGKEY
-#ifdef CONFIG_TIMA_RKP
-	asm volatile("mov %0, xzr" : "=r" (ropp_master_key));
-	pr_info("SYSREG, after zeroing out master key, mk=%lx\n", ropp_master_key);
-	BUG_ON(0 != ropp_master_key); //preventing compiler error
-#else
-#define ROPP_ADDR	0x9FA07020
-#define ROPP_MAGIC	0x4a4c4955
 	unsigned long save_values[] = { ROPP_MAGIC,		ropp_master_key,
 		offsetof(struct thread_info, rrk),		offsetof(struct task_struct, stack),
 		offsetof(struct task_struct, tasks),		offsetof(struct task_struct, pid),
@@ -613,14 +609,19 @@ static inline void ropp_primary_init_finish(void)
 
 	for (i = 0; i < 10; i++)
 		*((unsigned long *) (__phys_to_virt(ROPP_ADDR)+0x8*i)) = save_values[i];
+
+#ifndef CONFIG_RKP_CFP_TEST
+	asm volatile("mov %0, xzr" : "=r" (ropp_master_key));
+	pr_info("SYSREG, after zeroing out master key, mk=%lx\n", ropp_master_key);
+	BUG_ON(0 != ropp_master_key); //preventing compiler error
 #endif
 #endif
 }
 #endif
 
 #ifdef CONFIG_UH_RKP
-__attribute__((section(".rkp.bitmap"))) u8 rkp_pgt_bitmap_arr[0x30000] = {0};
-__attribute__((section(".rkp.dblmap"))) u8 rkp_map_bitmap_arr[0x30000] = {0};
+__attribute__((section(".rkp.bitmap"))) u8 rkp_pgt_bitmap_arr[RKP_PGT_BITMAP_LEN] = {0};
+__attribute__((section(".rkp.dblmap"))) u8 rkp_map_bitmap_arr[RKP_PGT_BITMAP_LEN] = {0};
 u8 rkp_started; /* 0 initialized by c standard */
 
 static void rkp_init(void)
@@ -638,6 +639,11 @@ static void rkp_init(void)
 	init.rkp_pgt_bitmap = (u64)__pa(rkp_pgt_bitmap);
 	init.rkp_dbl_bitmap = (u64)__pa(rkp_map_bitmap);
 	init.rkp_bitmap_size = RKP_PGT_BITMAP_LEN;
+#ifdef CONFIG_RKP_KDP
+	init.rkp_prot_page_size = (u64)__rkp_end_prot_page - (u64)__rkp_start_prot_page;
+#else
+	init.rkp_prot_page_size = 0;
+#endif
 	init.no_fimc_verify = 0;
 	init.fimc_phys_addr = 0;
 	init.zero_pg_addr = (u64)__pa(empty_zero_page);
@@ -653,6 +659,15 @@ static void rkp_init(void)
 }
 #endif
 #ifdef CONFIG_RKP_KDP
+#define VERITY_PARAM_LENGTH 20
+static char verifiedbootstate[VERITY_PARAM_LENGTH];
+static int __init verifiedboot_state_setup(char *str)
+{
+	strlcpy(verifiedbootstate, str, sizeof(verifiedbootstate));
+	return 1;
+}
+__setup("androidboot.verifiedbootstate=", verifiedboot_state_setup);
+
 
 void kdp_init(void)
 {
@@ -679,6 +694,7 @@ void kdp_init(void)
 	cred.comm_task 		= offsetof(struct task_struct,comm);
 
 	cred.bp_cred_secptr 	= rkp_get_offset_bp_cred();
+	cred.verifiedbootstate = (u64)verifiedbootstate;
 
 	uh_call(UH_APP_RKP, 0x40, (u64)&cred, 0, 0, 0);
 }
@@ -689,6 +705,7 @@ asmlinkage __visible void __init start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
@@ -862,10 +879,6 @@ asmlinkage __visible void __init start_kernel(void)
 	buffer_init();
 	key_init();
 	security_init();
-#ifdef CONFIG_RKP_KDP
-	if (rkp_cred_enable) 
-		uh_call(UH_APP_RKP, 0x51, (u64)__rkp_ro_start,0, 0, 0);
-#endif /*CONFIG_RKP_KDP*/
 	dbg_late_init();
 	vfs_caches_init();
 	signals_init();
@@ -890,6 +903,7 @@ asmlinkage __visible void __init start_kernel(void)
 
 	ftrace_init();
 
+	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
 	/* Do the rest non-__init'ed, we're now alive */
 	rest_init();
 }
@@ -1186,14 +1200,16 @@ static int try_to_run_init_process(const char *init_filename)
 
 static noinline void __init kernel_init_freeable(void);
 
-#ifdef CONFIG_DEBUG_RODATA
-static bool rodata_enabled = true;
+#if defined(CONFIG_DEBUG_RODATA) || defined(CONFIG_DEBUG_SET_MODULE_RONX)
+bool rodata_enabled __ro_after_init = true;
 static int __init set_debug_rodata(char *str)
 {
 	return strtobool(str, &rodata_enabled);
 }
 __setup("rodata=", set_debug_rodata);
+#endif
 
+#ifdef CONFIG_DEBUG_RODATA
 static void mark_readonly(void)
 {
 	if (rodata_enabled)

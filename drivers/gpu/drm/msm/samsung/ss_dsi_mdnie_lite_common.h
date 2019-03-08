@@ -269,6 +269,7 @@ struct mdnie_lite_tune_data {
 	struct dsi_cmd_desc *DSI_NEGATIVE_MDNIE;
 	struct dsi_cmd_desc *DSI_COLOR_BLIND_MDNIE;
 	struct dsi_cmd_desc *DSI_HBM_CE_MDNIE;
+	struct dsi_cmd_desc *DSI_HBM_CE_D65_MDNIE;
 	struct dsi_cmd_desc *DSI_HBM_CE_TEXT_MDNIE;
 	struct dsi_cmd_desc *DSI_RGB_SENSOR_MDNIE;
 	struct dsi_cmd_desc *DSI_CURTAIN;
@@ -365,6 +366,10 @@ void coordinate_tunning_calculate(struct samsung_display_driver_data *vdd,
 		int x, int y,
 		char (*coordinate_data_multi[MAX_MODE])[COORDINATE_DATA_SIZE],
 		int *rgb_index, int scr_wr_addr, int data_size);
+
+
+void coordinate_tunning_multi(struct samsung_display_driver_data *vdd,
+    char (*coordinate_data_multi[MAX_MODE])[COORDINATE_DATA_SIZE], int mdnie_tune_index, int scr_wr_addr, int data_size);
 
 /* COMMON FUNCTION END*/
 

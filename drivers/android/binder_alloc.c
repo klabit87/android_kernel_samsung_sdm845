@@ -281,6 +281,9 @@ static int binder_update_page_range(struct binder_alloc *alloc, int allocate,
 			goto err_vm_insert_page_failed;
 		}
 
+		if (index + 1 > alloc->pages_high)
+			alloc->pages_high = index + 1;
+
 		trace_binder_alloc_page_end(alloc, index);
 		/* vm_insert_page does not seem to increment the refcount */
 	}
@@ -363,9 +366,12 @@ struct binder_buffer *binder_alloc_new_buf_locked(struct binder_alloc *alloc,
 	}
 	if (is_async &&
 	    alloc->free_async_space < size + sizeof(struct binder_buffer)) {
-		binder_alloc_debug(BINDER_DEBUG_BUFFER_ALLOC,
-			     "%d: binder_alloc_buf size %zd failed, no async space left\n",
-			      alloc->pid, size);
+		//binder_alloc_debug(BINDER_DEBUG_BUFFER_ALLOC,
+		//	     "%d: binder_alloc_buf size %zd failed, no async space left\n",
+		//	      alloc->pid, size);
+		pr_info("%d: binder_alloc_buf size %zd(%zd) failed, no async space left\n",
+			     alloc->pid, size, alloc->free_async_space);
+
 		return ERR_PTR(-ENOSPC);
 	}
 
@@ -860,6 +866,7 @@ void binder_alloc_print_pages(struct seq_file *m,
 	}
 	mutex_unlock(&alloc->mutex);
 	seq_printf(m, "  pages: %d:%d:%d\n", active, lru, free);
+	seq_printf(m, "  pages high watermark: %zu\n", alloc->pages_high);
 }
 
 /**

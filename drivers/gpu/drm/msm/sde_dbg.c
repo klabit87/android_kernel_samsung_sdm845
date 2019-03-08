@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -73,6 +73,10 @@
 
 #define RSC_DEBUG_MUX_SEL_SDM845 9
 
+#define DBG_CTRL_STOP_FTRACE	BIT(0)
+#define DBG_CTRL_PANIC_UNDERRUN	BIT(1)
+#define DBG_CTRL_RESET_HW_PANIC	BIT(2)
+#define DBG_CTRL_MAX			BIT(3)
 #ifdef CONFIG_DISPLAY_SAMSUNG
 /**
  * To print in kernel log
@@ -181,6 +185,11 @@ struct sde_dbg_vbif_debug_bus {
 	struct vbif_debug_bus_entry *entries;
 };
 
+struct sde_dbg_dsi_debug_bus {
+	u32 *entries;
+	u32 size;
+};
+
 /**
  * struct sde_dbg_base - global sde debug base structure
  * @evtlog: event log instance
@@ -214,8 +223,10 @@ static struct sde_dbg_base {
 
 	struct sde_dbg_sde_debug_bus dbgbus_sde;
 	struct sde_dbg_vbif_debug_bus dbgbus_vbif_rt;
+	struct sde_dbg_dsi_debug_bus dbgbus_dsi;
 	bool dump_all;
 	bool dsi_dbg_bus;
+	u32 debugfs_ctrl;
 } sde_dbg_base;
 
 /* sde_dbg_base_evtlog - global pointer to main sde event log for macro use */
@@ -2049,6 +2060,42 @@ static struct vbif_debug_bus_entry vbif_dbg_bus_msm8998[] = {
 	{0x21c, 0x214, 0, 14, 0, 0xc}, /* xin blocks - clock side */
 };
 
+static u32 dsi_dbg_bus_sdm845[] = {
+	0x0001, 0x1001, 0x0001, 0x0011,
+	0x1021, 0x0021, 0x0031, 0x0041,
+	0x0051, 0x0061, 0x3061, 0x0061,
+	0x2061, 0x2061, 0x1061, 0x1061,
+	0x1061, 0x0071, 0x0071, 0x0071,
+	0x0081, 0x0081, 0x00A1, 0x00A1,
+	0x10A1, 0x20A1, 0x30A1, 0x10A1,
+	0x10A1, 0x30A1, 0x20A1, 0x00B1,
+	0x00C1, 0x00C1, 0x10C1, 0x20C1,
+	0x30C1, 0x00D1, 0x00D1, 0x20D1,
+	0x30D1, 0x00E1, 0x00E1, 0x00E1,
+	0x00F1, 0x00F1, 0x0101, 0x0101,
+	0x1101, 0x2101, 0x3101, 0x0111,
+	0x0141, 0x1141, 0x0141, 0x1141,
+	0x1141, 0x0151, 0x0151, 0x1151,
+	0x2151, 0x3151, 0x0161, 0x0161,
+	0x1161, 0x0171, 0x0171, 0x0181,
+	0x0181, 0x0191, 0x0191, 0x01A1,
+	0x01A1, 0x01B1, 0x01B1, 0x11B1,
+	0x21B1, 0x01C1, 0x01C1, 0x11C1,
+	0x21C1, 0x31C1, 0x01D1, 0x01D1,
+	0x01D1, 0x01D1, 0x11D1, 0x21D1,
+	0x21D1, 0x01E1, 0x01E1, 0x01F1,
+	0x01F1, 0x0201, 0x0201, 0x0211,
+	0x0221, 0x0231, 0x0241, 0x0251,
+	0x0281, 0x0291, 0x0281, 0x0291,
+	0x02A1, 0x02B1, 0x02C1, 0x0321,
+	0x0321, 0x1321, 0x2321, 0x3321,
+	0x0331, 0x0331, 0x1331, 0x0341,
+	0x0341, 0x1341, 0x2341, 0x3341,
+	0x0351, 0x0361, 0x0361, 0x1361,
+	0x2361, 0x0371, 0x0381, 0x0391,
+	0x03C1, 0x03D1, 0x03E1, 0x03F1,
+};
+
 /**
  * _sde_dbg_enable_power - use callback to turn power on for hw register access
  * @enable: whether to turn power on or off
@@ -2098,7 +2145,8 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 
 	if (in_log)
 		dev_err(sde_dbg_base.dev, "%s: start_offset 0x%lx len 0x%zx\n",
-				dump_name, addr - base_addr, len_bytes);
+				dump_name, (unsigned long)(addr - base_addr),
+					len_bytes);
 
 	len_align = (len_bytes + REG_DUMP_ALIGN - 1) / REG_DUMP_ALIGN;
 	len_padded = len_align * REG_DUMP_ALIGN;
@@ -2116,7 +2164,7 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 			dev_info(sde_dbg_base.dev,
 				"%s: start_addr:0x%pK len:0x%x reg_offset=0x%lx\n",
 				dump_name, dump_addr, len_padded,
-				addr - base_addr);
+				(unsigned long)(addr - base_addr));
 		} else {
 			in_mem = 0;
 			pr_err("dump_mem: kzalloc fails!\n");
@@ -2142,7 +2190,8 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 		if (in_log)
 			dev_err(sde_dbg_base.dev,
 					"0x%lx : %08x %08x %08x %08x\n",
-					addr - base_addr, x0, x4, x8, xc);
+					(unsigned long)(addr - base_addr),
+					x0, x4, x8, xc);
 
 		if (dump_addr) {
 			dump_addr[i * 4] = x0;
@@ -2614,7 +2663,8 @@ static void _sde_dump_array(struct sde_dbg_reg_base *blk_arr[],
 		_sde_dbg_dump_vbif_dbg_bus(&sde_dbg_base.dbgbus_vbif_rt);
 
 	if (sde_dbg_base.dsi_dbg_bus || dump_all)
-		dsi_ctrl_debug_dump();
+		dsi_ctrl_debug_dump(sde_dbg_base.dbgbus_dsi.entries,
+				    sde_dbg_base.dbgbus_dsi.size);
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	if (do_panic && sde_dbg_base.panic_on_err)
@@ -2722,6 +2772,53 @@ void sde_dbg_dump(bool queue_work, const char *name, ...)
 	}
 }
 
+void sde_dbg_ctrl(const char *name, ...)
+{
+	int i = 0;
+	va_list args;
+	char *blk_name = NULL;
+
+	/* no debugfs controlled events are enabled, just return */
+	if (!sde_dbg_base.debugfs_ctrl)
+		return;
+
+	va_start(args, name);
+
+	while ((blk_name = va_arg(args, char*))) {
+		if (i++ >= SDE_EVTLOG_MAX_DATA) {
+			pr_err("could not parse all dbg arguments\n");
+			break;
+		}
+
+		if (IS_ERR_OR_NULL(blk_name))
+			break;
+
+		if (!strcmp(blk_name, "stop_ftrace") &&
+				sde_dbg_base.debugfs_ctrl &
+				DBG_CTRL_STOP_FTRACE) {
+			pr_debug("tracing off\n");
+			tracing_off();
+		}
+
+		if (!strcmp(blk_name, "panic_underrun") &&
+				sde_dbg_base.debugfs_ctrl &
+				DBG_CTRL_PANIC_UNDERRUN) {
+			pr_debug("panic underrun\n");
+			panic("underrun");
+		}
+
+		if (!strcmp(blk_name, "reset_hw_panic") &&
+				sde_dbg_base.debugfs_ctrl &
+				DBG_CTRL_RESET_HW_PANIC) {
+			pr_debug("reset hw panic\n");
+			panic("reset_hw");
+		}
+	}
+
+	va_end(args);
+}
+
+
 /*
  * sde_dbg_debugfs_open - debugfs open handler for evtlog dump
  * @inode: debugfs inode
@@ -2756,6 +2853,11 @@ static ssize_t sde_evtlog_dump_read(struct file *file, char __user *buff,
 
 	len = sde_evtlog_dump_to_buffer(sde_dbg_base.evtlog, evtlog_buf,
 			SDE_EVTLOG_BUF_MAX, true);
+	if (len < 0 || len > count) {
+		pr_err("len is more than user buffer size");
+		return 0;
+	}
+
 	if (copy_to_user(buff, evtlog_buf, len))
 		return -EFAULT;
 	*ppos += len;
@@ -2783,6 +2885,82 @@ static const struct file_operations sde_evtlog_fops = {
 	.open = sde_dbg_debugfs_open,
 	.read = sde_evtlog_dump_read,
 	.write = sde_evtlog_dump_write,
+};
+
+/**
+ * sde_dbg_ctrl_read - debugfs read handler for debug ctrl read
+ * @file: file handler
+ * @buff: user buffer content for debugfs
+ * @count: size of user buffer
+ * @ppos: position offset of user buffer
+ */
+static ssize_t sde_dbg_ctrl_read(struct file *file, char __user *buff,
+		size_t count, loff_t *ppos)
+{
+	ssize_t len = 0;
+	char buf[24] = {'\0'};
+
+	if (!buff || !ppos)
+		return -EINVAL;
+
+	if (*ppos)
+		return 0;	/* the end */
+
+	len = snprintf(buf, sizeof(buf), "0x%x\n", sde_dbg_base.debugfs_ctrl);
+	pr_debug("%s: ctrl:0x%x len:0x%zx\n",
+		__func__, sde_dbg_base.debugfs_ctrl, len);
+
+	if ((count < sizeof(buf)) || copy_to_user(buff, buf, len)) {
+		pr_err("error copying the buffer! count:0x%zx\n", count);
+		return -EFAULT;
+	}
+
+	*ppos += len;	/* increase offset */
+	return len;
+}
+
+/**
+ * sde_dbg_ctrl_write - debugfs read handler for debug ctrl write
+ * @file: file handler
+ * @user_buf: user buffer content from debugfs
+ * @count: size of user buffer
+ * @ppos: position offset of user buffer
+ */
+static ssize_t sde_dbg_ctrl_write(struct file *file,
+	const char __user *user_buf, size_t count, loff_t *ppos)
+{
+	u32 dbg_ctrl = 0;
+	char buf[24];
+
+	if (!file) {
+		pr_err("DbgDbg: %s: error no file --\n", __func__);
+		return -EINVAL;
+	}
+
+	if (count >= sizeof(buf))
+		return -EFAULT;
+
+
+	if (copy_from_user(buf, user_buf, count))
+		return -EFAULT;
+
+	buf[count] = 0; /* end of string */
+
+	if (kstrtouint(buf, 0, &dbg_ctrl)) {
+		pr_err("%s: error in the number of bytes\n", __func__);
+		return -EFAULT;
+	}
+
+	pr_debug("dbg_ctrl_read:0x%x\n", dbg_ctrl);
+	sde_dbg_base.debugfs_ctrl = dbg_ctrl;
+
+	return count;
+}
+
+static const struct file_operations sde_dbg_ctrl_fops = {
+	.open = sde_dbg_debugfs_open,
+	.read = sde_dbg_ctrl_read,
+	.write = sde_dbg_ctrl_write,
 };
 
 /*
@@ -3179,7 +3357,13 @@ int sde_dbg_debugfs_register(struct dentry *debugfs_root)
 	if (!debugfs_root)
 		return -EINVAL;
 
+	debugfs_create_file("dbg_ctrl", 0600, debugfs_root, NULL,
+			&sde_dbg_ctrl_fops);
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	debugfs_create_file("dump", 0644, debugfs_root, NULL,
+#else
 	debugfs_create_file("dump", 0600, debugfs_root, NULL,
+#endif
 			&sde_evtlog_fops);
 	debugfs_create_u32("enable", 0600, debugfs_root,
 			&(sde_dbg_base.evtlog->enable));
@@ -3243,6 +3427,8 @@ void sde_dbg_init_dbg_buses(u32 hwversion)
 		dbg->dbgbus_vbif_rt.entries = vbif_dbg_bus_msm8998;
 		dbg->dbgbus_vbif_rt.cmn.entries_size =
 				ARRAY_SIZE(vbif_dbg_bus_msm8998);
+		dbg->dbgbus_dsi.entries = NULL;
+		dbg->dbgbus_dsi.size = 0;
 	} else if (IS_SDM845_TARGET(hwversion) || IS_SDM670_TARGET(hwversion)) {
 		dbg->dbgbus_sde.entries = dbg_bus_sde_sdm845;
 		dbg->dbgbus_sde.cmn.entries_size =
@@ -3253,6 +3439,8 @@ void sde_dbg_init_dbg_buses(u32 hwversion)
 		dbg->dbgbus_vbif_rt.entries = vbif_dbg_bus_msm8998;
 		dbg->dbgbus_vbif_rt.cmn.entries_size =
 				ARRAY_SIZE(vbif_dbg_bus_msm8998);
+		dbg->dbgbus_dsi.entries = dsi_dbg_bus_sdm845;
+		dbg->dbgbus_dsi.size = ARRAY_SIZE(dsi_dbg_bus_sdm845);
 	} else {
 		pr_err("unsupported chipset id %X\n", hwversion);
 	}

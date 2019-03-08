@@ -46,9 +46,11 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_WIRELESS_TX_CMD,
 	POWER_SUPPLY_EXT_PROP_WIRELESS_TX_VAL,
 	POWER_SUPPLY_EXT_PROP_WIRELESS_TX_ID,
+	POWER_SUPPLY_EXT_PROP_WIRELESS_TX_CHG_ERR,
 	POWER_SUPPLY_EXT_PROP_AICL_CURRENT,
 	POWER_SUPPLY_EXT_PROP_CHECK_MULTI_CHARGE,
 	POWER_SUPPLY_EXT_PROP_CHIP_ID,
+	POWER_SUPPLY_EXT_PROP_ERROR_CAUSE,
 	POWER_SUPPLY_EXT_PROP_SYSOVLO,
 	POWER_SUPPLY_EXT_PROP_VBAT_OVP,
 	POWER_SUPPLY_EXT_PROP_USB_CONFIGURE,
@@ -61,6 +63,8 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_WC_CONTROL,
 	POWER_SUPPLY_EXT_PROP_CHGINSEL,
 	POWER_SUPPLY_EXT_PROP_MONITOR_WORK,
+	POWER_SUPPLY_EXT_PROP_MST_STATUS,
+	POWER_SUPPLY_EXT_PROP_JIG_GPIO,
 };
 
 enum sec_battery_usb_conf {
@@ -72,7 +76,12 @@ enum sec_battery_usb_conf {
 enum sec_battery_rp_curr {
 	RP_CURRENT_RP1 = 500,
 	RP_CURRENT_RP2 = 1500,
+#if defined(CONFIG_MACH_CROWNQLTE_DCM) || defined(CONFIG_MACH_CROWNQLTE_KDI)
+	RP_CURRENT_RP3 = 2700,
+#else
 	RP_CURRENT_RP3 = 3000,
+#endif
+	RP_CURRENT_LDU_RP3 = 2100,
 };
 
 enum power_supply_ext_health {
@@ -114,7 +123,8 @@ enum sec_battery_cable {
 	SEC_BATTERY_CABLE_TIMEOUT,	        /* 30 */
 	SEC_BATTERY_CABLE_SMART_OTG,            /* 31 */
 	SEC_BATTERY_CABLE_SMART_NOTG,           /* 32 */
-	SEC_BATTERY_CABLE_MAX,                	/* 33 */
+	SEC_BATTERY_CABLE_WIRELESS_TX,		/* 33 */
+	SEC_BATTERY_CABLE_MAX,			/* 34 */
 };
 
 enum sec_battery_voltage_mode {
@@ -229,6 +239,7 @@ enum sec_wireless_pad_mode {
 	SEC_WIRELESS_PAD_VEHICLE_HV,
 	SEC_WIRELESS_PAD_PREPARE_HV,
 	SEC_WIRELESS_PAD_A4WP,
+	SEC_WIRELESS_PAD_TX,
 };
 
 enum sec_wireless_pad_id {
@@ -319,6 +330,10 @@ enum sec_battery_measure_input {
 	SEC_BATTERY_IIN_UA,
 	SEC_BATTERY_VBYP,
 };
+
+#define SEC_BAT_ERROR_CAUSE_NONE		0x0000
+#define SEC_BAT_ERROR_CAUSE_FG_INIT_FAIL	0x0001
+#define SEC_BAT_ERROR_CAUSE_I2C_FAIL		0xFFFFFFFF
 
 struct sec_bat_adc_api {
 	bool (*init)(struct platform_device *);
@@ -895,6 +910,7 @@ struct sec_battery_platform_data {
 	int siop_wireless_charging_limit_current;
 	int siop_hv_wireless_input_limit_current;
 	int siop_hv_wireless_charging_limit_current;
+	int wireless_otg_input_current;
 	int wc_hero_stand_cc_cv;
 	int wc_hero_stand_cv_current;
 	int wc_hero_stand_hv_cv_current;
@@ -919,11 +935,6 @@ struct sec_battery_platform_data {
 	unsigned int cisd_cap_limit;
 	unsigned int max_voltage_thr;
 	unsigned int cisd_alg_index;
-#if defined(CONFIG_QH_ALGORITHM)
-	int cisd_qh_current_high_thr;
-	int cisd_qh_current_low_thr;
-	int cisd_qh_vfsoc_thr;
-#endif
 #endif
 
 	/* ADC setting */
@@ -1085,7 +1096,8 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 	cable_type == SEC_BATTERY_CABLE_WIRELESS_PACK_TA || \
 	cable_type == SEC_BATTERY_CABLE_WIRELESS_STAND || \
 	cable_type == SEC_BATTERY_CABLE_WIRELESS_VEHICLE || \
-	cable_type == SEC_BATTERY_CABLE_PREPARE_WIRELESS_HV)
+	cable_type == SEC_BATTERY_CABLE_PREPARE_WIRELESS_HV || \
+	cable_type == SEC_BATTERY_CABLE_WIRELESS_TX)
 
 #define is_wireless_type(cable_type) \
 	(is_hv_wireless_type(cable_type) || is_nv_wireless_type(cable_type))
@@ -1101,7 +1113,8 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 	cable_type != SEC_BATTERY_CABLE_PREPARE_WIRELESS_HV && \
 	cable_type != SEC_BATTERY_CABLE_WIRELESS_HV_STAND && \
 	cable_type != SEC_BATTERY_CABLE_WIRELESS_VEHICLE && \
-	cable_type != SEC_BATTERY_CABLE_WIRELESS_HV_VEHICLE)
+	cable_type != SEC_BATTERY_CABLE_WIRELESS_HV_VEHICLE && \
+	cable_type != SEC_BATTERY_CABLE_WIRELESS_TX)
 
 #define is_wired_type(cable_type) \
 	(is_not_wireless_type(cable_type) && (cable_type != SEC_BATTERY_CABLE_NONE))
@@ -1129,4 +1142,11 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 #define is_hv_wire_type(cable_type) ( \
 	is_hv_afc_wire_type(cable_type) || is_hv_qc_wire_type(cable_type))
 
+#define is_nocharge_type(cable_type) ( \
+	cable_type == SEC_BATTERY_CABLE_NONE || \
+	cable_type == SEC_BATTERY_CABLE_OTG || \
+	cable_type == SEC_BATTERY_CABLE_POWER_SHARING)
+
+#define is_slate_mode(battery) ((battery->current_event & SEC_BAT_CURRENT_EVENT_SLATE) \
+		== SEC_BAT_CURRENT_EVENT_SLATE)
 #endif /* __SEC_CHARGING_COMMON_H */

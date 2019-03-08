@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,7 +26,8 @@ int pfk_ice_init(void);
 int pfk_ice_deinit(void);
 
 int qti_pfk_ice_set_key(uint32_t index, uint8_t *key, uint8_t *salt,
-			char *storage_type);
+			char *storage_type, unsigned int data_unit,
+			int ice_rev);
 int qti_pfk_ice_invalidate_key(uint32_t index, char *storage_type);
 
 

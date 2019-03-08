@@ -52,7 +52,6 @@ static struct audio_locks the_locks;
 static const DECLARE_TLV_DB_LINEAR(msm_pcm_vol_gain, 0,
 			PCM_MASTER_VOL_MAX_STEPS);
 
-
 struct snd_msm {
 	struct snd_card *card;
 	struct snd_pcm *pcm;
@@ -503,7 +502,7 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 		if (ret < 0)
 			pr_debug("%s : Send cal failed : %d", __func__, ret);
 
-		pr_err("%s: session ID %d\n",
+		pr_debug("%s: session ID %d\n",
 				__func__, prtd->audio_client->session);
 		prtd->session_id = prtd->audio_client->session;
 		event.event_func = msm_pcm_route_event_handler;
@@ -639,6 +638,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	if (!prtd->audio_client) {
 		pr_info("%s: Could not allocate memory\n", __func__);
 		kfree(prtd);
+		prtd = NULL;
 		return -ENOMEM;
 	}
 
@@ -705,7 +705,10 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	prtd->set_channel_map = false;
 	prtd->reset_event = false;
 	runtime->private_data = prtd;
-	msm_adsp_init_mixer_ctl_pp_event_queue(soc_prtd);
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		msm_adsp_init_mixer_ctl_pp_event_queue(soc_prtd);
+
 	/* Vote to update the Rx thread priority to RT Thread for playback */
 	if ((substream->stream == SNDRV_PCM_STREAM_PLAYBACK) &&
 	    (pdata->perf_mode == LOW_LATENCY_PCM_MODE))
@@ -961,7 +964,7 @@ static int msm_pcm_capture_close(struct snd_pcm_substream *substream)
 	struct msm_audio *prtd = runtime->private_data;
 	int dir = OUT;
 
-	pr_err("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 	if (prtd->audio_client) {
 		q6asm_cmd(prtd->audio_client, CMD_CLOSE);
 		q6asm_audio_client_buf_free_contiguous(dir,
@@ -1071,7 +1074,7 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
 	if (buf == NULL || buf[0].data == NULL)
 		return -ENOMEM;
 
-	pr_err("%s:buf = %pK dir =%d \n", __func__, buf, dir);
+	pr_debug("%s:buf = %pK\n", __func__, buf);
 	dma_buf->dev.type = SNDRV_DMA_TYPE_DEV;
 	dma_buf->dev.dev = substream->pcm->card->dev;
 	dma_buf->private_data = NULL;
@@ -1129,6 +1132,12 @@ static int msm_pcm_adsp_stream_cmd_put(struct snd_kcontrol *kcontrol,
 	}
 
 	prtd = substream->runtime->private_data;
+	if (prtd == NULL) {
+		pr_err("%s prtd is null.\n", __func__);
+		ret = -EINVAL;
+		goto done;
+	}
+
 	if (prtd->audio_client == NULL) {
 		pr_err("%s prtd is null.\n", __func__);
 		ret = -EINVAL;
@@ -1153,8 +1162,8 @@ static int msm_pcm_adsp_stream_cmd_put(struct snd_kcontrol *kcontrol,
 		goto done;
 	}
 
-	if ((sizeof(struct msm_adsp_event_data) + event_data->payload_len) >=
-					sizeof(ucontrol->value.bytes.data)) {
+	if (event_data->payload_len > sizeof(ucontrol->value.bytes.data)
+			- sizeof(struct msm_adsp_event_data)) {
 		pr_err("%s param length=%d  exceeds limit",
 			__func__, event_data->payload_len);
 		ret = -EINVAL;
@@ -1896,6 +1905,7 @@ static struct platform_driver msm_pcm_driver = {
 		.name = "msm-pcm-dsp",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_pcm_dt_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = msm_pcm_probe,
 	.remove = msm_pcm_remove,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -50,6 +50,7 @@
 		.intr_cfg_reg = REG_BASE + 0x8 + REG_SIZE * id,		\
 		.intr_status_reg = REG_BASE + 0xc + REG_SIZE * id,	\
 		.intr_target_reg = REG_BASE + 0x8 + REG_SIZE * id,	\
+		.dir_conn_reg = REG_BASE + 0xab000,\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
 		.drv_bit = 6,			\
@@ -64,6 +65,7 @@
 		.intr_polarity_bit = 1,		\
 		.intr_detection_bit = 2,	\
 		.intr_detection_width = 2,	\
+		.dir_conn_en_bit = 8,		\
 	}
 
 #define SDC_QDSD_PINGROUP(pg_name, ctl, pull, drv)	\
@@ -1105,6 +1107,108 @@ static const struct msm_pingroup sdxpoorwills_groups[] = {
 	[106] = SDC_QDSD_PINGROUP(sdc2_data, 0x0, 9, 0),
 };
 
+static struct msm_gpio_mux_input sdxpoorwills_mux_in[] = {
+	{0, 1},
+	{1, 2},
+	{2, 5},
+	{3, 6},
+	{4, 9},
+	{5, 10},
+	{6, 11},
+	{7, 12},
+	{8, 13},
+	{9, 14},
+	{10, 15},
+	{11, 16},
+	{12, 17},
+	{13, 18},
+	{14, 19},
+	{15, 21},
+	{16, 22},
+	{17, 24},
+	{18, 25},
+	{19, 35},
+	{20, 42, 1},
+	{21, 43},
+	{22, 45},
+	{23, 46},
+	{24, 48},
+	{25, 50},
+	{26, 52},
+	{27, 53},
+	{28, 54},
+	{29, 55},
+	{30, 56},
+	{31, 57},
+	{32, 60},
+	{33, 61},
+	{34, 64},
+	{35, 65},
+	{36, 68},
+	{37, 71},
+	{38, 75},
+	{39, 76},
+	{40, 78},
+	{41, 79},
+	{42, 80},
+	{43, 82},
+	{44, 83},
+	{45, 84, 1},
+	{46, 86},
+	{47, 87},
+	{48, 88},
+	{49, 89},
+	{50, 90},
+	{51, 93},
+	{52, 94},
+	{53, 95},
+	{54, 97},
+	{55, 98},
+};
+
+static struct msm_pdc_mux_output sdxpoorwills_mux_out[] = {
+	{0, 167},
+	{0, 168},
+	{0, 169},
+	{0, 170},
+	{0, 171},
+	{0, 172},
+	{0, 173},
+	{0, 174},
+	{0, 175},
+	{0, 176},
+	{0, 177},
+	{0, 178},
+	{0, 179},
+	{0, 180},
+	{0, 181},
+	{0, 182},
+	{0, 183},
+	{0, 184},
+	{0, 185},
+	{0, 186},
+	{0, 187},
+	{0, 188},
+	{0, 189},
+	{0, 190},
+	{0, 191},
+	{0, 192},
+	{0, 193},
+	{0, 194},
+	{0, 195},
+};
+
+static struct msm_dir_conn sdxpoorwills_dir_conn[] = {
+	{0, 220},
+	{0, 219},
+	{0, 218},
+	{0, 217},
+	{0, 216},
+	{0, 215},
+	{0, 214},
+	{0, 213},
+};
+
 static const struct msm_pinctrl_soc_data sdxpoorwills_pinctrl = {
 	.pins = sdxpoorwills_pins,
 	.npins = ARRAY_SIZE(sdxpoorwills_pins),
@@ -1112,7 +1216,15 @@ static const struct msm_pinctrl_soc_data sdxpoorwills_pinctrl = {
 	.nfunctions = ARRAY_SIZE(sdxpoorwills_functions),
 	.groups = sdxpoorwills_groups,
 	.ngroups = ARRAY_SIZE(sdxpoorwills_groups),
+	.gpio_mux_in = sdxpoorwills_mux_in,
+	.n_gpio_mux_in = ARRAY_SIZE(sdxpoorwills_mux_in),
+	.pdc_mux_out = sdxpoorwills_mux_out,
+	.n_pdc_mux_out = ARRAY_SIZE(sdxpoorwills_mux_out),
+	.n_pdc_mux_offset = 20,
 	.ngpios = 100,
+	.dir_conn_irq_base = 220,
+	.dir_conn = sdxpoorwills_dir_conn,
+	.n_dir_conns = ARRAY_SIZE(sdxpoorwills_dir_conn),
 };
 
 static int sdxpoorwills_pinctrl_probe(struct platform_device *pdev)

@@ -1,7 +1,7 @@
 /*
  * QTI Crypto Engine driver.
  *
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -5929,8 +5929,7 @@ static int setup_dummy_req(struct qce_device *pce_dev)
 	int len = DUMMY_REQ_DATA_LEN;
 
 	memcpy(pce_dev->dummyreq_in_buf, input, len);
-	sg_set_buf(&pce_dev->dummyreq.sg, pce_dev->dummyreq_in_buf, len);
-	sg_mark_end(&pce_dev->dummyreq.sg);
+	sg_init_one(&pce_dev->dummyreq.sg, pce_dev->dummyreq_in_buf, len);
 
 	pce_dev->dummyreq.sreq.alg = QCE_HASH_SHA1;
 	pce_dev->dummyreq.sreq.qce_cb = qce_dummy_complete;
@@ -6119,13 +6118,15 @@ EXPORT_SYMBOL(qce_open);
 int qce_close(void *handle)
 {
 	struct qce_device *pce_dev = (struct qce_device *) handle;
+	int ret = -1;
 
 	if (handle == NULL)
 		return -ENODEV;
 
 	mutex_lock(&qce_iomap_mutex);
-	qce_enable_clk(pce_dev);
-	qce_sps_exit(pce_dev);
+	ret = qce_enable_clk(pce_dev);
+	if (!ret)
+		qce_sps_exit(pce_dev);
 
 	if (pce_dev->iobase)
 		iounmap(pce_dev->iobase);
@@ -6138,7 +6139,8 @@ int qce_close(void *handle)
 	if (pce_dev->enable_s1_smmu)
 		qce_iommu_release_iomapping(pce_dev);
 
-	qce_disable_clk(pce_dev);
+	if (!ret)
+		qce_disable_clk(pce_dev);
 	__qce_deinit_clk(pce_dev);
 	mutex_unlock(&qce_iomap_mutex);
 	kfree(handle);

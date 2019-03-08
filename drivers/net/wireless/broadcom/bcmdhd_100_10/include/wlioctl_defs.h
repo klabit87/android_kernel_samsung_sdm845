@@ -27,7 +27,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wlioctl_defs.h 738254 2017-12-27 22:33:17Z $
+ * $Id: wlioctl_defs.h 754720 2018-03-28 23:39:42Z $
  */
 
 #ifndef wlioctl_defs_h
@@ -513,36 +513,42 @@
 #define MFP_SHA256		0x0800 /* a special configuration for STA for WIFI test tool */
 
 /* WPA authentication mode bitvec */
-#define WPA_AUTH_DISABLED	0x0000	/* Legacy (i.e., non-WPA) */
-#define WPA_AUTH_NONE		0x0001	/* none (IBSS) */
-#define WPA_AUTH_UNSPECIFIED	0x0002	/* over 802.1x */
-#define WPA_AUTH_PSK		0x0004	/* Pre-shared key */
+#define WPA_AUTH_DISABLED		0x0000	/* Legacy (i.e., non-WPA) */
+#define WPA_AUTH_NONE			0x0001	/* none (IBSS) */
+#define WPA_AUTH_UNSPECIFIED		0x0002	/* over 802.1x */
+#define WPA_AUTH_PSK			0x0004	/* Pre-shared key */
 #if defined(BCMCCX) || defined(BCMEXTCCX)
-#define WPA_AUTH_CCKM		0x0008	/* CCKM */
-#define WPA2_AUTH_CCKM		0x0010	/* CCKM2 */
+#define WPA_AUTH_CCKM			0x0008	/* CCKM */
+#define WPA2_AUTH_CCKM			0x0010	/* CCKM2 */
 #endif	/* BCMCCX || BCMEXTCCX */
 /* #define WPA_AUTH_8021X 0x0020 */	/* 802.1x, reserved */
-#define WPA2_AUTH_UNSPECIFIED	0x0040	/* over 802.1x */
-#define WPA2_AUTH_PSK		0x0080	/* Pre-shared key */
-#define BRCM_AUTH_PSK           0x0100  /* BRCM specific PSK */
-#define BRCM_AUTH_DPT		0x0200	/* DPT PSK without group keys */
+#define WPA2_AUTH_UNSPECIFIED		0x0040	/* over 802.1x */
+#define WPA2_AUTH_PSK			0x0080	/* Pre-shared key */
+#define BRCM_AUTH_PSK			0x0100  /* BRCM specific PSK */
+#define BRCM_AUTH_DPT			0x0200	/* DPT PSK without group keys */
 #if defined(BCMWAPI_WAI) || defined(BCMWAPI_WPI)
-#define WPA_AUTH_WAPI           0x0400
-#define WAPI_AUTH_NONE		WPA_AUTH_NONE	/* none (IBSS) */
-#define WAPI_AUTH_UNSPECIFIED	0x0400	/* over AS */
-#define WAPI_AUTH_PSK		0x0800	/* Pre-shared key */
+#define WPA_AUTH_WAPI			0x0400
+#define WAPI_AUTH_NONE			WPA_AUTH_NONE	/* none (IBSS) */
+#define WAPI_AUTH_UNSPECIFIED		0x0400	/* over AS */
+#define WAPI_AUTH_PSK			0x0800	/* Pre-shared key */
 #endif /* BCMWAPI_WAI || BCMWAPI_WPI */
-#define WPA2_AUTH_1X_SHA256	0x1000  /* 1X with SHA256 key derivation */
-#define WPA2_AUTH_TPK		0x2000	/* TDLS Peer Key */
-#define WPA2_AUTH_FT		0x4000	/* Fast Transition. */
-#define WPA2_AUTH_PSK_SHA256	0x8000	/* PSK with SHA256 key derivation */
-#define WPA2_AUTH_FILS_SHA256	0x10000 /* FILS with SHA256 key derivation */
-#define WPA2_AUTH_FILS_SHA384	0x20000 /* FILS with SHA384 key derivation */
+#define WPA2_AUTH_1X_SHA256		0x1000  /* 1X with SHA256 key derivation */
+#define WPA2_AUTH_TPK			0x2000	/* TDLS Peer Key */
+#define WPA2_AUTH_FT			0x4000	/* Fast Transition. */
+#define WPA2_AUTH_PSK_SHA256		0x8000	/* PSK with SHA256 key derivation */
+#define WPA2_AUTH_FILS_SHA256		0x10000 /* FILS with SHA256 key derivation */
+#define WPA2_AUTH_FILS_SHA384		0x20000 /* FILS with SHA384 key derivation */
 #define WPA2_AUTH_IS_FILS(auth) ((auth) & (WPA2_AUTH_FILS_SHA256 | WPA2_AUTH_FILS_SHA384))
+#define WPA3_AUTH_SAE_PSK		0x40000 /* SAE with 4-way handshake */
+#define WPA3_AUTH_SAE_FBT		0x80000 /* SAE with FT */
+#define WPA3_AUTH_OWE			0x100000 /* OWE */
+#define WPA3_AUTH_1X_SUITE_B_SHA256	0x200000 /* Suite B SHA256 */
+#define WPA3_AUTH_1X_SUITE_B_SHA384	0x400000 /* Suite B-192 SHA384 */
+#define WPA3_AUTH_PSK_SHA384		0x800000 /* PSK with SHA384 key derivation */
 
 /* WPA2_AUTH_SHA256 not used anymore. Just kept here to avoid build issue in DINGO */
-#define WPA2_AUTH_SHA256	0x8000
-#define WPA_AUTH_PFN_ANY	0xffffffff	/* for PFN, match only ssid */
+#define WPA2_AUTH_SHA256		0x8000
+#define WPA_AUTH_PFN_ANY		0xffffffff	/* for PFN, match only ssid */
 
 /* pmkid */
 #define	MAXPMKID		16
@@ -954,9 +960,9 @@
 #define WL_AUTH_OPEN_SYSTEM		0	/* d11 open authentication */
 #define WL_AUTH_SHARED_KEY		1	/* d11 shared authentication */
 #define WL_AUTH_OPEN_SHARED		2	/* try open, then shared if open failed w/rc 13 */
-#define WL_AUTH_FILS_SHARED		5	/* d11 fils shared key authentication */
-#define WL_AUTH_FILS_SHARED_PFS		6	/* d11 fils shared key w/ pfs authentication */
-#define WL_AUTH_FILS_PUBLIC		7	/* d11 fils public key authentication */
+#define WL_AUTH_FILS_SHARED		4	/* d11 fils shared key authentication */
+#define WL_AUTH_FILS_SHARED_PFS		5	/* d11 fils shared key w/ pfs authentication */
+#define WL_AUTH_FILS_PUBLIC		6	/* d11 fils public key authentication */
 
 /* a large TX Power as an init value to factor out of MIN() calculations,
  * keep low enough to fit in an int8, units are .25 dBm
@@ -993,6 +999,7 @@
 #define	WLC_BAND_5G		1	/* 5 Ghz */
 #define	WLC_BAND_2G		2	/* 2.4 Ghz */
 #define	WLC_BAND_ALL		3	/* all bands */
+#define	WLC_BAND_6G		4	/* 6 Ghz */
 #define WLC_BAND_INVALID	-1	/* Invalid band */
 
 /* band range returned by band_range iovar */
@@ -1329,7 +1336,7 @@
 #define WL_MBO_VAL		0x04000000
 /* re-using WL_SRSCAN_VAL */
 #define WL_RANDMAC_VAL		0x02000000
-#define WL_PWRSEL_VAL		0x10000000
+#define WL_UNUSED_VAL		0x10000000	/* Was a duplicate for WL_LPC_VAL. Removed */
 #define WL_NET_DETECT_VAL	0x20000000
 #define WL_OCE_VAL  0x20000000 /* reuse */
 #define WL_PCIE_VAL		0x40000000
@@ -1343,6 +1350,7 @@
  * wl_msg_level3 in wl_dbg.h
  */
 #define WL_ASSOC_AP_VAL		0x00000001
+#define WL_FILS_VAL		0x00000002
 
 /* max # of leds supported by GPIO (gpio pin# == led index#) */
 #define	WL_LED_NUMGPIO		32	/* gpio 0-31 */
@@ -1419,22 +1427,23 @@
 #define SPECT_MNGMT_LOOSE_11H_D		4		/* operation defined above */
 
 /* bit position in per_chan_info; these depend on current country/regulatory domain */
-#define WL_CHAN_VALID_HW		(1 << 0)	/* valid with current HW */
-#define WL_CHAN_VALID_SW		(1 << 1)	/* valid with current country setting */
-#define WL_CHAN_BAND_5G			(1 << 2)	/* 5GHz-band channel */
-#define WL_CHAN_RADAR			(1 << 3)	/* radar sensitive channel */
-#define WL_CHAN_INACTIVE		(1 << 4)	/* temporarily inactive due to radar */
-#define WL_CHAN_PASSIVE			(1 << 5)	/* channel is in passive mode */
-#define WL_CHAN_RESTRICTED		(1 << 6)	/* restricted use channel */
-#define WL_CHAN_RADAR_EU_WEATHER	(1 << 7)	/* EU Radar weather channel. Implies an
-							 * EU Radar channel.
-							 */
-#define WL_CHAN_CLM_RESTRICTED		(1 << 8)	/* channel restricted in CLM
-							 * (i.e. by default)
-							 */
-
-/* following definition is for precommit; will be removed once wl, acsd switch to the new def */
-#define WL_CHAN_WEATHER_RADAR		WL_CHAN_RADAR_EU_WEATHER
+#define WL_CHAN_VALID_HW           (1u << 0)     /* valid with current HW */
+#define WL_CHAN_VALID_SW           (1u << 1)     /* valid with current country setting */
+#define WL_CHAN_BAND_5G            (1u << 2)     /* 5GHz-band channel */
+#define WL_CHAN_RADAR              (1u << 3)     /* radar sensitive channel */
+#define WL_CHAN_INACTIVE           (1u << 4)     /* temporarily inactive due to radar */
+#define WL_CHAN_PASSIVE            (1u << 5)     /* channel is in passive mode */
+#define WL_CHAN_RESTRICTED         (1u << 6)     /* restricted use channel */
+#define WL_CHAN_RADAR_EU_WEATHER   (1u << 7)     /* EU Radar weather channel.
+						  * Implies an EU Radar channel.
+						  */
+#define WL_CHAN_CLM_RESTRICTED     (1u << 8)     /* channel restricted in CLM (i.e. by default) */
+#define WL_CHAN_BAND_6G            (1u << 9)     /* 6GHz-band channel */
+#define WL_CHAN_OOS_SHIFT          24u           /* shift for OOS field */
+#define WL_CHAN_OOS_MASK           0xFF000000u   /* field specifying minutes remaining for this
+						  * channel's out-of-service period due to radar
+						  * detection
+						  */
 
 /* BTC mode used by "btc_mode" iovar */
 #define	WL_BTC_DISABLE		0	/* disable BT coexistence */
@@ -2294,6 +2303,8 @@
 #define WL_PWRSTATS_TYPE_TSYNC		11 /**< struct wl_pwr_tsync_stats */
 #define	WL_PWRSTATS_TYPE_OPS_STATS	12 /* struct wl_pwr_ops_stats_t */
 #define WL_PWRSTATS_TYPE_BCNTRIM_STATS	13 /* struct wl_pwr_bcntrim_stats_t */
+#define WL_PWRSTATS_TYPE_SLICE_INDEX_BAND_INFO	14 /* wl_pwr_slice_index_band_t */
+#define WL_PWRSTATS_TYPE_PSBW_STATS	15 /* struct wl_pwr_psbw_stats_t */
 
 /* IOV AWD DATA */
 #define AWD_DATA_JOIN_INFO	0

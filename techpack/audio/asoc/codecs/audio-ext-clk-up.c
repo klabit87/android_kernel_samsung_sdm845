@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -80,8 +80,8 @@ static struct afe_clk_set lpass_default = {
 
 static struct afe_clk_set lpass_mclk = {
 	Q6AFE_LPASS_CLK_CONFIG_API_VERSION,
-	Q6AFE_LPASS_CLK_ID_MCLK_1,
-	Q6AFE_LPASS_OSR_CLK_11_P2896_MHZ,
+	Q6AFE_LPASS_CLK_ID_MCLK_3,
+	Q6AFE_LPASS_OSR_CLK_9_P600_MHZ,
 	Q6AFE_LPASS_CLK_ATTRIBUTE_COUPLE_NO,
 	Q6AFE_LPASS_CLK_ROOT_DEFAULT,
 	0,
@@ -607,6 +607,7 @@ static struct platform_driver audio_ref_clk_driver = {
 		.name = "audio-ref-clk",
 		.owner = THIS_MODULE,
 		.of_match_table = audio_ref_clk_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = audio_ref_clk_probe,
 	.remove = audio_ref_clk_remove,

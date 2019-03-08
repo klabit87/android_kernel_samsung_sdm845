@@ -115,6 +115,9 @@
 #include "udp_impl.h"
 #include <net/sock_reuseport.h>
 #include <net/addrconf.h>
+// KNOX NPA - START
+#include <net/ncm.h>
+// KNOX NPA - END
 
 struct udp_table udp_table __read_mostly;
 EXPORT_SYMBOL(udp_table);
@@ -987,8 +990,10 @@ int udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	sock_tx_timestamp(sk, ipc.sockc.tsflags, &ipc.tx_flags);
 
 	if (ipc.opt && ipc.opt->opt.srr) {
-		if (!daddr)
-			return -EINVAL;
+		if (!daddr) {
+			err = -EINVAL;
+			goto out_free;
+		}
 		faddr = ipc.opt->opt.faddr;
 		connected = 0;
 	}
@@ -1096,6 +1101,7 @@ do_append_data:
 
 out:
 	ip_rt_put(rt);
+out_free:
 	if (free)
 		kfree(ipc.opt);
 	if (!err)
@@ -1723,6 +1729,11 @@ static inline int udp4_csum_init(struct sk_buff *skb, struct udphdr *uh,
 		err = udplite_checksum_init(skb, uh);
 		if (err)
 			return err;
+
+		if (UDP_SKB_CB(skb)->partial_cov) {
+			skb->csum = inet_compute_pseudo(skb, proto);
+			return 0;
+		}
 	}
 
 	/* Note, we are only interested in != 0 or == 0, thus the
@@ -1774,9 +1785,41 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	if (sk) {
 		struct dst_entry *dst = skb_dst(skb);
 		int ret;
+		// KNOX NPA - START
+		struct nf_conn *ct = NULL;
+		enum ip_conntrack_info ctinfo;
+		struct nf_conntrack_tuple *tuple = NULL;
+		// KNOX NPA - END
 
 		if (unlikely(sk->sk_rx_dst != dst))
 			udp_sk_rx_dst_set(sk, dst);
+
+		// KNOX NPA - START
+		/* function to handle open flows with incoming udp packets */
+		if (check_ncm_flag()) {
+			if ( (skb) && (skb->dev) && (sk) && (sk->sk_protocol == IPPROTO_UDP) ) {
+				ct = nf_ct_get(skb, &ctinfo);
+				if ( (ct) && (!atomic_read(&ct->startFlow)) ) {
+					atomic_set(&ct->startFlow, 1);
+					ct->knox_uid = sk->knox_uid;
+					ct->knox_pid = sk->knox_pid;
+					memcpy(ct->process_name,sk->process_name,sizeof(ct->process_name)-1);
+					ct->knox_puid = sk->knox_puid;
+					ct->knox_ppid = sk->knox_ppid;
+					memcpy(ct->parent_process_name,sk->parent_process_name,sizeof(ct->parent_process_name)-1);
+					memcpy(ct->domain_name,sk->domain_name,sizeof(ct->domain_name)-1);
+					memcpy(ct->interface_name,skb->dev->name,sizeof(ct->interface_name)-1);
+					tuple = &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
+					if ( (tuple != NULL) && (ntohs(tuple->dst.u.udp.port) == DNS_PORT_NAP) && (ct->knox_uid == INIT_UID_NAP) && (sk->knox_dns_uid > INIT_UID_NAP) ) {
+						ct->knox_puid = sk->knox_dns_uid;
+						ct->knox_ppid = sk->knox_dns_pid;
+						memcpy(ct->parent_process_name,sk->dns_process_name,sizeof(ct->parent_process_name)-1);
+					}
+					knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_OPEN, 3);
+				}
+			}
+		}
+		// KNOX NPA - END
 
 		ret = udp_queue_rcv_skb(sk, skb);
 		sock_put(sk);
@@ -1795,10 +1838,42 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	sk = __udp4_lib_lookup_skb(skb, uh->source, uh->dest, udptable);
 	if (sk) {
 		int ret;
+		// KNOX NPA - START
+		struct nf_conn *ct = NULL;
+		enum ip_conntrack_info ctinfo;
+		struct nf_conntrack_tuple *tuple = NULL;
+		// KNOX NPA - END
 
 		if (inet_get_convert_csum(sk) && uh->check && !IS_UDPLITE(sk))
 			skb_checksum_try_convert(skb, IPPROTO_UDP, uh->check,
 						 inet_compute_pseudo);
+
+		// KNOX NPA - START
+		/* function to handle open flows with incoming udp packets */
+		if (check_ncm_flag()) {
+			if ( (skb) && (skb->dev) && (sk) && (sk->sk_protocol == IPPROTO_UDP) ) {
+				ct = nf_ct_get(skb, &ctinfo);
+				if ( (ct) && (!atomic_read(&ct->startFlow)) ) {
+					atomic_set(&ct->startFlow, 1);
+					ct->knox_uid = sk->knox_uid;
+					ct->knox_pid = sk->knox_pid;
+					memcpy(ct->process_name,sk->process_name,sizeof(ct->process_name)-1);
+					ct->knox_puid = sk->knox_puid;
+					ct->knox_ppid = sk->knox_ppid;
+					memcpy(ct->parent_process_name,sk->parent_process_name,sizeof(ct->parent_process_name)-1);
+					memcpy(ct->domain_name,sk->domain_name,sizeof(ct->domain_name)-1);
+					memcpy(ct->interface_name,skb->dev->name,sizeof(ct->interface_name)-1);
+					tuple = &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
+					if ( (tuple != NULL) && (ntohs(tuple->dst.u.udp.port) == DNS_PORT_NAP) && (ct->knox_uid == INIT_UID_NAP) && (sk->knox_dns_uid > INIT_UID_NAP) ) {
+						ct->knox_puid = sk->knox_dns_uid;
+						ct->knox_ppid = sk->knox_dns_pid;
+						memcpy(ct->parent_process_name,sk->dns_process_name,sizeof(ct->parent_process_name)-1);
+					}
+					knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_OPEN, 4);
+				}
+			}
+		}
+		// KNOX NPA - END
 
 		ret = udp_queue_rcv_skb(sk, skb);
 

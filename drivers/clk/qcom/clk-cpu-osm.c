@@ -248,6 +248,9 @@ static int clk_pwrcl_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	index = clk_osm_search_table(parent->osm_table,
 					parent->num_entries, rate);
+	if (index < 0)
+		return -EINVAL;
+
 	/*
 	 * Poll the CURRENT_FREQUENCY value of the PSTATE_STATUS register to check
 	 * if the L_VAL has been updated.
@@ -381,8 +384,8 @@ static int l3_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 	clk_osm_mb(cpuclk);
 
 	/*
-	 * Poll the CURRENT_FREQUENCY value of the PSTATE_STATUS register to check
-	 * if the L_VAL has been updated.
+	 * Poll the CURRENT_FREQUENCY value of the PSTATE_STATUS register to
+	 * check if the L_VAL has been updated.
 	 */
 	if (cpuclk->rate >= cpuclk->mx_turbo_freq &&
 					rate < cpuclk->mx_turbo_freq) {
@@ -473,7 +476,7 @@ static struct clk_init_data osm_clks_init[] = {
 		.name = "l3_clk",
 		.parent_names = (const char *[]){ "bi_tcxo_ao" },
 		.num_parents = 1,
-		.flags = CLK_NO_CHILD_CHANGE_RATE,
+		.flags = CLK_CHILD_NO_RATE_PROP,
 		.ops = &clk_ops_l3_osm,
 		.vdd_class = &vdd_l3_mx_ao,
 	},
@@ -501,6 +504,7 @@ static struct clk_osm l3_clk = {
 static DEFINE_CLK_VOTER(l3_cluster0_vote_clk, l3_clk, 0);
 static DEFINE_CLK_VOTER(l3_cluster1_vote_clk, l3_clk, 0);
 static DEFINE_CLK_VOTER(l3_misc_vote_clk, l3_clk, 0);
+static DEFINE_CLK_VOTER(l3_gpu_vote_clk, l3_clk, 0);
 
 static struct clk_osm pwrcl_clk = {
 	.cluster_num = 1,
@@ -650,6 +654,7 @@ static struct clk_hw *osm_qcom_clk_hws[] = {
 	[L3_CLUSTER0_VOTE_CLK] = &l3_cluster0_vote_clk.hw,
 	[L3_CLUSTER1_VOTE_CLK] = &l3_cluster1_vote_clk.hw,
 	[L3_MISC_VOTE_CLK] = &l3_misc_vote_clk.hw,
+	[L3_GPU_VOTE_CLK] = &l3_gpu_vote_clk.hw,
 	[PWRCL_CLK] = &pwrcl_clk.hw,
 	[CPU0_PWRCL_CLK] = &cpu0_pwrcl_clk.hw,
 	[CPU1_PWRCL_CLK] = &cpu1_pwrcl_clk.hw,
@@ -1417,6 +1422,8 @@ static int clk_cpu_osm_driver_probe(struct platform_device *pdev)
 			"clk: Failed to enable cluster1 clock for L3\n");
 	WARN(clk_prepare_enable(l3_misc_vote_clk.hw.clk),
 			"clk: Failed to enable misc clock for L3\n");
+	WARN(clk_prepare_enable(l3_gpu_vote_clk.hw.clk),
+			"clk: Failed to enable iocoherent bwmon clock for L3\n");
 
 	/*
 	 * Call clk_prepare_enable for the silver clock explicitly in order to

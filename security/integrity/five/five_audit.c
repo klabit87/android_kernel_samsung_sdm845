@@ -46,6 +46,7 @@ void five_audit_info(struct task_struct *task, struct file *file,
 {
 	five_audit_msg(task, file, op, prev, tint, cause, result);
 }
+
 void five_audit_err(struct task_struct *task, struct file *file,
 		const char *op, enum task_integrity_value prev,
 		enum task_integrity_value tint, const char *cause, int result)
@@ -66,6 +67,7 @@ static void five_audit_msg(struct task_struct *task, struct file *file,
 	unsigned long ino = 0;
 	char *dev = "";
 	struct task_struct *tsk = task ? task : current;
+	struct integrity_iint_cache *iint = NULL;
 
 	if (file) {
 		inode = file_inode(file);
@@ -80,8 +82,7 @@ static void five_audit_msg(struct task_struct *task, struct file *file,
 	}
 
 	audit_log_format(ab, " pid=%d", task_pid_nr(tsk));
-	audit_log_format(ab, " gpid=%d",
-			task_pid_nr(tsk->group_leader));
+	audit_log_format(ab, " tgid=%d", task_tgid_nr(tsk));
 	audit_log_task_context(ab);
 	audit_log_format(ab, " op=");
 	audit_log_string(ab, op);
@@ -102,18 +103,38 @@ static void five_audit_msg(struct task_struct *task, struct file *file,
 		audit_log_format(ab, " ino=%lu", inode->i_ino);
 		ino = inode->i_ino;
 		dev = inode->i_sb->s_id;
+		iint = integrity_inode_get(inode);
+		if (iint)
+			audit_log_format(ab, " five_status=%d ",
+							iint->five_status);
 	}
 	audit_log_format(ab, " res=%d", result);
 	audit_log_end(ab);
 
-	pr_info("FIVE: pid=%d gpid=%d op='%s' cint=0x%x pint=0x%x cause=%s"
-			"comm='%s' name='%s' dev='%s' ino=%lu res=%d",
-		task_pid_nr(tsk), task_pid_nr(tsk->group_leader), op,
-		tint, prev, cause, get_task_comm(comm, tsk),
-		name, dev, ino, result);
 exit:
 	if (pathbuf)
 		__putname(pathbuf);
+}
+
+void five_audit_tee_msg(const char *func, const char *cause, int rc,
+							uint32_t origin)
+{
+	struct audit_buffer *ab;
+
+	ab = audit_log_start(current->audit_context, GFP_KERNEL,
+			AUDIT_INTEGRITY_DATA);
+	if (unlikely(!ab)) {
+		pr_err("Can't get a context of audit logs\n");
+		return;
+	}
+
+	audit_log_format(ab, " func=");
+	audit_log_string(ab, func);
+	audit_log_format(ab, " cause=");
+	audit_log_string(ab, cause);
+	audit_log_format(ab, " rc=0x%x, ", rc);
+	audit_log_format(ab, " origin=0x%x", origin);
+	audit_log_end(ab);
 }
 
 void five_audit_hexinfo(struct file *file, const char *msg, char *data,
@@ -145,8 +166,12 @@ void five_audit_hexinfo(struct file *file, const char *msg, char *data,
 		audit_log_format(ab, " i_version=%lu ",
 				(unsigned long)inode->i_version);
 		iint = integrity_inode_get(inode);
-		if (iint)
-			audit_log_format(ab, " cache_value=%lu ", iint->five_flags);
+		if (iint) {
+			audit_log_format(ab, " cache_value=%lu ",
+							iint->five_flags);
+			audit_log_format(ab, " five_status=%d ",
+							iint->five_status);
+		}
 	}
 
 	audit_log_string(ab, msg);

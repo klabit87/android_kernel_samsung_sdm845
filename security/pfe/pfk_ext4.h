@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,7 +24,9 @@ int pfk_ext4_parse_inode(const struct bio *bio,
 	const struct inode *inode,
 	struct pfk_key_info *key_info,
 	enum ice_cryto_algo_mode *algo,
-	bool *is_pfe);
+	bool *is_pfe,
+	unsigned int *data_unit,
+	const char *storage_type);
 
 bool pfk_ext4_allow_merge_bio(const struct bio *bio1,
 	const struct bio *bio2, const struct inode *inode1,

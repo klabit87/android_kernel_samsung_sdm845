@@ -64,8 +64,24 @@
 #include <uapi/linux/module.h>
 #include "module-internal.h"
 
+#ifdef	CONFIG_TIMA_LKMAUTH_CODE_PROT
+#include <asm/tlbflush.h>
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
+
+#ifdef	CONFIG_TIMA_LKMAUTH_CODE_PROT
+#define TIMA_PAC_CMD_ID 0x3f80d221
+#define TIMA_SET_PTE_RO 1
+#define TIMA_SET_PTE_NX 2
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
+
+#ifdef CONFIG_TIMA_LKMAUTH
+/* Return codes for lkmauth function */
+#define	RET_LKMAUTH_SUCCESS				0
+#define	RET_LKMAUTH_FAIL				-1
+#endif
 
 #ifndef ARCH_SHF_SMALL
 #define ARCH_SHF_SMALL 0
@@ -76,11 +92,15 @@
  * to ensure complete separation of code and data, but
  * only when CONFIG_DEBUG_SET_MODULE_RONX=y
  */
+#ifdef	CONFIG_TIMA_LKMAUTH_CODE_PROT
+# define debug_align(X) ALIGN(X, PAGE_SIZE)
+#else
 #ifdef CONFIG_DEBUG_SET_MODULE_RONX
 # define debug_align(X) ALIGN(X, PAGE_SIZE)
 #else
 # define debug_align(X) (X)
 #endif
+#endif /* CONFIG_TIMA_LKMAUTH_CODE_PROT */
 
 /* If this is set, the section belongs in the init part of the module */
 #define INIT_OFFSET_MASK (1UL << (BITS_PER_LONG-1))
@@ -1911,6 +1931,9 @@ static void frob_writable_data(const struct module_layout *layout,
 /* livepatching wants to disable read-only so it can frob module. */
 void module_disable_ro(const struct module *mod)
 {
+	if (!rodata_enabled)
+		return;
+
 	frob_text(&mod->core_layout, set_memory_rw);
 	frob_rodata(&mod->core_layout, set_memory_rw);
 	frob_ro_after_init(&mod->core_layout, set_memory_rw);
@@ -1920,6 +1943,9 @@ void module_disable_ro(const struct module *mod)
 
 void module_enable_ro(const struct module *mod, bool after_init)
 {
+	if (!rodata_enabled)
+		return;
+
 	frob_text(&mod->core_layout, set_memory_ro);
 	frob_rodata(&mod->core_layout, set_memory_ro);
 	frob_text(&mod->init_layout, set_memory_ro);
@@ -1952,6 +1978,9 @@ void set_all_modules_text_rw(void)
 {
 	struct module *mod;
 
+	if (!rodata_enabled)
+		return;
+
 	mutex_lock(&module_mutex);
 	list_for_each_entry_rcu(mod, &modules, list) {
 		if (mod->state == MODULE_STATE_UNFORMED)
@@ -1968,6 +1997,9 @@ void set_all_modules_text_ro(void)
 {
 	struct module *mod;
 
+	if (!rodata_enabled)
+		return;
+
 	mutex_lock(&module_mutex);
 	list_for_each_entry_rcu(mod, &modules, list) {
 		if (mod->state == MODULE_STATE_UNFORMED)
@@ -1981,10 +2013,12 @@ void set_all_modules_text_ro(void)
 
 static void disable_ro_nx(const struct module_layout *layout)
 {
-	frob_text(layout, set_memory_rw);
-	frob_rodata(layout, set_memory_rw);
+	if (rodata_enabled) {
+		frob_text(layout, set_memory_rw);
+		frob_rodata(layout, set_memory_rw);
+		frob_ro_after_init(layout, set_memory_rw);
+	}
 	frob_rodata(layout, set_memory_x);
-	frob_ro_after_init(layout, set_memory_rw);
 	frob_ro_after_init(layout, set_memory_x);
 	frob_writable_data(layout, set_memory_x);
 }
@@ -2085,6 +2119,8 @@ void __weak module_arch_freeing_init(struct module *mod)
 {
 }
 
+static void cfi_cleanup(struct module *mod);
+
 /* Free a module, remove from lists, etc. */
 static void free_module(struct module *mod)
 {
@@ -2126,6 +2162,10 @@ static void free_module(struct module *mod)
 
 	/* This may be empty, but that's OK */
 	disable_ro_nx(&mod->init_layout);
+
+	/* Clean up CFI for the module. */
+	cfi_cleanup(mod);
+
 	module_arch_freeing_init(mod);
 	module_memfree(mod->init_layout.base);
 	kfree(mod->args);
@@ -2136,6 +2176,11 @@ static void free_module(struct module *mod)
 
 	/* Finally, free the core (containing the module structure) */
 	disable_ro_nx(&mod->core_layout);
+#ifdef CONFIG_DEBUG_MODULE_LOAD_INFO
+	pr_info("Unloaded %s: module core layout address range: 0x%lx-0x%lx\n",
+		mod->name, (long)mod->core_layout.base,
+		(long)(mod->core_layout.base + mod->core_layout.size - 1));
+#endif
 	module_memfree(mod->core_layout.base);
 
 #ifdef CONFIG_MPU
@@ -2671,6 +2716,17 @@ static void add_kallsyms(struct module *mod, const struct load_info *info)
 }
 #endif /* CONFIG_KALLSYMS */
 
+#ifdef CONFIG_TIMA_LKMAUTH
+#ifdef CONFIG_TIMA_LKM_BLOCK
+static int lkmauth(Elf_Ehdr *hdr, int len)
+{
+	int ret = RET_LKMAUTH_FAIL;
+	pr_warn("TIMA: lkmauth--LKM is not allowed by Samsung security policy.\n");
+	return ret;
+}
+#endif
+#endif
+
 static void dynamic_debug_setup(struct _ddebug *debug, unsigned int num)
 {
 	if (!debug)
@@ -2774,6 +2830,16 @@ static int elf_header_check(struct load_info *info)
 		info->len - info->hdr->e_shoff))
 		return -ENOEXEC;
 
+#ifdef CONFIG_TIMA_LKMAUTH
+#ifdef CONFIG_TIMA_LKM_BLOCK
+	if (lkmauth(info->hdr, info->len) != RET_LKMAUTH_SUCCESS) {
+		pr_err
+		    ("TIMA: lkmauth--unable to load kernel module; module len is %lu.\n",
+		     info->len);
+		return -ENOEXEC;
+	}
+#endif
+#endif
 	return 0;
 }
 
@@ -2816,6 +2882,15 @@ static int check_modinfo_livepatch(struct module *mod, struct load_info *info)
 	return 0;
 }
 #endif /* CONFIG_LIVEPATCH */
+
+static void check_modinfo_retpoline(struct module *mod, struct load_info *info)
+{
+	if (retpoline_module_ok(get_modinfo(info, "retpoline")))
+		return;
+
+	pr_warn("%s: loading module not compiled with retpoline compiler.\n",
+		mod->name);
+}
 
 /* Sets info->hdr and info->len. */
 static int copy_module_from_user(const void __user *umod, unsigned long len,
@@ -2968,6 +3043,8 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 				mod->name);
 		add_taint_module(mod, TAINT_OOT_MODULE, LOCKDEP_STILL_OK);
 	}
+
+	check_modinfo_retpoline(mod, info);
 
 	if (get_modinfo(info, "staging")) {
 		add_taint_module(mod, TAINT_CRAP, LOCKDEP_STILL_OK);
@@ -3296,6 +3373,8 @@ int __weak module_finalize(const Elf_Ehdr *hdr,
 	return 0;
 }
 
+static void cfi_init(struct module *mod);
+
 static int post_relocation(struct module *mod, const struct load_info *info)
 {
 	/* Sort exception table now relocations are done. */
@@ -3307,6 +3386,9 @@ static int post_relocation(struct module *mod, const struct load_info *info)
 
 	/* Setup kallsyms-specific fields. */
 	add_kallsyms(mod, info);
+
+	/* Setup CFI for the module. */
+	cfi_init(mod);
 
 	/* Arch-specific module finalizing. */
 	return module_finalize(info->hdr, info->sechdrs, mod);
@@ -3350,6 +3432,129 @@ struct mod_initfree {
 	void *module_init;
 };
 
+#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
+#ifndef TIMA_KERNEL_L1_MANAGE
+static inline pmd_t *tima_pmd_off_k(unsigned long virt)
+{
+	return pmd_offset(pud_offset(pgd_offset_k(virt), virt), virt);
+}
+
+void tima_set_pte_val(unsigned long virt,int numpages,int flags)
+{
+	unsigned long start = virt;
+	unsigned long end   = virt + (numpages << PAGE_SHIFT);
+	unsigned long pmd_end;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	while (virt < end)
+	{
+		pmd =tima_pmd_off_k(virt);
+		pmd_end = min(ALIGN(virt + 1, PMD_SIZE), end);
+
+		if ((pmd_val(*pmd) & PMD_TYPE_MASK) != PMD_TYPE_TABLE) {
+			//printk("Not a pagetable\n");
+			virt = pmd_end;
+			continue;
+		}
+
+		while (virt < pmd_end)
+		{
+			pte = pte_offset_kernel(pmd, virt);
+			if(flags == TIMA_SET_PTE_RO)
+			{
+				/*Make pages readonly*/
+				ptep_set_wrprotect(current->mm, virt,pte);
+			}
+			if(flags == TIMA_SET_PTE_NX)
+			{
+				/*Make pages Non Executable*/
+				ptep_set_nxprotect(current->mm, virt,pte);
+			}
+				virt += PAGE_SIZE;
+		}
+	}
+	flush_tlb_kernel_range(start, end);
+}
+#endif
+#ifdef TIMA_KERNEL_L1_MANAGE
+void tima_mod_send_smc_instruction(unsigned int    *vatext,unsigned int    *vadata,unsigned int text_count,unsigned int data_count)
+{
+	unsigned long   cmd_id = TIMA_PAC_CMD_ID;
+/*Call SMC instruction*/
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 6
+	__asm__ __volatile__(".arch_extension sec\n");
+#endif
+	__asm__ __volatile__ (
+						"stmfd  sp!,{r0-r4,r11}\n"
+						"mov    r11, r0\n"
+						"mov    r0, %0\n"
+						"mov    r1, %1\n"
+						"mov    r2, %2\n"
+						"mov    r3, %3\n"
+						"mov    r4, %4\n"
+						"smc    #11\n"
+						"mov    r6, #0\n"
+						"pop    {r0-r4,r11}\n"
+						"mcr    p15, 0, r6, c8, c3, 0\n"
+						"dsb\n"
+						"isb\n"
+						::"r"(cmd_id),"r"(vatext),"r"(text_count),"r"(vadata),"r"(data_count):"r0","r1","r2","r3","r4","r11","cc");
+}
+#endif
+/**
+ *    tima_mod_page_change_access  - Wrapper function to change access control permissions of pages
+ *     It sends code and data pages to secure side to  make code pages readonly and data pages non executable
+ *
+ *
+*/
+
+void tima_mod_page_change_access(struct module *mod)
+{
+        unsigned int    *vatext,*vadata;/* base virtual address of text and data regions*/
+        unsigned int    text_count,data_count;/* Number of text and data pages present in core section */
+	/*Lets first pickup core section */
+        vatext      = mod->module_core;
+        vadata      = (int *)((char *)(mod->module_core) + mod->core_ro_size);
+        text_count  = ((char *)vadata - (char *)vatext);
+        data_count  = debug_align(mod->core_size) - text_count;
+        text_count  = text_count / PAGE_SIZE;
+        data_count  = data_count / PAGE_SIZE;
+
+        /*Should be atleast a page */
+        if(!text_count)
+                text_count = 1;
+        if(!data_count)
+                data_count = 1;
+#ifdef TIMA_KERNEL_L1_MANAGE
+        /* Change permissive bits for core section*/
+        tima_mod_send_smc_instruction(vatext,vadata,text_count,data_count);
+#else
+ /* Change permissive bits for core section and making Code read only, Data Non Executable*/
+        tima_set_pte_val( (unsigned long)vatext,text_count,TIMA_SET_PTE_RO);
+        tima_set_pte_val( (unsigned long)vadata,data_count,TIMA_SET_PTE_NX);
+#endif/*TIMA_KERNEL_L1_MANAGE*/
+
+     /*Lets pickup init section */
+        vatext      = mod->module_init;
+        vadata      = (int *)((char *)(mod->module_init) + mod->init_ro_size);
+        text_count  = ((char *)vadata - (char *)vatext);
+        data_count  = debug_align(mod->init_size) - text_count;
+        text_count  = text_count / PAGE_SIZE;
+        data_count  = data_count / PAGE_SIZE;
+
+#ifdef TIMA_KERNEL_L1_MANAGE
+        /* Change permissive bits for init section*/
+        tima_mod_send_smc_instruction(vatext,vadata,text_count,data_count);
+#else
+/* Change permissive bits for init section and making Code read only,Data Non Executable*/
+        tima_set_pte_val( (unsigned long)vatext,text_count,TIMA_SET_PTE_RO);
+        tima_set_pte_val( (unsigned long)vadata,data_count,TIMA_SET_PTE_NX);
+#endif/*TIMA_KERNEL_L1_MANAGE*/
+}
+
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
+
 static void do_free_init(struct rcu_head *head)
 {
 	struct mod_initfree *m = container_of(head, struct mod_initfree, rcu);
@@ -3380,6 +3585,10 @@ static noinline int do_init_module(struct module *mod)
 	 * PF_USED_ASYNC.  async_schedule*() will set it.
 	 */
 	current->flags &= ~PF_USED_ASYNC;
+
+#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
+    tima_mod_page_change_access(mod);
+#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
 
 	do_mod_ctors(mod);
 	/* Start the module */
@@ -3433,6 +3642,14 @@ static noinline int do_init_module(struct module *mod)
 	mod_tree_remove_init(mod);
 	disable_ro_nx(&mod->init_layout);
 	module_arch_freeing_init(mod);
+#ifdef CONFIG_DEBUG_MODULE_LOAD_INFO
+	pr_info("Loaded %s: module init layout addresses range: 0x%lx-0x%lx\n",
+		mod->name, (long)mod->init_layout.base,
+		(long)(mod->init_layout.base + mod->init_layout.size - 1));
+	pr_info("%s: core layout addresses range: 0x%lx-0x%lx\n", mod->name,
+		(long)mod->core_layout.base,
+		(long)(mod->core_layout.base + mod->core_layout.size - 1));
+#endif
 	mod->init_layout.base = NULL;
 	mod->init_layout.size = 0;
 	mod->init_layout.ro_size = 0;
@@ -4041,6 +4258,22 @@ int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
 	return 0;
 }
 #endif /* CONFIG_KALLSYMS */
+
+static void cfi_init(struct module *mod)
+{
+#ifdef CONFIG_CFI_CLANG
+	mod->cfi_check =
+		(cfi_check_fn)mod_find_symname(mod, CFI_CHECK_FN_NAME);
+	cfi_module_add(mod, module_addr_min, module_addr_max);
+#endif
+}
+
+static void cfi_cleanup(struct module *mod)
+{
+#ifdef CONFIG_CFI_CLANG
+	cfi_module_remove(mod, module_addr_min, module_addr_max);
+#endif
+}
 
 static char *module_flags(struct module *mod, char *buf)
 {

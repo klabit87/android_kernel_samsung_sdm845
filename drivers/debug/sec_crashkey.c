@@ -22,6 +22,7 @@
 #include <linux/spinlock.h>
 #include <linux/list_sort.h>
 #include <linux/delay.h>
+#include <linux/of.h>
 
 #include <linux/sec_debug.h>
 #include <linux/sec_crashkey.h>
@@ -32,100 +33,42 @@
 #define MIN_SIZE_KEY   2
 #define MAX_SIZE_KEY   0xf
 
-extern int qpnp_control_s2_reset_onoff(int on);
-
 static unsigned int __available_keys[] = {
-	KEY_VOLUMEDOWN, KEY_VOLUMEUP, KEY_POWER, KEY_HOMEPAGE, KEY_WINK
+	KEY_VOLUMEDOWN, KEY_VOLUMEUP, KEY_POWER, KEY_HOMEPAGE,
+	KEY_WINK, KEY_RESET
 };
 
-static unsigned int default_crash_key_code[] = {
+static unsigned int default_short_keycrash_code[] = {
+	KEY_VOLUMEDOWN, KEY_POWER, KEY_POWER
+};
+
+static unsigned int default_long_keycrash_code[] = {
 	KEY_VOLUMEDOWN, KEY_POWER, KEY_POWER
 };
 
 static struct sec_crash_key dflt_crash_key = {
-	.keycode	= default_crash_key_code,
-	.size		= ARRAY_SIZE(default_crash_key_code),
-	.long_keypress	= 0,
-	.timeout	= 1000,	/* 1 sec */
-};
-
-static unsigned int keycrash_code[] = {
-	KEY_VOLUMEDOWN, KEY_POWER, KEY_POWER
-};
-
-static inline void __cb_keycrash(unsigned long arg)
-{
-	qpnp_control_s2_reset_onoff(0);
-	udelay(1000);
-	qpnp_control_s2_reset_onoff(1);
-
-	emerg_pet_watchdog();
-	dump_stack();
-	dump_all_task_info();
-	dump_cpu_stat();
-	if (arg == UPLOAD_CAUSE_POWER_LONG_PRESS)
-		panic("Power Long Press");
-	else
-		panic("Crash Key");
-}
-
-static struct sec_crash_key keycrash = {
-	.name		= "keycrash",
-	.keycode	= keycrash_code,
-	.size		= ARRAY_SIZE(keycrash_code),
+	.keycode	= default_short_keycrash_code,
+	.size		= ARRAY_SIZE(default_short_keycrash_code),
 	.long_keypress	= SEC_CRASHKEY_SHORTKEY,
 	.timeout	= 1000,	/* 1 sec */
-	.callback	= &__cb_keycrash,
 };
 
-static unsigned int longkeycrash_code[] = {
-	KEY_VOLUMEDOWN, KEY_POWER
-};
-
-static inline void __cb_longkeycrash(unsigned long arg)
-{
-	printk(KERN_ERR "*** Force trigger kernel panic "
-	       "before triggering hard reset ***\n");
-	sec_debug_set_upload_cause(UPLOAD_CAUSE_POWER_LONG_PRESS);
-	__cb_keycrash(UPLOAD_CAUSE_POWER_LONG_PRESS);
-}
-
-static struct sec_crash_key longkeycrash = {
+static inline void __cb_longkeycrash(unsigned long arg);
+static struct sec_crash_key hardreset_key = {
 	.name		= "long_keycrash",
-	.keycode	= longkeycrash_code,
-	.size		= ARRAY_SIZE(longkeycrash_code),
+	.keycode	= default_long_keycrash_code,
+	.size		= ARRAY_SIZE(default_long_keycrash_code),
 	.long_keypress	= SEC_CRASHKEY_LONGKEY,
 	.timeout	= 6000,	/* 6 sec */
 	.callback	= &__cb_longkeycrash,
 };
 
-#if defined(CONFIG_TOUCHSCREEN_DUMP_MODE)
-struct tsp_dump_callbacks dump_callbacks;
-static inline void __cb_tsp_dump(unsigned long arg)
-{
-	pr_err("[TSP] dump_tsp_log : %d\n", __LINE__);
-	if (dump_callbacks.inform_dump)
-		dump_callbacks.inform_dump();
-}
-
-static unsigned int tsp_dump_code[] = {
-	KEY_VOLUMEUP, KEY_WINK, KEY_WINK
-};
-
-static struct sec_crash_key tsp_dump = {
-	.name		= "tsp_dump",
-	.keycode	= tsp_dump_code,
-	.size		= ARRAY_SIZE(tsp_dump_code),
-	.long_keypress	= SEC_CRASHKEY_SHORTKEY,
-	.timeout	= 1000,	/* 1 sec */
-	.callback	= &__cb_tsp_dump,
-};
-#endif
 
 static size_t max_size_key = MAX_SIZE_KEY;
 static unsigned int *__key_store;
 static struct sec_crash_key *__sec_crash_key = &dflt_crash_key;
 static struct timer_list __crash_timer;
+static struct timer_list __longkey_timer;
 
 static LIST_HEAD(key_crash_list);
 static spinlock_t key_crash_lock;
@@ -133,22 +76,23 @@ static spinlock_t key_crash_lock;
 static void __init_crash_timer(void)
 {
 	init_timer(&__crash_timer);
+	init_timer(&__longkey_timer);
 }
 
-static inline void __sec_clear_crash_timer(void)
+static inline void __sec_clear_crash_timer(struct timer_list *tl)
 {
-	del_timer(&__crash_timer);
+	del_timer(tl);
 }
 
-static inline void __sec_crash_timer_set(struct sec_crash_key *crash_key)
+static inline void __sec_crash_timer_set(struct timer_list *tl,
+					 struct sec_crash_key *crash_key)
 {
-	__sec_clear_crash_timer();
+	__sec_clear_crash_timer(tl);
 
-	__crash_timer.data = 0;
-	__crash_timer.function = crash_key->callback;
-	__crash_timer.expires =
-			jiffies + msecs_to_jiffies(crash_key->timeout);
-	add_timer(&__crash_timer);
+	tl->data = crash_key->long_keypress;
+	tl->function = crash_key->callback;
+	tl->expires = jiffies + msecs_to_jiffies(crash_key->timeout);
+	add_timer(tl);
 }
 
 static unsigned int __sec_debug_unlock_crash_key(unsigned int value,
@@ -178,7 +122,33 @@ static struct sec_crash_key *__sec_debug_get_first_key_entry(void)
 	return list_first_entry(&key_crash_list, struct sec_crash_key, node);
 }
 
-static void __sec_debug_check_crash_key(unsigned int value, int pressed)
+static void __sec_debug_check_hard_reset_key(unsigned int value, int down)
+{
+	size_t i;
+	static unsigned int key_bitmap;
+
+	if (unlikely(!sec_debug_is_enabled()))
+		return;
+
+	for (i = 0; i < hardreset_key.size; i++) {
+		if (hardreset_key.keycode[i] == value) {
+			key_bitmap &= (~(1 << i));
+			break;
+		}
+	}
+
+	if (i == hardreset_key.size)
+		return;
+
+	if (down) {
+		key_bitmap |= (1 << i);
+		if (key_bitmap == ((1 << hardreset_key.size) - 1))
+			__sec_crash_timer_set(&__longkey_timer, &hardreset_key);
+	} else
+		__sec_clear_crash_timer(&__longkey_timer);
+}
+
+static void __sec_debug_check_crash_key(unsigned int value, int down)
 {
 	static unsigned long unlock_jiffies;
 	static unsigned long trigger_jiffies;
@@ -187,21 +157,11 @@ static void __sec_debug_check_crash_key(unsigned int value, int pressed)
 	static unsigned int knock;
 	static size_t k_idx;
 	unsigned int timeout;
-	static bool vd_key_pressed, pwr_key_pressed;
 
-	if (!pressed) { // key released
-		if (value == KEY_POWER) {
-			printk(KERN_ERR "%s %s:[%s]\n", __func__, "POWER_KEY", pressed ? "P":"R");
-			pwr_key_pressed = false; 
-		} else if (value == KEY_VOLUMEDOWN) {
-			printk(KERN_ERR "%s %s:[%s]\n", __func__, "VOL_DOWN", pressed ? "P":"R");
-			vd_key_pressed = false; 
-		}
+	__sec_clear_crash_timer(&__crash_timer);
 
-		if (!(vd_key_pressed && pwr_key_pressed)) {
-			sec_debug_set_upload_cause(UPLOAD_CAUSE_INIT);
-			__sec_clear_crash_timer();
-		}
+	if (!down) {
+		sec_debug_set_upload_cause(UPLOAD_CAUSE_INIT);
 
 		if (unlock != __sec_crash_key->unlock ||
 		    value != __sec_crash_key->trigger)
@@ -210,35 +170,14 @@ static void __sec_debug_check_crash_key(unsigned int value, int pressed)
 			return;
 	}
 
-	if (value == KEY_POWER) {
-		printk(KERN_ERR "%s %s:[%s]\n", __func__, "POWER_KEY", pressed ? "P":"R");
-		pwr_key_pressed = true;
-	} else if (value == KEY_VOLUMEDOWN) {
-		printk(KERN_ERR "%s %s:[%s]\n", __func__, "VOL_DOWN", pressed ? "P":"R");
-		vd_key_pressed = true;
-	}
-
-	if ((value == KEY_VOLUMEDOWN) || (value == KEY_POWER))
-		if (vd_key_pressed && pwr_key_pressed)
-			sec_debug_set_upload_cause(UPLOAD_CAUSE_POWER_LONG_PRESS);
+	if (KEY_POWER == value)
+		sec_debug_set_upload_cause(UPLOAD_CAUSE_POWER_LONG_PRESS);
 
 	if (unlikely(!sec_debug_is_enabled()))
 		return;
-	
-	if ((value == KEY_VOLUMEDOWN) || (value == KEY_POWER)) {
-		if (vd_key_pressed && pwr_key_pressed) {
-			__sec_crash_timer_set(&longkeycrash);
-		} else {
-			__sec_clear_crash_timer();
-		}
-	}
 
 	__key_store[k_idx++] = value;
-	if (unlikely(k_idx > max_size_key)) {
-		__sec_clear_crash_timer();
-		goto __clear_all;
-	}
-	
+
 	if (__sec_debug_unlock_crash_key(value, &unlock)) {
 		if (unlock == __sec_crash_key->unlock && !unlock_jiffies)
 			unlock_jiffies = jiffies;
@@ -289,13 +228,18 @@ __next:
 		timeout = jiffies_to_msecs(trigger_jiffies - unlock_jiffies);
 		if (timeout < __sec_crash_key->timeout) {
 			if (knock == __sec_crash_key->knock) {
-				__sec_crash_key->callback(0);
+				if (__sec_crash_key->long_keypress)
+					__sec_crash_timer_set(&__crash_timer,
+							      __sec_crash_key);
+				else
+					__sec_crash_key->callback(0);
 			}
 		} else
 			goto __clear_all;
 	}
 
-	return;
+	if (k_idx < max_size_key)
+		return;
 
 __clear_all:
 	other_key_pressed = false;
@@ -316,6 +260,7 @@ static int sec_debug_keyboard_call(struct notifier_block *this,
 	struct sec_key_notifier_param *param = data;
 
 	spin_lock_irqsave(&key_crash_lock, flags);
+	__sec_debug_check_hard_reset_key(param->keycode, param->down);
 	__sec_debug_check_crash_key(param->keycode, param->down);
 	spin_unlock_irqrestore(&key_crash_lock, flags);
 
@@ -438,10 +383,10 @@ int sec_debug_register_crash_key(struct sec_crash_key *crash_key)
 		}
 		max_key_size = size_keys;
 	}
-	
+
 	if (max_size_key < size_keys)
 		max_size_key = size_keys;
-	
+
 	spin_unlock_irqrestore(&key_crash_lock, flags);
 
 	pr_info("%s registered.\n", crash_key->name);
@@ -450,13 +395,134 @@ int sec_debug_register_crash_key(struct sec_crash_key *crash_key)
 }
 EXPORT_SYMBOL(sec_debug_register_crash_key);
 
+#if defined(CONFIG_TOUCHSCREEN_DUMP_MODE)
+struct tsp_dump_callbacks dump_callbacks;
+static inline void __cb_tsp_dump(unsigned long arg)
+{
+	pr_err("[TSP] dump_tsp_log : %d\n", __LINE__);
+	if (dump_callbacks.inform_dump)
+		dump_callbacks.inform_dump();
+}
+
+static unsigned int tsp_dump_code[] = {
+	KEY_VOLUMEUP, KEY_WINK, KEY_WINK
+};
+
+static struct sec_crash_key tsp_dump = {
+	.name		= "tsp_dump",
+	.keycode	= tsp_dump_code,
+	.size		= ARRAY_SIZE(tsp_dump_code),
+	.long_keypress	= SEC_CRASHKEY_SHORTKEY,
+	.timeout	= 1000,	/* 1 sec */
+	.callback	= &__cb_tsp_dump,
+};
+#endif
+
+static inline void __reset_pon_s2_ctrl_reset(void) {
+	qpnp_control_s2_reset_onoff(0);
+	udelay(1000);
+	qpnp_control_s2_reset_onoff(1);
+}
+
+static inline void __cb_keycrash(unsigned long arg)
+{
+	const unsigned char *msg[2] = {
+			UPLOAD_MSG_CRASH_KEY, UPLOAD_MSG_LONG_KEY_PRESS};
+
+	__reset_pon_s2_ctrl_reset();
+	emerg_pet_watchdog();
+	dump_stack();
+	dump_all_task_info();
+	dump_cpu_stat();
+	panic(msg[arg]);
+}
+
+static struct sec_crash_key keycrash = {
+	.name		= "keycrash",
+	.keycode	= default_short_keycrash_code,
+	.size		= ARRAY_SIZE(default_short_keycrash_code),
+	.long_keypress	= SEC_CRASHKEY_SHORTKEY,
+	.timeout	= 1000,	/* 1 sec */
+	.callback	= &__cb_keycrash,
+};
+
+static inline void __cb_longkeycrash(unsigned long arg)
+{
+	printk(KERN_ERR "*** Force trigger kernel panic "
+	       "before triggering hard reset ***\n");
+	sec_debug_set_upload_cause(UPLOAD_CAUSE_POWER_LONG_PRESS);
+	__cb_keycrash(SEC_CRASHKEY_LONGKEY);
+}
+
+#ifdef CONFIG_OF
+static inline void __init __read_keycodes(struct device_node *np,
+		const char *name, struct sec_crash_key *crash_key)
+{
+	int size;
+	unsigned int *tmp_keycodes;
+	unsigned int _keycodes[MAX_SIZE_KEY];
+
+	size = of_property_read_variable_u32_array(np, name, (u32 *)_keycodes,
+					MIN_SIZE_KEY, MAX_SIZE_KEY);
+	if (unlikely(size < 0)) {
+		pr_err("Could not find %s property. use default key combination.\n",
+		       name);
+		return;
+	}
+
+	tmp_keycodes = kmalloc_array(size, sizeof(int), GFP_KERNEL);
+	if (unlikely(!tmp_keycodes)) {
+		pr_err("Failed to allocate memory for %s. use default key combination.\n",
+		       name);
+		return;
+	}
+
+	memcpy(tmp_keycodes, _keycodes, size * sizeof(int));
+
+	crash_key->keycode = tmp_keycodes;
+	crash_key->size = size;
+}
+
+static inline void __init __load_default_crash_key(void)
+{
+	struct device_node *np;
+
+	np = of_find_node_by_path("/sec-debug");
+	if (unlikely(!np)) {
+		pr_err("Could not find sec-debug node. use default key combination for keycrash.\n");
+		return;
+	}
+
+	__read_keycodes(np, "crashkey,short", &keycrash);
+	__read_keycodes(np, "crashkey,long", &hardreset_key);
+}
+#else
+static inline void __init __load_default_crash_key(void) { }
+#endif
+
 static inline void __init __register_default_crash_key(void)
 {
+	__load_default_crash_key();
+
 	sec_debug_register_crash_key(&keycrash);
 #if defined(CONFIG_TOUCHSCREEN_DUMP_MODE)
 	sec_debug_register_crash_key(&tsp_dump);
 #endif
 }
+
+/* for retail group's request */
+#if defined(CONFIG_SEC_PM)
+void do_keyboard_notifier(int onoff)
+{
+	pr_info("%s: onoff(%d)\n", __func__, onoff);
+
+	if (onoff)
+		sec_kn_register_notifier(&sec_debug_keyboard_notifier);
+	else
+		sec_kn_unregister_notifier(&sec_debug_keyboard_notifier);
+}
+EXPORT_SYMBOL(do_keyboard_notifier);
+#endif
 
 static int __init sec_debug_init_crash_key(void)
 {
