@@ -55,11 +55,11 @@
 #include <net/netfilter/nf_nat_core.h>
 #include <net/netfilter/nf_nat_helper.h>
 #include <net/netns/hash.h>
-
+#ifdef CONFIG_KNOX_NCM
 // KNOX NPA - START
 #include <net/ncm.h>
 // KNOX NPA - END
-
+#endif
 #define NF_CONNTRACK_VERSION	"0.5.0"
 
 int (*nfnetlink_parse_nat_setup_hook)(struct nf_conn *ct,
@@ -331,14 +331,14 @@ clean_from_lists(struct nf_conn *ct)
 static void nf_ct_add_to_dying_list(struct nf_conn *ct)
 {
 	struct ct_pcpu *pcpu;
-
+	#ifdef CONFIG_KNOX_NCM
 	// KNOX NPA - START
 	/* send dying conntrack entry to collect data */
 	if ( (check_ncm_flag()) && (ct != NULL) && (atomic_read(&ct->startFlow)) ) {
 		knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_CLOSE, 10);
 	}
 	// KNOX NPA - END
-
+	#endif
 	/* add this conntrack to the (per cpu) dying list */
 	ct->cpu = smp_processor_id();
 	pcpu = per_cpu_ptr(nf_ct_net(ct)->ct.pcpu_lists, ct->cpu);
@@ -1089,10 +1089,11 @@ __nf_conntrack_alloc(struct net *net,
 		     gfp_t gfp, u32 hash)
 {
 	struct nf_conn *ct;
+	#ifdef CONFIG_KNOX_NCM
 	// KNOX NPA - START
 	struct timespec open_timespec;
 	// KNOX NPA - END
-
+	#endif
 	/* We don't want any race condition at early drop stage */
 	atomic_inc(&net->ct.count);
 
@@ -1112,7 +1113,7 @@ __nf_conntrack_alloc(struct net *net,
 	ct = kmem_cache_alloc(nf_conntrack_cachep, gfp);
 	if (ct == NULL)
 		goto out;
-
+	#ifdef CONFIG_KNOX_NCM
 	// KNOX NPA - START
 	/* initialize the conntrack structure members when memory is allocated */
 	if (ct != NULL) {
@@ -1131,7 +1132,7 @@ __nf_conntrack_alloc(struct net *net,
 		atomic_set(&ct->startFlow, 0);
 	}
 	// KNOX NPA - END
-
+	#endif
 	spin_lock_init(&ct->lock);
 	ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple = *orig;
 	ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode.pprev = NULL;
