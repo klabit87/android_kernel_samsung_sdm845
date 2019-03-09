@@ -160,7 +160,12 @@ static ssize_t funnel_ctrl_show(struct device *dev,
 
 	return sprintf(buf, "%#x\n", val);
 }
-static DEVICE_ATTR_RO(funnel_ctrl);
+
+/* fix cts failure: reading this node cause an external abort
+ * that leads to cts failure. (arm64-v8a CtsPermissionTestCases)
+ * static DEVICE_ATTR_RO(funnel_ctrl);
+ */
+static DEVICE_ATTR(funnel_ctrl, 0400, funnel_ctrl_show, NULL);
 
 static struct attribute *coresight_funnel_attrs[] = {
 	&dev_attr_funnel_ctrl.attr,

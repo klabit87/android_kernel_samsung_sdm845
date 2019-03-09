@@ -33,6 +33,9 @@
 #include <soc/qcom/smem.h>
 
 #include "peripheral-loader.h"
+#ifdef CONFIG_SENSORS_SSC
+#include <linux/adsp/ssc_ssr_reason.h>
+#endif
 
 #define XO_FREQ			19200000
 #define PROXY_TIMEOUT_MS	10000
@@ -52,6 +55,7 @@ struct pil_map_fw_info {
 	phys_addr_t base_addr;
 	struct device *dev;
 };
+extern void ext_dcc_disable(void);
 
 /**
  * struct reg_info - regulator info
@@ -590,6 +594,8 @@ static void pil_remove_proxy_vote(struct pil_desc *pil)
 					d->subsys_desc.name);
 }
 
+extern struct device *pil_mdata_buf_dev;
+
 static int pil_init_image_trusted(struct pil_desc *pil,
 		const u8 *metadata, size_t size, phys_addr_t mdata_phys,
 		void *region)
@@ -617,6 +623,7 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 	ret = scm_pas_enable_bw();
 	if (ret)
 		return ret;
+
 
 	mdata_buf = pil->map_fw_mem(mdata_phys, size, map_data);
 	if (!mdata_buf) {
@@ -723,6 +730,15 @@ static int pil_auth_and_reset(struct pil_desc *pil)
 	if (rc)
 		goto err_reset;
 
+#ifdef CONFIG_SENSORS_SSC
+	if (d->subsys_desc.gpio_sensor_ldo) {
+		gpio_set_value(d->subsys_desc.gpio_sensor_ldo, 1);
+		pr_info("%s, %s gpio_sensor_ldo(%d) enable(%d)\n", __func__,
+			d->subsys_desc.name, d->subsys_desc.gpio_sensor_ldo,
+			gpio_get_value(d->subsys_desc.gpio_sensor_ldo));
+	}
+#endif
+
 	return scm_ret;
 err_reset:
 	disable_unprepare_clocks(d->clks, d->clk_count);
@@ -782,6 +798,13 @@ static int pil_shutdown_trusted(struct pil_desc *pil)
 	else
 		WARN(d->enable_bus_scaling, "Bus scaling not set up for %s!\n",
 					d->subsys_desc.name);
+#ifdef CONFIG_SENSORS_SSC
+	if (d->subsys_desc.gpio_sensor_ldo) {
+		gpio_set_value(d->subsys_desc.gpio_sensor_ldo, 0);
+		pr_info("%s, %s gpio_sensor_ldo disable\n",
+			__func__, d->subsys_desc.name);
+	}
+#endif
 
 	if (rc)
 		return rc;
@@ -862,6 +885,13 @@ static void log_failure_reason(const struct pil_tz_data *d)
 
 	strlcpy(reason, smem_reason, min(size, MAX_SSR_REASON_LEN));
 	pr_err("%s subsystem failure reason: %s.\n", name, reason);
+
+#ifdef CONFIG_SENSORS_SSC
+	if (!strncmp(name, "slpi", 4))
+		ssr_reason_call_back(reason, min(size, MAX_SSR_REASON_LEN));
+	if (!strcmp(name, "slpi") && (strstr(reason, "force_reset") != NULL))
+		subsys_set_ssr_reason(d->subsys, SSR_WITHOUT_PANIC);
+#endif
 }
 
 static int subsys_shutdown(const struct subsys_desc *subsys, bool force_stop)
@@ -936,6 +966,9 @@ static irqreturn_t subsys_err_fatal_intr_handler (int irq, void *dev_id)
 							d->subsys_desc.name);
 		return IRQ_HANDLED;
 	}
+#ifdef CONFIG_SENSORS_SSC
+	subsys_set_ssr_reason(d->subsys, SSR_ERROR_FATAL);
+#endif
 	subsys_set_crash_status(d->subsys, CRASH_STATUS_ERR_FATAL);
 	log_failure_reason(d);
 	subsystem_restart_dev(d->subsys);
@@ -950,11 +983,15 @@ static irqreturn_t subsys_wdog_bite_irq_handler(int irq, void *dev_id)
 	if (subsys_get_crash_status(d->subsys))
 		return IRQ_HANDLED;
 	pr_err("Watchdog bite received from %s!\n", d->subsys_desc.name);
-
+	if (strcmp(d->subsys_desc.name, "slpi") == 0) 
+		ext_dcc_disable();
 	if (d->subsys_desc.system_debug &&
 			!gpio_get_value(d->subsys_desc.err_fatal_gpio))
 		panic("%s: System ramdump requested. Triggering device restart!\n",
 							__func__);
+#ifdef CONFIG_SENSORS_SSC
+	subsys_set_ssr_reason(d->subsys, SSR_WDOG_BITE);
+#endif
 	subsys_set_crash_status(d->subsys, CRASH_STATUS_WDOG_BITE);
 	log_failure_reason(d);
 	subsystem_restart_dev(d->subsys);
@@ -965,7 +1002,9 @@ static irqreturn_t subsys_wdog_bite_irq_handler(int irq, void *dev_id)
 static irqreturn_t subsys_stop_ack_intr_handler(int irq, void *dev_id)
 {
 	struct pil_tz_data *d = subsys_to_data(dev_id);
-
+#ifdef CONFIG_SENSORS_SSC
+	subsys_set_ssr_reason(d->subsys, SSR_BY_AP);
+#endif
 	pr_info("Received stop ack interrupt from %s\n", d->subsys_desc.name);
 	complete(&d->stop_ack);
 	return IRQ_HANDLED;

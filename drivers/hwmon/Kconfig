@@ -1877,4 +1877,10 @@ config SENSORS_ATK0110
 
 endif # ACPI
 
+config SEC_THERMISTOR
+        bool "Use external thermistor near AP for checking temprature"
+        default n
+        help
+        Use thermistor driver for checking temperature near AP chip.
+
 endif # HWMON

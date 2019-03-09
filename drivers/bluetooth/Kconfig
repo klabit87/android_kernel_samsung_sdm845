@@ -383,4 +383,17 @@ config BTFM_SLIM_WCN3990
 	  It is designed to adapt any future BT/FM device to implement a specific
 	  chip initialization process and control.
 
+config BT_BCM4361
+	bool "Enable BCM4361 driver"
+	default n
+	help
+	  Adds BCM43XX RFKILL driver for Broadcom BCM4361 chipset
+	  default is n.
+
+config BT_BLUESLEEP
+	bool "Enable BlUESLEEP driver"
+	default n
+	help
+	  Adds BlUESLEEP driver for Broadcom chipset.
+	  default is n.
 endmenu

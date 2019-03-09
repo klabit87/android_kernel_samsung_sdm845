@@ -23,6 +23,10 @@
 #include "msm_vidc_debug.h"
 #include "msm_vidc_resources.h"
 
+#if 1 //defined(SEC_MM_VID_ENC)
+#include <linux/delay.h>
+#endif
+
 struct smem_client {
 	int mem_type;
 	void *clnt;
@@ -30,6 +34,8 @@ struct smem_client {
 	enum session_type session_type;
 	bool tme_encode_mode;
 };
+
+#include <linux/iommu.h>
 
 static int msm_ion_get_device_address(struct smem_client *smem_client,
 		struct ion_handle *hndl, unsigned long align,
@@ -43,6 +49,8 @@ static int msm_ion_get_device_address(struct smem_client *smem_client,
 	struct dma_buf_attachment *attach;
 	struct sg_table *table = NULL;
 	struct context_bank_info *cb = NULL;
+	struct iommu_domain *domain;
+	uint64_t phys_addr;
 
 	if (!iova || !buffer_size || !hndl || !smem_client || !mapping_info) {
 		dprintk(VIDC_ERR, "Invalid params: %pK, %pK, %pK, %pK\n",
@@ -102,15 +110,35 @@ static int msm_ion_get_device_address(struct smem_client *smem_client,
 		}
 
 		/* debug trace's need to be updated later */
-		trace_msm_smem_buffer_iommu_op_start("MAP", 0, 0,
+		trace_msm_smem_buffer_iommu_op_start("MAP", 0, 0, 0,
 			align, *iova, *buffer_size);
 
 		/* Map a scatterlist into SMMU */
 		if (smem_client->res->sys_cache_present) {
+#if 1 //defined(SEC_MM_VID_ENC)
+			int retry_cnt;
+#endif
 			/* with sys cache attribute & delayed unmap */
 			rc = msm_dma_map_sg_attrs(cb->dev, table->sgl,
 				table->nents, DMA_BIDIRECTIONAL,
 				buf, DMA_ATTR_IOMMU_USE_UPSTREAM_HINT);
+#if 1 //defined(SEC_MM_VID_ENC)
+			if (rc != table->nents) {
+				for (retry_cnt = 0; retry_cnt < 62 ; retry_cnt++) {
+					/* To wait free page by memory reclaim*/
+					usleep_range(16000, 16000);
+
+					pr_err("msm_dma_map_sg_attrs : retry (%d) rc : %d\n", retry_cnt, rc);
+
+					rc = msm_dma_map_sg_attrs(cb->dev, table->sgl,
+						table->nents, DMA_BIDIRECTIONAL,
+						buf, DMA_ATTR_IOMMU_USE_UPSTREAM_HINT);
+						
+					if (rc == table->nents)
+						break;
+				}
+			}
+#endif
 		} else {
 			/* with delayed unmap */
 			rc = msm_dma_map_sg_lazy(cb->dev, table->sgl,
@@ -139,7 +167,16 @@ static int msm_ion_get_device_address(struct smem_client *smem_client,
 		mapping_info->attach = attach;
 		mapping_info->buf = buf;
 
-		trace_msm_smem_buffer_iommu_op_end("MAP", 0, 0,
+		domain = iommu_get_domain_for_dev(cb->dev);
+		if (domain)
+			phys_addr = (uint64_t)iommu_iova_to_phys(
+					domain, *iova);
+		else
+			phys_addr = 0;
+
+		mapping_info->phys_addr = phys_addr;
+
+		trace_msm_smem_buffer_iommu_op_end("MAP", 0, 0, phys_addr,
 			align, *iova, *buffer_size);
 	} else {
 		dprintk(VIDC_DBG, "Using physical memory address\n");
@@ -182,7 +219,10 @@ static int msm_ion_put_device_address(struct smem_client *smem_client,
 	}
 
 	if (is_iommu_present(smem_client->res)) {
-		trace_msm_smem_buffer_iommu_op_start("UNMAP", 0, 0, 0, 0, 0);
+
+		trace_msm_smem_buffer_iommu_op_start("UNMAP", 0, 0,
+				mapping_info->phys_addr,
+				0, 0, 0);
 		msm_dma_unmap_sg(mapping_info->dev, mapping_info->table->sgl,
 			mapping_info->table->nents, DMA_BIDIRECTIONAL,
 			mapping_info->buf);
@@ -190,7 +230,9 @@ static int msm_ion_put_device_address(struct smem_client *smem_client,
 			mapping_info->table, DMA_BIDIRECTIONAL);
 		dma_buf_detach(mapping_info->buf, mapping_info->attach);
 		dma_buf_put(mapping_info->buf);
-		trace_msm_smem_buffer_iommu_op_end("UNMAP", 0, 0, 0, 0, 0);
+		trace_msm_smem_buffer_iommu_op_end("UNMAP", 0, 0,
+				mapping_info->phys_addr,
+				0, 0, 0);
 
 		mapping_info->dev = NULL;
 		mapping_info->mapping = NULL;

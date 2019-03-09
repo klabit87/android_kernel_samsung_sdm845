@@ -1105,7 +1105,7 @@ static int __iommu_attach_device(struct iommu_domain *domain,
 
 	ret = domain->ops->attach_dev(domain, dev);
 	if (!ret) {
-		trace_attach_device_to_domain(dev);
+		trace_attach_device_to_domain(domain, dev);
 		iommu_debug_attach_device(domain, dev);
 
 		if (!strnlen(domain->name, IOMMU_DOMAIN_NAME_LEN)) {
@@ -1152,7 +1152,7 @@ static void __iommu_detach_device(struct iommu_domain *domain,
 		return;
 
 	domain->ops->detach_dev(domain, dev);
-	trace_detach_device_from_domain(dev);
+	trace_detach_device_from_domain(domain, dev);
 }
 
 void iommu_detach_device(struct iommu_domain *domain, struct device *dev)

@@ -76,7 +76,7 @@ struct cam_actuator_soc_private {
 };
 
 /**
- * struct intf_params
+ * struct aperture_intf_params
  * @device_hdl: Device Handle
  * @session_hdl: Session Handle
  * @ops: KMD operations

@@ -3,6 +3,7 @@ ccflags-$(CONFIG_DRM_MSM_DSI) += -Idrivers/gpu/drm/msm/dsi
 ccflags-$(CONFIG_DRM_MSM_DSI_PLL) += -Idrivers/gpu/drm/msm/dsi
 ccflags-y += -Idrivers/gpu/drm/msm/sde
 ccflags-y += -Idrivers/media/platform/msm/sde/rotator
+ccflags-$(CONFIG_DISPLAY_SAMSUNG) += -Idrivers/gpu/drm/msm/samsung
 ccflags-y += -Idrivers/gpu/drm/msm/hdmi
 
 msm_drm-y := \
@@ -70,6 +71,14 @@ msm_drm-$(CONFIG_DRM_MSM_MDP5) += mdp/mdp_format.o \
 	mdp/mdp5/mdp5_kms.o \
 	mdp/mdp5/mdp5_plane.o \
 	mdp/mdp5/mdp5_smp.o \
+
+# sec displayport
+msm_drm-$(CONFIG_SEC_DISPLAYPORT) += dp/secdp_sysfs.o \
+	dp/secdp_logger.o \
+	dp/secdp_unit_test.o \
+	dp/secdp_aux_control.o \
+
+msm_drm-$(CONFIG_SEC_DISPLAYPORT_BIGDATA) += dp/displayport_bigdata.o
 
 msm_drm-$(CONFIG_DRM_SDE_RSC) += sde_rsc.o \
 	sde_rsc_hw.o \
@@ -187,3 +196,7 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	msm_debugfs.o
 
 obj-$(CONFIG_DRM_MSM)	+= msm_drm.o
+
+ifeq ($(CONFIG_DISPLAY_SAMSUNG),y)
+obj-y += samsung/
+endif

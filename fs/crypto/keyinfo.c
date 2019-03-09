@@ -19,6 +19,7 @@
 
 static struct crypto_shash *essiv_hash_tfm;
 
+#ifndef CONFIG_FS_CRYPTO_SEC_EXTENSION
 /**
  * derive_key_aes() - Derive a key using AES-128-ECB
  * @deriving_key: Encryption key used for derivation.
@@ -66,6 +67,16 @@ out:
 	crypto_free_skcipher(tfm);
 	return res;
 }
+#endif /* !CONFIG FS_CRYPTO_SEC_EXTENSION */
+
+static inline int get_fe_key(char *nonce, const struct fscrypt_key *source_key, char *fe_key)
+{
+#ifdef CONFIG_FS_CRYPTO_SEC_EXTENSION
+	return fscrypt_sec_get_key_aes(nonce, source_key->raw, fe_key);
+#else
+	return derive_key_aes(nonce, source_key, fe_key);
+#endif /* CONFIG FS_CRYPTO_SEC_EXTENSION */
+}
 
 static int validate_user_key(struct fscrypt_info *crypt_info,
 			struct fscrypt_context *ctx,
@@ -106,7 +117,7 @@ static int validate_user_key(struct fscrypt_info *crypt_info,
 		goto out;
 	}
 	master_key = (struct fscrypt_key *)ukp->data;
-	BUILD_BUG_ON(FS_AES_128_ECB_KEY_SIZE != FS_KEY_DERIVATION_NONCE_SIZE);
+	BUILD_BUG_ON(FS_ESTIMATED_NONCE_SIZE != FS_KEY_DERIVATION_NONCE_SIZE);
 
 	if (master_key->size < min_keysize || master_key->size > FS_MAX_KEY_SIZE
 	    || master_key->size % AES_BLOCK_SIZE != 0) {

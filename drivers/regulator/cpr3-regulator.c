@@ -6618,8 +6618,10 @@ int cpr3_regulator_register(struct platform_device *pdev,
 	if (ctrl->panic_regs_info) {
 		/* Register panic notification call back */
 		ctrl->panic_notifier.notifier_call = cpr3_panic_callback;
+#ifndef CONFIG_SEC_DEBUG
 		atomic_notifier_chain_register(&panic_notifier_list,
 			&ctrl->panic_notifier);
+#endif
 	}
 
 	return 0;

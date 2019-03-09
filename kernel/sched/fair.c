@@ -3618,19 +3618,30 @@ static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
 static inline void check_schedstat_required(void)
 {
 #ifdef CONFIG_SCHEDSTATS
-	if (schedstat_enabled())
-		return;
-
+	if (schedstat_enabled()) {
+		if (!trace_sched_stat_wait_enabled()    &&
+			!trace_sched_stat_sleep_enabled()   &&
+			!trace_sched_stat_iowait_enabled()  &&
+			!trace_sched_stat_blocked_enabled() &&
+			!trace_sched_stat_runtime_enabled() &&
+			!trace_sched_blocked_reason_enabled()) {
+			set_schedstats(false);
+			return;
+		} else
+			return;
+	}
 	/* Force schedstat enabled if a dependent tracepoint is active */
 	if (trace_sched_stat_wait_enabled()    ||
 			trace_sched_stat_sleep_enabled()   ||
 			trace_sched_stat_iowait_enabled()  ||
 			trace_sched_stat_blocked_enabled() ||
-			trace_sched_stat_runtime_enabled())  {
+			trace_sched_stat_runtime_enabled() ||
+			trace_sched_blocked_reason_enabled()) {
 		printk_deferred_once("Scheduler tracepoints stat_sleep, stat_iowait, "
 			     "stat_blocked and stat_runtime require the "
 			     "kernel parameter schedstats=enabled or "
 			     "kernel.sched_schedstats=1\n");
+		set_schedstats(true);
 	}
 #endif
 }
@@ -8868,7 +8879,7 @@ static void update_cpu_capacity(struct sched_domain *sd, int cpu)
 		mcc->cpu = cpu;
 #ifdef CONFIG_SCHED_DEBUG
 		raw_spin_unlock_irqrestore(&mcc->lock, flags);
-		printk_deferred(KERN_INFO "CPU%d: update max cpu_capacity %lu\n",
+		pr_debug("CPU%d: update max cpu_capacity %lu\n",
 				cpu, capacity);
 		goto skip_unlock;
 #endif

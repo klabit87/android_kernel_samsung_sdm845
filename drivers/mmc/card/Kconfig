@@ -91,3 +91,9 @@ config MMC_SIMULATE_MAX_SPEED
 	  control the write or read maximum KB/second speed behaviors.
 
 	  If unsure, say N here.
+
+config MMC_CPRM
+	tristate "MMC CPRM driver"
+	default n
+	help
+	  Say Y here to enable the MMC cprm driver

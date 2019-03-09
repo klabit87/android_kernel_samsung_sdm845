@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,6 +16,13 @@
 #include "cam_flash_soc.h"
 #include "cam_flash_core.h"
 
+#if defined(CONFIG_LEDS_S2MPB02)
+#include <cam_sensor_cmn_header.h>
+#include <cam_sensor_util.h>
+
+struct msm_pinctrl_info flash_pctrl;
+#endif
+
 static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		void *arg, struct cam_flash_private_soc *soc_private)
 {
@@ -26,12 +33,6 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 	if (!fctrl || !arg) {
 		CAM_ERR(CAM_FLASH, "fctrl/arg is NULL with arg:%pK fctrl%pK",
 			fctrl, arg);
-		return -EINVAL;
-	}
-
-	if (cmd->handle_type != CAM_HANDLE_USER_POINTER) {
-		CAM_ERR(CAM_FLASH, "Invalid handle type: %d",
-			cmd->handle_type);
 		return -EINVAL;
 	}
 
@@ -47,7 +48,6 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 			CAM_ERR(CAM_FLASH,
 				"Cannot apply Acquire dev: Prev state: %d",
 				fctrl->flash_state);
-			rc = -EINVAL;
 			goto release_mutex;
 		}
 
@@ -90,8 +90,8 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 	}
 	case CAM_RELEASE_DEV: {
 		CAM_DBG(CAM_FLASH, "CAM_RELEASE_DEV");
-		if ((fctrl->flash_state == CAM_FLASH_STATE_INIT) ||
-			(fctrl->flash_state == CAM_FLASH_STATE_START)) {
+		if ((fctrl->flash_state < CAM_FLASH_STATE_ACQUIRE) ||
+        (fctrl->flash_state > CAM_FLASH_STATE_CONFIG)) {
 			CAM_WARN(CAM_FLASH,
 				"Cannot apply Release dev: Prev state:%d",
 				fctrl->flash_state);
@@ -140,8 +140,8 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 	}
 	case CAM_START_DEV: {
 		CAM_DBG(CAM_FLASH, "CAM_START_DEV");
-		if ((fctrl->flash_state == CAM_FLASH_STATE_INIT) ||
-			(fctrl->flash_state == CAM_FLASH_STATE_START)) {
+		if ((fctrl->flash_state < CAM_FLASH_STATE_ACQUIRE) ||
+        (fctrl->flash_state > CAM_FLASH_STATE_CONFIG)) {
 			CAM_WARN(CAM_FLASH,
 				"Cannot apply Start Dev: Prev state: %d",
 				fctrl->flash_state);
@@ -160,16 +160,25 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 			CAM_ERR(CAM_FLASH, "cannot apply settings rc = %d", rc);
 			goto release_mutex;
 		}
+
+#if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
+		if (fctrl->soc_info.gpio_data &&
+			fctrl->gpio_num_info &&
+			fctrl->gpio_num_info->valid[SENSOR_CUSTOM_GPIO1] == 1) {
+
+			gpio_set_value_cansleep(
+				fctrl->gpio_num_info->gpio_num[SENSOR_CUSTOM_GPIO1],
+				GPIOF_OUT_INIT_HIGH);
+		}
+#endif
 		fctrl->flash_state = CAM_FLASH_STATE_START;
 		break;
 	}
 	case CAM_STOP_DEV: {
-		CAM_DBG(CAM_FLASH, "CAM_STOP_DEV ENTER");
 		if (fctrl->flash_state != CAM_FLASH_STATE_START) {
 			CAM_WARN(CAM_FLASH,
 				"Cannot apply Stop dev: Prev state is: %d",
 				fctrl->flash_state);
-			rc = -EINVAL;
 			goto release_mutex;
 		}
 
@@ -179,6 +188,18 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 				rc);
 			goto release_mutex;
 		}
+
+#if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
+		if (fctrl->soc_info.gpio_data &&
+			fctrl->gpio_num_info &&
+			fctrl->gpio_num_info->valid[SENSOR_CUSTOM_GPIO1] == 1) {
+
+			gpio_set_value_cansleep(
+				fctrl->gpio_num_info->gpio_num[SENSOR_CUSTOM_GPIO1],
+				GPIOF_OUT_INIT_LOW);
+		}
+#endif
+
 		fctrl->flash_state = CAM_FLASH_STATE_ACQUIRE;
 		break;
 	}
@@ -377,6 +398,18 @@ static int32_t cam_flash_platform_probe(struct platform_device *pdev)
 	mutex_init(&(flash_ctrl->flash_mutex));
 	mutex_init(&(flash_ctrl->flash_wq_mutex));
 
+#if defined(CONFIG_LEDS_S2MPB02)
+	rc = msm_camera_pinctrl_init(&flash_pctrl, &pdev->dev);
+	if (rc >= 0) {
+		// make pin state to suspend
+		rc = pinctrl_select_state(flash_pctrl.pinctrl, flash_pctrl.gpio_state_suspend);
+		if (rc < 0) {
+			CAM_ERR(CAM_FLASH, "Cannot set pin to suspend state");
+			return rc;
+		}
+	}
+#endif
+
 	flash_ctrl->flash_state = CAM_FLASH_STATE_INIT;
 	CAM_DBG(CAM_FLASH, "Probe success");
 	return rc;
@@ -394,7 +427,6 @@ static struct platform_driver cam_flash_platform_driver = {
 		.name = "CAM-FLASH-DRIVER",
 		.owner = THIS_MODULE,
 		.of_match_table = cam_flash_dt_match,
-		.suppress_bind_attrs = true,
 	},
 };
 

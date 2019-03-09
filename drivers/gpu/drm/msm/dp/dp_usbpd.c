@@ -19,7 +19,11 @@
 #include <linux/delay.h>
 
 #include "dp_usbpd.h"
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include "secdp.h"
+#endif
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 /* DP specific VDM commands */
 #define DP_USBPD_VDM_STATUS	0x10
 #define DP_USBPD_VDM_CONFIGURE	0x11
@@ -76,7 +80,17 @@ struct dp_usbpd_private {
 	enum dp_usbpd_alt_mode alt_mode;
 	u32 dp_usbpd_config;
 };
+#else
+struct dp_usbpd_private {
+	bool forced_disconnect;
+	u32 vdo;
+	struct device *dev;
+	struct dp_usbpd_cb *dp_cb;
+	struct dp_usbpd dp_usbpd;
+};
+#endif
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 static const char *dp_usbpd_pin_name(u8 pin)
 {
 	switch (pin) {
@@ -428,6 +442,7 @@ static void dp_usbpd_response_cb(struct usbpd_svid_handler *hdlr, u8 cmd,
 		break;
 	}
 }
+#endif
 
 static int dp_usbpd_simulate_connect(struct dp_usbpd *dp_usbpd, bool hpd)
 {
@@ -440,20 +455,30 @@ static int dp_usbpd_simulate_connect(struct dp_usbpd *dp_usbpd, bool hpd)
 		goto error;
 	}
 
+	pr_debug("+++\n");
+
 	pd = container_of(dp_usbpd, struct dp_usbpd_private, dp_usbpd);
 
 	dp_usbpd->hpd_high = hpd;
 	pd->forced_disconnect = !hpd;
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	if (hpd)
 		pd->dp_cb->configure(pd->dev);
 	else
 		pd->dp_cb->disconnect(pd->dev);
+#else
+	if (hpd)
+		pd->dp_cb->configure();
+	else
+		pd->dp_cb->disconnect();
+#endif
 
 error:
 	return rc;
 }
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 static int dp_usbpd_simulate_attention(struct dp_usbpd *dp_usbpd, int vdo)
 {
 	int rc = 0;
@@ -528,9 +553,35 @@ struct dp_usbpd *dp_usbpd_get(struct device *dev, struct dp_usbpd_cb *cb)
 	dp_usbpd->simulate_attention = dp_usbpd_simulate_attention;
 
 	return dp_usbpd;
+
 error:
 	return ERR_PTR(rc);
 }
+#else
+struct dp_usbpd *secdp_usbpd_get(struct device *dev, struct dp_usbpd_cb *cb)
+{
+	int rc = 0;
+	struct dp_usbpd_private *usbpd;
+	struct dp_usbpd *dp_usbpd;
+
+	usbpd = devm_kzalloc(dev, sizeof(*usbpd), GFP_KERNEL);
+	if (!usbpd) {
+		rc = -ENOMEM;
+		goto error;
+	}
+
+	usbpd->dev = dev;
+	usbpd->dp_cb = cb;
+
+	dp_usbpd = &usbpd->dp_usbpd;
+	dp_usbpd->simulate_connect = dp_usbpd_simulate_connect;
+
+	return dp_usbpd;
+
+error:
+	return ERR_PTR(rc);
+}
+#endif/*CONFIG_SEC_DISPLAYPORT*/
 
 void dp_usbpd_put(struct dp_usbpd *dp_usbpd)
 {
@@ -541,7 +592,9 @@ void dp_usbpd_put(struct dp_usbpd *dp_usbpd)
 
 	usbpd = container_of(dp_usbpd, struct dp_usbpd_private, dp_usbpd);
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	usbpd_unregister_svid(usbpd->pd, &usbpd->svid_handler);
+#endif
 
 	devm_kfree(usbpd->dev, usbpd);
 }

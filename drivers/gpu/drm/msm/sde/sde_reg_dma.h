@@ -266,6 +266,7 @@ struct sde_reg_dma_kickoff_cfg {
  * @dealloc_reg_dma: de-allocate reg dma buffer
  * @reset_reg_dma_buf: reset the buffer to init state
  * @last_command: notify control that last command is queued
+ * @dump_regs: dump reg dma registers
  */
 struct sde_hw_reg_dma_ops {
 	int (*check_support)(enum sde_reg_dma_features feature,
@@ -279,6 +280,7 @@ struct sde_hw_reg_dma_ops {
 	int (*reset_reg_dma_buf)(struct sde_reg_dma_buffer *buf);
 	int (*last_command)(struct sde_hw_ctl *ctl, enum sde_reg_dma_queue q,
 			enum sde_reg_dma_last_cmd_mode mode);
+	void (*dump_regs)(void);
 };
 
 /**

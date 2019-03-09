@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,12 +16,12 @@
 #include <linux/of.h>
 #include <linux/time.h>
 #include <linux/list.h>
+#include <linux/iommu.h>
 #include <uapi/media/cam_isp.h>
 #include "cam_hw_mgr_intf.h"
 
 /* MAX IFE instance */
-#define CAM_IFE_HW_NUM_MAX   4
-#define CAM_IFE_RDI_NUM_MAX  4
+#define CAM_IFE_HW_NUM_MAX                       4
 
 /**
  *  enum cam_isp_hw_event_type - Collection of the ISP hardware events
@@ -60,29 +60,13 @@ enum cam_isp_hw_stop_cmd {
 };
 
 /**
- * struct cam_isp_stop_args - hardware stop arguments
+ * struct cam_isp_stop_hw_method - hardware stop method
  *
  * @hw_stop_cmd:               Hardware stop command type information
- * @stop_only                  Send stop only to hw drivers. No Deinit to be
- *                             done.
  *
  */
-struct cam_isp_stop_args {
+struct cam_isp_stop_hw_method {
 	enum cam_isp_hw_stop_cmd      hw_stop_cmd;
-	bool                          stop_only;
-};
-
-/**
- * struct cam_isp_start_args - isp hardware start arguments
- *
- * @config_args:               Hardware configuration commands.
- * @start_only                 Send start only to hw drivers. No init to
- *                             be done.
- *
- */
-struct cam_isp_start_args {
-	struct cam_hw_config_args     hw_config;
-	bool                          start_only;
 };
 
 /**
@@ -94,43 +78,81 @@ struct cam_isp_start_args {
  * @right_pix_vote:             Bandwidth vote for right ISP
  * @rdi_vote:                   RDI bandwidth requirements
  */
-
 struct cam_isp_bw_config_internal {
 	uint32_t                       usage_type;
 	uint32_t                       num_rdi;
 	struct cam_isp_bw_vote         left_pix_vote;
 	struct cam_isp_bw_vote         right_pix_vote;
-	struct cam_isp_bw_vote         rdi_vote[CAM_IFE_RDI_NUM_MAX];
+	struct cam_isp_bw_vote         rdi_vote[4];
+};
+
+/**
+ * struct cam_isp_pf_plane_dbg_entry - isp page fault debug plane information
+ * @plane_id: id of the current plane
+ * @width:    width of current plane
+ * @height:   height of current plane
+ * @mapped_addr: mapped address for this plane
+ * @mapped_size: mapped size for current plane
+ */
+struct cam_isp_pf_plane_dbg_entry {
+	uint32_t plane_id;
+	uint32_t width;
+	uint32_t height;
+	void    *mapped_addr;
+	void    *mapped_buf_end_addr;
+	ssize_t  mapped_total_size;
+};
+
+#define CAM_ISP_PORT_MAX 25
+
+/**
+ * struct cam_isp_pf_port_dbg_entry - is page fault debug entry for port
+ * @port_id: id of the port
+ * @format: Image format for the port
+ * @plane_map: plane informations for the port
+ */
+struct cam_isp_pf_port_dbg_entry {
+	uint32_t port_id;
+	uint32_t format;
+	uint32_t num_planes;
+	struct cam_isp_pf_plane_dbg_entry plane_map[CAM_PACKET_MAX_PLANES];
+};
+
+/**
+ * struct cam_isp_pf_handler_dbg_data - isp page fault debug data
+ * num_ports: number of ports used in request
+ * port_map: array of ports used
+ */
+struct cam_isp_pf_hander_dbg_data {
+	uint32_t num_ports;
+	struct cam_isp_pf_port_dbg_entry port_map[CAM_ISP_PORT_MAX];
 };
 
 /**
  * struct cam_isp_prepare_hw_update_data - hw prepare data
  *
  * @packet_opcode_type:     Packet header opcode in the packet header
- *                          this opcode defines, packet is init packet or
- *                          update packet
- * @bw_config:              BW config information
- * @bw_config_valid:        Flag indicating whether the bw_config at the index
- *                          is valid or not
+ *                   this opcode defines, packet is init packet or
+ *                   update packet
+ * @cam_isp_pf_debug: 	    isp smmu page fault debug data
  *
  */
 struct cam_isp_prepare_hw_update_data {
 	uint32_t                          packet_opcode_type;
 	struct cam_isp_bw_config_internal bw_config[CAM_IFE_HW_NUM_MAX];
 	bool                              bw_config_valid[CAM_IFE_HW_NUM_MAX];
+	struct cam_isp_pf_hander_dbg_data cam_isp_pf_dbg;
 };
 
 
 /**
  * struct cam_isp_hw_sof_event_data - Event payload for CAM_HW_EVENT_SOF
  *
- * @timestamp:   Time stamp for the sof event
- * @boot_time:   Boot time stamp for the sof event
+ * @timestamp:     Time stamp for the sof event
  *
  */
 struct cam_isp_hw_sof_event_data {
 	uint64_t       timestamp;
-	uint64_t       boot_time;
 };
 
 /**
@@ -196,8 +218,16 @@ enum cam_isp_hw_mgr_command {
 	CAM_ISP_HW_MGR_CMD_IS_RDI_ONLY_CONTEXT,
 	CAM_ISP_HW_MGR_CMD_PAUSE_HW,
 	CAM_ISP_HW_MGR_CMD_RESUME_HW,
-	CAM_ISP_HW_MGR_CMD_SOF_DEBUG,
+	CAM_ISP_HW_MFG_CMD_REG_PFAULT_HANDLER,
+	CAM_ISP_HW_MGR_CMD_IS_DAUL_IFE_USAGE,
+	CAM_ISP_HW_MGR_CMD_STOP_RES_IFE_OUT,
 	CAM_ISP_HW_MGR_CMD_MAX,
+};
+
+struct isp_reg_pf_handler_args {
+	void (*handler_cb)(struct iommu_domain *domain,
+		struct device *dev, unsigned long iova, int flags, void *token);
+	void *handler_arg;
 };
 
 /**
@@ -212,7 +242,8 @@ struct cam_isp_hw_cmd_args {
 	uint32_t                            cmd_type;
 	union {
 		uint32_t                      is_rdi_only_context;
-		uint32_t                      sof_irq_enable;
+		uint32_t                      is_dual_ife_usage;
+		void *arg;
 	} u;
 };
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -75,6 +75,7 @@ struct cam_ife_csid_hw_caps {
  * @cid:          cid (DT_ID) value for path, this is applicable for CSID path
  *                reserve
  * @node_res :    Reserved resource structure pointer
+ * @pixel_count:  Number of pixel resources
  *
  */
 struct cam_csid_hw_reserve_resource_args {
@@ -86,6 +87,7 @@ struct cam_csid_hw_reserve_resource_args {
 	uint32_t                                  master_idx;
 	uint32_t                                  cid;
 	struct cam_isp_resource_node             *node_res;
+	int                                       pixel_count;
 };
 
 /**
@@ -138,13 +140,12 @@ struct cam_csid_reset_cfg_args {
 /**
  * struct cam_csid_get_time_stamp_args-  time stamp capture arguments
  * @res_node :   resource to get the time stamp
- * @time_stamp_val : captured time stamp
- * @boot_timestamp : boot time stamp
+ * @ time_stamp_val : captured time stamp
+ *
  */
 struct cam_csid_get_time_stamp_args {
 	struct cam_isp_resource_node      *node_res;
 	uint64_t                           time_stamp_val;
-	uint64_t                           boot_timestamp;
 };
 
 /**
@@ -153,7 +154,6 @@ struct cam_csid_get_time_stamp_args {
 enum cam_ife_csid_cmd_type {
 	CAM_IFE_CSID_CMD_GET_TIME_STAMP,
 	CAM_IFE_CSID_SET_CSID_DEBUG,
-	CAM_IFE_CSID_SOF_IRQ_DEBUG,
 	CAM_IFE_CSID_CMD_MAX,
 };
 

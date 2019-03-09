@@ -26,6 +26,10 @@
 #include <linux/msm_hdcp.h>
 #include <linux/of.h>
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include <linux/secdp_logger.h>
+#endif
+
 #define CLASS_NAME "hdcp"
 #define DRIVER_NAME "msm_hdcp"
 

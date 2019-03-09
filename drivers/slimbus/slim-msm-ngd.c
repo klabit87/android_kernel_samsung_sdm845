@@ -1462,6 +1462,9 @@ capability_retry:
 			retries++;
 			goto capability_retry;
 		}
+#ifdef CONFIG_SLIMBUS_DEBUG
+		panic("slimbus capability exchange timed-out\n");
+#endif /* CONFIG_SLIMBUS_DEBUG */
 		return -ETIMEDOUT;
 	}
 	/* mutliple transactions waiting on slimbus to power up? */

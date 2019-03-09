@@ -39,6 +39,7 @@ Example:
 		label = "lpass";
 		cpu-affinity = <1 2>;
 		qcom,qos-config = <&glink_qos_adsp>;
+		cpu-affinity = <1 2>;
 		qcom,ramp-time = <0x10>,
 				     <0x20>,
 				     <0x30>,

@@ -49,6 +49,14 @@ config SCSI_UFSHCD
 	  However, do not compile this as a module if your root file system
 	  (the one containing the directory /) is located on a UFS device.
 
+config UFS_UN_20DIGITS
+	bool "The digits of SEC unique number"
+	default y
+	depends on SCSI_UFSHCD
+	---help---
+	This select is to support 20Digit UN.
+	  20 Digit is default.
+
 config SCSI_UFSHCD_PCI
 	tristate "PCI bus based UFS Controller support"
 	depends on SCSI_UFSHCD && PCI
@@ -104,6 +112,19 @@ config SCSI_UFS_QCOM_ICE
 	  Select this if you have ICE supported for UFS on QCOM chipset.
 	  If unsure, say N.
 
+config UFS_DATA_LOG
+	bool "Samsung UFS DATA logging"
+	depends on SCSI_UFSHCD && SCSI_UFSHCD_PLATFORM
+	help
+	  This feature support for UFS Data logging.
+	  Select this option if this feature is needed on working.
+
+config UFS_DATA_LOG_MAGIC_CODE
+	bool "Samsung UFS DATA logging include Magic Code"
+	depends on SCSI_UFSHCD && SCSI_UFSHCD_PLATFORM && UFS_DATA_LOG
+	help
+	  This feature support for UFS Data logging include magic code.
+	  Select this option if this feature is needed on working.
 
 config SCSI_UFS_TEST
 	tristate "Universal Flash Storage host controller driver unit-tests"

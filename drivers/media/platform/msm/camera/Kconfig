@@ -1,0 +1,83 @@
+config SAMSUNG_OIS_RUMBA_S4
+        tristate "External RUMBA S4 ois support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for external ois module.
+
+config SAMSUNG_OIS_RUMBA_S6
+        tristate "External RUMBA S6 ois support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for external ois module.
+	
+config SAMSUNG_OIS_MCU_STM32
+        tristate "External ois MCU STM32 support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for external ois module.
+
+config SAMSUNG_MULTI_CAMERA
+	tristate "Multi camera support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for multi camera.
+
+config CAMERA_SYSFS_V2
+	bool "CAMERA SYS"
+	depends on SPECTRA_CAMERA
+	---help---
+	Enable support CAMERA SYS.
+
+config SAMSUNG_FRONT_EEPROM
+	tristate "Front eeprom support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for front eeprom
+
+config SAMSUNG_SECURE_CAMERA
+	tristate "Secure camera support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for secure camera
+
+config CAMERA_DYNAMIC_MIPI
+	tristate "Multi camera support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for dynamic mipi clock
+
+config CAMERA_FRS_DRAM_TEST
+	tristate "Rear camera support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for FRS DRAM test
+
+config USE_CAMERA_HW_BIG_DATA
+	bool "CAMERA HW SYS"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	CAMERA HW SYS.
+
+config FLASH_CURRENT_JAPAN
+	tristate "flash current for jpn"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for JPN
+	
+config CAMERA_SSM_I2C_ENV
+	tristate "Rear camera support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for SSM I2C test
+

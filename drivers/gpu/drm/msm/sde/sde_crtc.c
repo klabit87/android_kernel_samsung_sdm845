@@ -1789,10 +1789,55 @@ static void _sde_crtc_blend_setup(struct drm_crtc *crtc,
 	_sde_crtc_program_lm_output_roi(crtc);
 }
 
-static int _sde_crtc_find_plane_fb_modes(struct drm_crtc_state *state,
-		uint32_t *fb_ns,
-		uint32_t *fb_sec,
-		uint32_t *fb_sec_dir)
+int sde_crtc_find_plane_fb_modes(struct drm_crtc *crtc,
+		uint32_t *fb_ns, uint32_t *fb_sec, uint32_t *fb_sec_dir)
+{
+	struct drm_plane *plane;
+	struct sde_plane_state *sde_pstate;
+	uint32_t mode = 0;
+	int rc;
+
+	if (!crtc) {
+		SDE_ERROR("invalid state\n");
+		return -EINVAL;
+	}
+
+	*fb_ns = 0;
+	*fb_sec = 0;
+	*fb_sec_dir = 0;
+	drm_atomic_crtc_for_each_plane(plane, crtc) {
+		if (IS_ERR_OR_NULL(plane) || IS_ERR_OR_NULL(plane->state)) {
+			rc = PTR_ERR(plane);
+			SDE_ERROR("crtc%d failed to get plane%d state%d\n",
+					DRMID(crtc), DRMID(plane), rc);
+			return rc;
+		}
+		sde_pstate = to_sde_plane_state(plane->state);
+		mode = sde_plane_get_property(sde_pstate,
+				PLANE_PROP_FB_TRANSLATION_MODE);
+
+		switch (mode) {
+		case SDE_DRM_FB_NON_SEC:
+			(*fb_ns)++;
+			break;
+		case SDE_DRM_FB_SEC:
+			(*fb_sec)++;
+			break;
+		case SDE_DRM_FB_SEC_DIR_TRANS:
+			(*fb_sec_dir)++;
+			break;
+		default:
+			SDE_ERROR("Error: Plane[%d], fb_trans_mode:%d",
+					DRMID(plane), mode);
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+int sde_crtc_state_find_plane_fb_modes(struct drm_crtc_state *state,
+		uint32_t *fb_ns, uint32_t *fb_sec, uint32_t *fb_sec_dir)
+
 {
 	struct drm_plane *plane;
 	const struct drm_plane_state *pstate;
@@ -1812,13 +1857,13 @@ static int _sde_crtc_find_plane_fb_modes(struct drm_crtc_state *state,
 		if (IS_ERR_OR_NULL(pstate)) {
 			rc = PTR_ERR(pstate);
 			SDE_ERROR("crtc%d failed to get plane%d state%d\n",
-					state->crtc->base.id,
-					plane->base.id, rc);
+				DRMID(state->crtc), DRMID(plane), rc);
 			return rc;
 		}
 		sde_pstate = to_sde_plane_state(pstate);
 		mode = sde_plane_get_property(sde_pstate,
 				PLANE_PROP_FB_TRANSLATION_MODE);
+
 		switch (mode) {
 		case SDE_DRM_FB_NON_SEC:
 			(*fb_ns)++;
@@ -1831,7 +1876,7 @@ static int _sde_crtc_find_plane_fb_modes(struct drm_crtc_state *state,
 			break;
 		default:
 			SDE_ERROR("Error: Plane[%d], fb_trans_mode:%d",
-					plane->base.id, mode);
+					DRMID(plane), mode);
 			return -EINVAL;
 		}
 	}
@@ -2238,6 +2283,7 @@ static void sde_crtc_frame_event_cb(void *data, u32 event)
 	fevent->crtc = crtc;
 	fevent->connector = cb_data->connector;
 	fevent->ts = ktime_get();
+	SDE_EVT32(DRMID(crtc), fevent->event, SDE_EVTLOG_FUNC_ENTRY);
 	kthread_queue_work(&priv->event_thread[crtc_id].worker, &fevent->work);
 }
 
@@ -2407,7 +2453,7 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 	SDE_DEBUG("crtc%d event:%u ts:%lld\n", crtc->base.id, fevent->event,
 			ktime_to_ns(fevent->ts));
 
-	SDE_EVT32_VERBOSE(DRMID(crtc), fevent->event, SDE_EVTLOG_FUNC_ENTRY);
+	SDE_EVT32(DRMID(crtc), fevent->event, SDE_EVTLOG_FUNC_ENTRY);
 
 	in_clone_mode = sde_encoder_in_clone_mode(fevent->connector->encoder);
 
@@ -2431,24 +2477,29 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 							SDE_EVTLOG_FUNC_CASE2);
 			sde_core_perf_crtc_release_bw(crtc);
 		} else {
-			SDE_EVT32_VERBOSE(DRMID(crtc), fevent->event,
+			SDE_EVT32(DRMID(crtc), fevent->event,
 							SDE_EVTLOG_FUNC_CASE3);
 		}
 	}
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_SIGNAL_RELEASE_FENCE) {
 		SDE_ATRACE_BEGIN("signal_release_fence");
+		SDE_EVT32(DRMID(crtc), fevent->event, 0x1abcd);
 		sde_fence_signal(&sde_crtc->output_fence, fevent->ts,
 				(fevent->event & SDE_ENCODER_FRAME_EVENT_ERROR)
 				? SDE_FENCE_SIGNAL_ERROR : SDE_FENCE_SIGNAL);
+		SDE_EVT32(DRMID(crtc), fevent->event, 0x2abcd);
 		SDE_ATRACE_END("signal_release_fence");
 	}
 
-	if (fevent->event & SDE_ENCODER_FRAME_EVENT_SIGNAL_RETIRE_FENCE)
-		/* this api should be called without spin_lock */
+	if (fevent->event & SDE_ENCODER_FRAME_EVENT_SIGNAL_RETIRE_FENCE) {
+		SDE_EVT32(DRMID(crtc), fevent->event, 0x3abcd);
+		/* this api should be called without spin_lock.??? */
 		_sde_crtc_retire_event(fevent->connector, fevent->ts,
 				(fevent->event & SDE_ENCODER_FRAME_EVENT_ERROR)
 				? SDE_FENCE_SIGNAL_ERROR : SDE_FENCE_SIGNAL);
+		SDE_EVT32(DRMID(crtc), fevent->event, 0x4abcd);
+	}
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_PANEL_DEAD)
 		SDE_ERROR("crtc%d ts:%lld received panel dead event\n",
@@ -2489,6 +2540,12 @@ static void _sde_crtc_set_input_fence_timeout(struct sde_crtc_state *cstate)
 	cstate->input_fence_timeout_ns =
 		sde_crtc_get_property(cstate, CRTC_PROP_INPUT_FENCE_TIMEOUT);
 	cstate->input_fence_timeout_ns *= NSEC_PER_MSEC;
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	/* Increase fence timeout value to 20 sec (case 03381402 / P180412-02009) */
+	cstate->input_fence_timeout_ns *= 2;
+	pr_err("input_fence_timeout_ns %llu \n ", cstate->input_fence_timeout_ns);
+#endif
+
 }
 
 /**
@@ -4153,7 +4210,7 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	struct sde_crtc_irq_info *node = NULL;
 	struct drm_event event;
 	u32 power_on;
-	int ret, i;
+	int ret, i, blank;
 
 	if (!crtc || !crtc->dev || !crtc->dev->dev_private || !crtc->state) {
 		SDE_ERROR("invalid crtc\n");
@@ -4275,6 +4332,12 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	cstate->bw_split_vote = false;
 
 	mutex_unlock(&sde_crtc->crtc_lock);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	/* notify registered clients about suspend event */
+	blank = FB_BLANK_POWERDOWN;
+	__msm_drm_notifier_call_chain(FB_EVENT_BLANK, &blank);
+#endif
 }
 
 static void sde_crtc_enable(struct drm_crtc *crtc)
@@ -4288,6 +4351,10 @@ static void sde_crtc_enable(struct drm_crtc *crtc)
 	u32 power_on;
 	int ret, i;
 	struct sde_crtc_state *cstate;
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	int blank;
+#endif
 
 	if (!crtc || !crtc->dev || !crtc->dev->dev_private) {
 		SDE_ERROR("invalid crtc\n");
@@ -4367,6 +4434,12 @@ static void sde_crtc_enable(struct drm_crtc *crtc)
 	/* Enable ESD thread */
 	for (i = 0; i < cstate->num_connectors; i++)
 		sde_connector_schedule_status_work(cstate->connectors[i], true);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	/* notify registered clients about resume event */
+	blank = FB_BLANK_UNBLANK;
+	__msm_drm_notifier_call_chain(FB_EVENT_BLANK, &blank);
+#endif
 }
 
 struct plane_state {
@@ -4474,7 +4547,8 @@ static int _sde_crtc_check_secure_state(struct drm_crtc *crtc,
 
 	secure = sde_crtc_get_property(cstate, CRTC_PROP_SECURITY_LEVEL);
 
-	rc = _sde_crtc_find_plane_fb_modes(state, &fb_ns, &fb_sec, &fb_sec_dir);
+	rc = sde_crtc_state_find_plane_fb_modes(state, &fb_ns,
+					&fb_sec, &fb_sec_dir);	
 	if (rc)
 		return rc;
 

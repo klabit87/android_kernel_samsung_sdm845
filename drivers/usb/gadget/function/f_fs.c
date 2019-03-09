@@ -24,7 +24,6 @@
 #include <linux/hid.h>
 #include <linux/module.h>
 #include <linux/uio.h>
-#include <linux/ipc_logging.h>
 #include <asm/unaligned.h>
 
 #include <linux/usb/composite.h>
@@ -42,6 +41,9 @@
 
 #define FUNCTIONFS_MAGIC	0xa647361 /* Chosen by a honest dice roll ;) */
 
+#ifdef CONFIG_USB_FFS_IPC_LOGGING
+#include <linux/ipc_logging.h>
+
 #define NUM_PAGES	10 /* # of pages for ipc logging */
 
 static void *ffs_ipc_log;
@@ -50,6 +52,9 @@ static void *ffs_ipc_log;
 			##__VA_ARGS__); \
 	pr_debug("%s: " fmt, __func__, ##__VA_ARGS__); \
 } while (0)
+#else
+#define ffs_log(fmt, ...) do { } while (0)
+#endif
 
 /* Reference counter handling */
 static void ffs_data_get(struct ffs_data *ffs);
@@ -168,7 +173,7 @@ struct ffs_epfile {
 
 	/*
 	 * Buffer for holding data from partial reads which may happen since
-	 * we’re rounding user read requests to a multiple of a max packet size.
+	 * we?�re rounding user read requests to a multiple of a max packet size.
 	 *
 	 * The pointer is initialised with NULL value and may be set by
 	 * __ffs_epfile_read_data function to point to a temporary buffer.
@@ -192,34 +197,33 @@ struct ffs_epfile {
 	 *
 	 * == State transitions ==
 	 *
-	 * • ptr == NULL:  (initial state)
-	 *   ◦ __ffs_epfile_read_buffer_free: go to ptr == DROP
-	 *   ◦ __ffs_epfile_read_buffered:    nop
-	 *   ◦ __ffs_epfile_read_data allocates temp buffer: go to ptr == buf
-	 *   ◦ reading finishes:              n/a, not in ‘and reading’ state
-	 * • ptr == DROP:
-	 *   ◦ __ffs_epfile_read_buffer_free: nop
-	 *   ◦ __ffs_epfile_read_buffered:    go to ptr == NULL
-	 *   ◦ __ffs_epfile_read_data allocates temp buffer: free buf, nop
-	 *   ◦ reading finishes:              n/a, not in ‘and reading’ state
-	 * • ptr == buf:
-	 *   ◦ __ffs_epfile_read_buffer_free: free buf, go to ptr == DROP
-	 *   ◦ __ffs_epfile_read_buffered:    go to ptr == NULL and reading
-	 *   ◦ __ffs_epfile_read_data:        n/a, __ffs_epfile_read_buffered
+	 * ??ptr == NULL:  (initial state)
+	 *   ??__ffs_epfile_read_buffer_free: go to ptr == DROP
+	 *   ??__ffs_epfile_read_buffered:    nop
+	 *   ??__ffs_epfile_read_data allocates temp buffer: go to ptr == buf
+	 *   ??reading finishes:              n/a, not in ?�and reading??state
+	 * ??ptr == DROP:
+	 *   ??__ffs_epfile_read_buffer_free: nop
+	 *   ??__ffs_epfile_read_buffered:    go to ptr == NULL
+	 *   ??__ffs_epfile_read_data allocates temp buffer: free buf, nop
+	 *   ??reading finishes:              n/a, not in ?�and reading??state
+	 * ??ptr == buf:
+	 *   ??__ffs_epfile_read_buffer_free: free buf, go to ptr == DROP
+	 *   ??__ffs_epfile_read_buffered:    go to ptr == NULL and reading
+	 *   ??__ffs_epfile_read_data:        n/a, __ffs_epfile_read_buffered
 	 *                                    is always called first
-	 *   ◦ reading finishes:              n/a, not in ‘and reading’ state
-	 * • ptr == NULL and reading:
-	 *   ◦ __ffs_epfile_read_buffer_free: go to ptr == DROP and reading
-	 *   ◦ __ffs_epfile_read_buffered:    n/a, mutex is held
-	 *   ◦ __ffs_epfile_read_data:        n/a, mutex is held
-	 *   ◦ reading finishes and …
-	 *     … all data read:               free buf, go to ptr == NULL
-	 *     … otherwise:                   go to ptr == buf and reading
-	 * • ptr == DROP and reading:
-	 *   ◦ __ffs_epfile_read_buffer_free: nop
-	 *   ◦ __ffs_epfile_read_buffered:    n/a, mutex is held
-	 *   ◦ __ffs_epfile_read_data:        n/a, mutex is held
-	 *   ◦ reading finishes:              free buf, go to ptr == DROP
+	 *   ??reading finishes:              n/a, not in ?�and reading??state
+	 * ??ptr == NULL and reading:
+	 *   ??__ffs_epfile_read_buffer_free: go to ptr == DROP and reading
+	 *   ??__ffs_epfile_read_buffered:    n/a, mutex is held
+	 *   ??__ffs_epfile_read_data:        n/a, mutex is held
+	 *   ??reading finishes and ??	 *     ??all data read:               free buf, go to ptr == NULL
+	 *     ??otherwise:                   go to ptr == buf and reading
+	 * ??ptr == DROP and reading:
+	 *   ??__ffs_epfile_read_buffer_free: nop
+	 *   ??__ffs_epfile_read_buffered:    n/a, mutex is held
+	 *   ??__ffs_epfile_read_data:        n/a, mutex is held
+	 *   ??reading finishes:              free buf, go to ptr == DROP
 	 */
 	struct ffs_buffer		*read_buffer;
 #define READ_BUFFER_DROP ((struct ffs_buffer *)ERR_PTR(-ESHUTDOWN))
@@ -838,7 +842,7 @@ static ssize_t ffs_copy_to_iter(void *data, int data_len, struct iov_iter *iter)
 	 * internally uses a larger, aligned buffer so that such UDCs are happy.
 	 *
 	 * Unfortunately, this means that host may send more data than was
-	 * requested in read(2) system call.  f_fs doesn’t know what to do with
+	 * requested in read(2) system call.  f_fs doesn?�t know what to do with
 	 * that excess data so it simply drops it.
 	 *
 	 * Was the buffer aligned in the first place, no such problem would
@@ -846,7 +850,7 @@ static ssize_t ffs_copy_to_iter(void *data, int data_len, struct iov_iter *iter)
 	 *
 	 * Data may be dropped only in AIO reads.  Synchronous reads are handled
 	 * by splitting a request into multiple parts.  This splitting may still
-	 * be a problem though so it’s likely best to align the buffer
+	 * be a problem though so it?�s likely best to align the buffer
 	 * regardless of it being AIO or not..
 	 *
 	 * This only affects OUT endpoints, i.e. reading data with a read(2),
@@ -1063,7 +1067,7 @@ static ssize_t ffs_epfile_io(struct file *file, struct ffs_io_data *io_data)
 		/*
 		 * Do we have buffered data from previous partial read?  Check
 		 * that for synchronous case only because we do not have
-		 * facility to ‘wake up’ a pending asynchronous read and push
+		 * facility to ?�wake up??a pending asynchronous read and push
 		 * buffered data to it which we would need to make things behave
 		 * consistently.
 		 */
@@ -1838,11 +1842,12 @@ static int functionfs_init(void)
 		pr_info("file system registered\n");
 	else
 		pr_err("failed registering file system (%d)\n", ret);
-
+#ifdef CONFIG_USB_FFS_IPC_LOGGING
 	ffs_ipc_log = ipc_log_context_create(NUM_PAGES, "f_fs", 0);
 	if (IS_ERR_OR_NULL(ffs_ipc_log))
 		ffs_ipc_log =  NULL;
 
+#endif
 	return ret;
 }
 
@@ -1852,11 +1857,12 @@ static void functionfs_cleanup(void)
 
 	pr_info("unloading\n");
 	unregister_filesystem(&ffs_fs_type);
-
+#ifdef CONFIG_USB_FFS_IPC_LOGGING
 	if (ffs_ipc_log) {
 		ipc_log_context_destroy(ffs_ipc_log);
 		ffs_ipc_log = NULL;
 	}
+#endif
 }
 
 

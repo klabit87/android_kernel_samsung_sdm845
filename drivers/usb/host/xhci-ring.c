@@ -339,8 +339,11 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 	 * CRR negated in a timely manner, then it should assume
 	 * that the there are larger problems with the xHC and assert HCRST.
 	 */
+#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
+	spin_unlock_irqrestore(&xhci->lock, flags);
+#endif
 	ret = xhci_handshake_check_state(xhci, &xhci->op_regs->cmd_ring,
-			CMD_RING_RUNNING, 0, 1000 * 1000);
+			CMD_RING_RUNNING, 0, 5 * 100 * 1000);
 	if (ret < 0) {
 		xhci_err(xhci,
 			 "Stop command ring failed, maybe the host is dead\n");
@@ -354,13 +357,17 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 	 * but the completion event in never sent. Wait 2 secs (arbitrary
 	 * number) to handle those cases after negation of CMD_RING_RUNNING.
 	 */
+#if !defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
 	spin_unlock_irqrestore(&xhci->lock, flags);
+#endif
 	ret = wait_for_completion_timeout(&xhci->cmd_ring_stop_completion,
 					  msecs_to_jiffies(2000));
 	spin_lock_irqsave(&xhci->lock, flags);
 	if (!ret) {
 		xhci_dbg(xhci, "No stop event for abort, ring start fail?\n");
+		cancel_delayed_work(&xhci->cmd_timer);
 		xhci_cleanup_command_queue(xhci);
+		xhci->current_cmd = NULL;
 	} else {
 		xhci_handle_stopped_cmd_ring(xhci, xhci_next_queued_cmd(xhci));
 	}
@@ -1294,7 +1301,8 @@ void xhci_handle_command_timeout(struct work_struct *work)
 			xhci_err(xhci, "Abort command ring failed\n");
 			xhci_cleanup_command_queue(xhci);
 			spin_unlock_irqrestore(&xhci->lock, flags);
-			usb_hc_died(xhci_to_hcd(xhci)->primary_hcd);
+			if (!(xhci->xhc_state & XHCI_STATE_REMOVING))
+				usb_hc_died(xhci_to_hcd(xhci)->primary_hcd);
 			xhci_dbg(xhci, "xHCI host controller is dead.\n");
 
 			return;

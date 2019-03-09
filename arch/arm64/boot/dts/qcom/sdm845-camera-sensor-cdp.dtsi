@@ -61,7 +61,7 @@
 		regulator-enable-ramp-delay = <100>;
 		enable-active-high;
 		gpio = <&tlmm 27 0>;
-		vin-supply = <&pmi8998_bob>;
+		/* vin-supply = <&pmi8998_bob>; */
 	};
 
 	camera_rear_ldo: gpio-regulator@1 {
@@ -161,7 +161,7 @@
 		reg = <0>;
 		compatible = "qcom,eeprom";
 		cam_vio-supply = <&pm8998_lvs1>;
-		cam_vana-supply = <&pmi8998_bob>;
+		/* cam_vana-supply = <&pmi8998_bob>; */
 		cam_vdig-supply = <&camera_rear_ldo>;
 		cam_clk-supply = <&titan_top_gdsc>;
 		cam_vaf-supply = <&actuator_regulator>;
@@ -203,7 +203,7 @@
 		compatible = "qcom,eeprom";
 		cam_vdig-supply = <&camera_ldo>;
 		cam_vio-supply = <&pm8998_lvs1>;
-		cam_vana-supply = <&pmi8998_bob>;
+		/* cam_vana-supply = <&pmi8998_bob>; */
 		cam_clk-supply = <&titan_top_gdsc>;
 		cam_vaf-supply = <&actuator_regulator>;
 		regulator-names = "cam_vdig", "cam_vio", "cam_vana",
@@ -243,7 +243,7 @@
 		reg = <0x2>;
 		compatible = "qcom,eeprom";
 		cam_vio-supply = <&pm8998_lvs1>;
-		cam_vana-supply = <&pmi8998_bob>;
+		/* cam_vana-supply = <&pmi8998_bob>; */
 		cam_vdig-supply = <&camera_ldo>;
 		cam_clk-supply = <&titan_top_gdsc>;
 		cam_vaf-supply = <&actuator_regulator>;
@@ -292,7 +292,7 @@
 		ois-src = <&ois_rear>;
 		eeprom-src = <&eeprom_rear>;
 		cam_vio-supply = <&pm8998_lvs1>;
-		cam_vana-supply = <&pmi8998_bob>;
+		/* cam_vana-supply = <&pmi8998_bob>; */
 		cam_vdig-supply = <&camera_rear_ldo>;
 		cam_clk-supply = <&titan_top_gdsc>;
 		regulator-names = "cam_vio", "cam_vana", "cam_vdig",
@@ -339,7 +339,7 @@
 		eeprom-src = <&eeprom_rear_aux>;
 		cam_vdig-supply = <&camera_ldo>;
 		cam_vio-supply = <&pm8998_lvs1>;
-		cam_vana-supply = <&pmi8998_bob>;
+		/* cam_vana-supply = <&pmi8998_bob>; */
 		cam_clk-supply = <&titan_top_gdsc>;
 		regulator-names = "cam_vdig", "cam_vio", "cam_vana",
 			"cam_clk";
@@ -384,7 +384,7 @@
 		actuator-src = <&actuator_front>;
 		led-flash-src = <&led_flash_front>;
 		cam_vio-supply = <&pm8998_lvs1>;
-		cam_vana-supply = <&pmi8998_bob>;
+		/* cam_vana-supply = <&pmi8998_bob>; */
 		cam_vdig-supply = <&camera_ldo>;
 		cam_clk-supply = <&titan_top_gdsc>;
 		regulator-names = "cam_vio", "cam_vana", "cam_vdig",

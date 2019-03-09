@@ -83,7 +83,10 @@ int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		bio = next_bio(bio, 1, gfp_mask);
 		bio->bi_iter.bi_sector = sector;
 		bio->bi_bdev = bdev;
-		bio_set_op_attrs(bio, op, 0);
+		if (flags & BLKDEV_DISCARD_SYNC)
+			bio_set_op_attrs(bio, op, REQ_SYNC);
+		else
+			bio_set_op_attrs(bio, op, 0);
 
 		bio->bi_iter.bi_size = req_sects << 9;
 		nr_sects -= req_sects;

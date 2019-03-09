@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -162,6 +162,8 @@ static int32_t cam_sensor_driver_i2c_probe(struct i2c_client *client,
 	s_ctrl->of_node = client->dev.of_node;
 	s_ctrl->io_master_info.master_type = I2C_MASTER;
 	s_ctrl->is_probe_succeed = 0;
+	s_ctrl->streamon_count = 0;
+	s_ctrl->streamoff_count = 0;
 
 	rc = cam_sensor_parse_dt(s_ctrl);
 	if (rc < 0) {
@@ -208,19 +210,13 @@ free_s_ctrl:
 
 static int cam_sensor_platform_remove(struct platform_device *pdev)
 {
-	int                        i;
 	struct cam_sensor_ctrl_t  *s_ctrl;
-	struct cam_hw_soc_info    *soc_info;
 
 	s_ctrl = platform_get_drvdata(pdev);
 	if (!s_ctrl) {
 		CAM_ERR(CAM_SENSOR, "sensor device is NULL");
 		return 0;
 	}
-
-	soc_info = &s_ctrl->soc_info;
-	for (i = 0; i < soc_info->num_clk; i++)
-		devm_clk_put(soc_info->dev, soc_info->clk[i]);
 
 	kfree(s_ctrl->i2c_data.per_frame);
 	devm_kfree(&pdev->dev, s_ctrl);
@@ -230,18 +226,12 @@ static int cam_sensor_platform_remove(struct platform_device *pdev)
 
 static int cam_sensor_driver_i2c_remove(struct i2c_client *client)
 {
-	int                        i;
 	struct cam_sensor_ctrl_t  *s_ctrl = i2c_get_clientdata(client);
-	struct cam_hw_soc_info    *soc_info;
 
 	if (!s_ctrl) {
 		CAM_ERR(CAM_SENSOR, "sensor device is NULL");
 		return 0;
 	}
-
-	soc_info = &s_ctrl->soc_info;
-	for (i = 0; i < soc_info->num_clk; i++)
-		devm_clk_put(soc_info->dev, soc_info->clk[i]);
 
 	kfree(s_ctrl->i2c_data.per_frame);
 	kfree(s_ctrl);
@@ -339,7 +329,6 @@ static struct platform_driver cam_sensor_platform_driver = {
 		.name = "qcom,camera",
 		.owner = THIS_MODULE,
 		.of_match_table = cam_sensor_driver_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.remove = cam_sensor_platform_remove,
 };
@@ -355,6 +344,8 @@ static struct i2c_driver cam_sensor_driver_i2c = {
 	.remove = cam_sensor_driver_i2c_remove,
 	.driver = {
 		.name = SENSOR_DRIVER_I2C,
+		.owner = THIS_MODULE,
+		.of_match_table = cam_sensor_driver_dt_match,
 	},
 };
 

@@ -390,6 +390,14 @@ Optional properties:
 				control register. Number of offsets defined should
 				match the number of xin-ids defined in
 				property: qcom,sde-inline-rot-xin
+- qcom,sde-mixer-display-pref:  A string array indicating the preferred display type
+				for the mixer block. Possible values:
+				"primary" - preferred for primary display
+				"none" - no preference on display
+- qcom,sde-ctl-display-pref:    A string array indicating the preferred display type
+                                for the ctl block. Possible values:
+				"primary" - preferred for primary display
+				"none" - no preference on display
 - #power-domain-cells:		Number of cells in a power-domain specifier and should contain 0.
 - qcom,sde-mixer-display-pref:  A string array indicating the preferred display type
 				for the mixer block. Possible values:

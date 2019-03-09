@@ -29,6 +29,9 @@
 #include <linux/of_platform.h>
 #include <linux/pm_opp.h>
 #include <linux/regulator/consumer.h>
+#include <trace/events/power.h>
+
+#include <linux/sec_debug.h>
 
 #include "clk.h"
 
@@ -1811,6 +1814,8 @@ static int clk_change_rate(struct clk_core *core)
 	}
 
 	trace_clk_set_rate(core, core->new_rate);
+	sec_debug_clock_rate_log(core->name, core->new_rate,
+				 raw_smp_processor_id());
 
 	/* Enforce vdd requirements for new frequency. */
 	if (core->prepare_count) {
@@ -1847,6 +1852,8 @@ static int clk_change_rate(struct clk_core *core)
 	}
 
 	trace_clk_set_rate_complete(core, core->new_rate);
+	sec_debug_clock_rate_complete_log(core->name, core->new_rate,
+					  raw_smp_processor_id());
 
 	/* Release vdd requirements for old frequency. */
 	if (core->prepare_count)
@@ -1978,6 +1985,8 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 	/* prevent racing with updates to the clock topology */
 	clk_prepare_lock();
 
+	/* temporary comment out to avoid build error */
+	/* trace_clock_set_rate(clk->core->name, rate, raw_smp_processor_id()); */
 	ret = clk_core_set_rate_nolock(clk->core, rate);
 
 	clk_prepare_unlock();
@@ -2365,7 +2374,7 @@ EXPORT_SYMBOL_GPL(clk_list_frequency);
 
 static struct dentry *rootdir;
 static int inited = 0;
-static u32 debug_suspend;
+static u32 debug_suspend = 1;
 static DEFINE_MUTEX(clk_debug_lock);
 static HLIST_HEAD(clk_debug_list);
 

@@ -23,6 +23,7 @@
 #include <asm/compiler.h>
 
 #include <soc/qcom/scm.h>
+#include <linux/sec_debug.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/scm.h>
@@ -298,9 +299,14 @@ static int scm_call_common(u32 svc_id, u32 cmd_id, const void *cmd_buf,
 	if (cmd_buf)
 		memcpy(scm_get_command_buffer(scm_buf), cmd_buf, cmd_len);
 
+	sec_debug_secure_log(svc_id, cmd_id);
+
 	mutex_lock(&scm_lock);
 	ret = __scm_call(scm_buf);
 	mutex_unlock(&scm_lock);
+
+	sec_debug_secure_log(svc_id, cmd_id);
+
 	if (ret)
 		return ret;
 

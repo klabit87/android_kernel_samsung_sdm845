@@ -8,6 +8,11 @@
 struct timerqueue_node {
 	struct rb_node node;
 	ktime_t expires;
+#ifdef CONFIG_SEC_PM_DEBUG
+	pid_t pid;
+	char task_comm[16];
+	void *func;
+#endif /* CONFIG_SEC_PM_DEBUG */
 };
 
 struct timerqueue_head {

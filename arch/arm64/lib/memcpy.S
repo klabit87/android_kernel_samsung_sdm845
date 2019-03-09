@@ -70,6 +70,9 @@
 
 	.weak memcpy
 ENTRY(__memcpy)
+#ifdef CONFIG_RKP_CFP_JOPP
+FALLTHROUGH(memcpy)
+#endif
 ENTRY(memcpy)
 #include "copy_template.S"
 	ret

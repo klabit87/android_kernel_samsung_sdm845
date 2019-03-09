@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,27 @@
 #include "cam_debug_util.h"
 
 static struct cam_isp_dev g_isp_dev;
+
+static void cam_isp_iommu_fault_handler(struct iommu_domain *domain,
+		struct device *dev, unsigned long iova, int flags, void *token)
+{
+	int i = 0;
+	struct cam_node *node = NULL;
+	if(!token) {
+		CAM_ERR(CAM_ISP,"invalid token in page handler cb");
+		return;
+	}
+
+	node = (struct cam_node *)token;
+	CAM_ERR(CAM_ISP,"------------------isp smmu fault handler data dump start-----------------------------");
+	CAM_ERR(CAM_ISP,"Page fault occured while access address %lx\n",iova);
+	for(i = 0; i < node->ctx_size; i++) {
+		if(node->ctx_list[i].state == CAM_CTX_ACTIVATED)
+			cam_isp_context_dump_active_request(node->ctx_list[i].ctx_priv);
+	}
+	CAM_ERR(CAM_ISP,"------------------isp smmu fault handler data dump end -----------------------------");
+}
+
 
 static const struct of_device_id cam_isp_dt_match[] = {
 	{
@@ -82,6 +103,8 @@ static int cam_isp_dev_probe(struct platform_device *pdev)
 	int i;
 	struct cam_hw_mgr_intf         hw_mgr_intf;
 	struct cam_node               *node;
+	struct cam_isp_hw_cmd_args       hw_cmd_args;
+	struct isp_reg_pf_handler_args   isp_reg_pf_handler_args;
 
 	g_isp_dev.sd.internal_ops = &cam_isp_subdev_internal_ops;
 	/* Initialze the v4l2 subdevice first. (create cam_node) */
@@ -119,6 +142,17 @@ static int cam_isp_dev_probe(struct platform_device *pdev)
 		goto unregister;
 	}
 
+	hw_cmd_args.cmd_type = CAM_ISP_HW_MFG_CMD_REG_PFAULT_HANDLER;
+	isp_reg_pf_handler_args.handler_cb = cam_isp_iommu_fault_handler;
+	isp_reg_pf_handler_args.handler_arg = node;
+	hw_cmd_args.u.arg = &isp_reg_pf_handler_args;
+
+	rc = node->hw_mgr_intf.hw_cmd(node->hw_mgr_intf.hw_mgr_priv,&hw_cmd_args);
+	if(rc) {
+		CAM_ERR(CAM_ISP,"HW command register page fault handler failed\n");
+		goto unregister;
+	}
+
 	CAM_INFO(CAM_ISP, "Camera ISP probe complete");
 
 	return 0;
@@ -136,7 +170,6 @@ static struct platform_driver isp_driver = {
 		.name = "cam_isp",
 		.owner = THIS_MODULE,
 		.of_match_table = cam_isp_dt_match,
-		.suppress_bind_attrs = true,
 	},
 };
 

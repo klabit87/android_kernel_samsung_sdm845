@@ -694,11 +694,116 @@ static void pmic_gpio_config_dbg_show(struct pinctrl_dev *pctldev,
 	}
 }
 
+#if defined(CONFIG_SEC_PM)
+static void pmic_gpio_sec_dbg_show(struct pinctrl_dev *pctldev,
+				      struct seq_file *s)
+{
+	struct pmic_gpio_state *state = pinctrl_dev_get_drvdata(pctldev);
+	struct pmic_gpio_pad *pad;
+	int val, i, ret, function;
+
+	static const char *const biases[] = {
+		"PU30", "PU1.5", "PU31.5",
+		"PU_BST", "PD10", "NP"
+	};
+	static const char *const strengths[] = {
+		"no", "high", "medium", "low"
+	};
+
+	for (i = 0; i < state->chip.ngpio; i++) {
+		pad = pctldev->desc->pins[i].drv_data;
+		seq_printf(s, " gpio%-2d:", pad->gpio_idx);
+		val = pmic_gpio_read(state, pad, PMIC_GPIO_REG_EN_CTL);
+		if (val < 0 || !(val >> PMIC_GPIO_REG_MASTER_EN_SHIFT)) {
+			seq_puts(s, " ---");
+		} else {
+			if (pad->input_enabled) {
+				ret = pmic_gpio_read(state, pad, PMIC_MPP_REG_RT_STS);
+				if (ret < 0)
+					continue;
+
+				ret &= PMIC_MPP_REG_RT_STS_VAL_MASK;
+				pad->out_value = ret;
+			}
+
+			if (!pad->lv_mv_type &&
+				pad->function >= PMIC_GPIO_FUNC_INDEX_FUNC3) {
+				function = pad->function + (PMIC_GPIO_FUNC_INDEX_DTEST1
+											- PMIC_GPIO_FUNC_INDEX_FUNC3);
+			} else {
+				function = pad->function;
+			}
+
+			seq_printf(s, " %-4s", pad->output_enabled ? "OUT" : "IN");
+			seq_printf(s, " %-7s", pmic_gpio_functions[function]);
+			seq_printf(s, " vin-%d", pad->power_source);
+			seq_printf(s, " %-7s", biases[pad->pullup]);
+			seq_printf(s, " %-2s", pad->out_value ? "H" : "L");
+			seq_printf(s, " %-7s", strengths[pad->strength]);
+		}
+		seq_puts(s, "\n");
+	}
+}
+
+static void pmic_gpio_sec_dbg_print(struct pinctrl_dev *pctldev)
+{
+	struct pmic_gpio_state *state = pinctrl_dev_get_drvdata(pctldev);
+	struct pmic_gpio_pad *pad;
+	int val, i, ret, function;
+
+	static const char *const biases[] = {
+		"PU30", "PU1.5", "PU31.5",
+		"PU_BST", "PD10", "NP"
+	};
+	static const char *const strengths[] = {
+		"no", "high", "medium", "low"
+	};
+
+	for (i = 0; i < state->chip.ngpio; i++) {
+		pad = pctldev->desc->pins[i].drv_data;
+		val = pmic_gpio_read(state, pad, PMIC_GPIO_REG_EN_CTL);
+		if (val < 0 || !(val >> PMIC_GPIO_REG_MASTER_EN_SHIFT)) {
+			pr_info(" gpio%-2d: ---\n", pad->gpio_idx);
+		} else {
+			if (pad->input_enabled) {
+				ret = pmic_gpio_read(state, pad, PMIC_MPP_REG_RT_STS);
+				if (ret < 0)
+					continue;
+
+				ret &= PMIC_MPP_REG_RT_STS_VAL_MASK;
+				pad->out_value = ret;
+			}
+
+			if (!pad->lv_mv_type &&
+				pad->function >= PMIC_GPIO_FUNC_INDEX_FUNC3) {
+				function = pad->function + (PMIC_GPIO_FUNC_INDEX_DTEST1
+											- PMIC_GPIO_FUNC_INDEX_FUNC3);
+			} else {
+				function = pad->function;
+			}
+
+			pr_info(" gpio%-2d: %-4s %-7s vin-%d %-7s %-2s %-7s\n",
+					pad->gpio_idx,
+					pad->output_enabled ? "OUT" : "IN",
+					pmic_gpio_functions[function],
+					pad->power_source,
+					biases[pad->pullup],
+					pad->out_value ? "H" : "L",
+					strengths[pad->strength]);
+		}
+	}
+}
+#endif
+
 static const struct pinconf_ops pmic_gpio_pinconf_ops = {
 	.is_generic			= true,
 	.pin_config_group_get		= pmic_gpio_config_get,
 	.pin_config_group_set		= pmic_gpio_config_set,
 	.pin_config_group_dbg_show	= pmic_gpio_config_dbg_show,
+#if defined(CONFIG_SEC_PM)
+	.pin_config_sec_dbg_show	= pmic_gpio_sec_dbg_show,
+	.pin_config_sec_dbg_print	= pmic_gpio_sec_dbg_print,
+#endif
 };
 
 static int pmic_gpio_direction_input(struct gpio_chip *chip, unsigned pin)
@@ -1198,7 +1303,18 @@ static struct platform_driver pmic_gpio_driver = {
 	.remove = pmic_gpio_remove,
 };
 
-module_platform_driver(pmic_gpio_driver);
+static int __init pmic_gpio_init(void)
+{
+    return platform_driver_register(&pmic_gpio_driver);
+}
+
+static void  __exit pmic_gpio_exit(void)
+{
+    platform_driver_unregister(&pmic_gpio_driver);
+}
+
+subsys_initcall(pmic_gpio_init);
+module_exit(pmic_gpio_exit);
 
 MODULE_AUTHOR("Ivan T. Ivanov <iivanov@mm-sol.com>");
 MODULE_DESCRIPTION("Qualcomm SPMI PMIC GPIO pin control driver");

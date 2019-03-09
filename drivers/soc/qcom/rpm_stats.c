@@ -69,6 +69,10 @@ struct msm_rpmstats_kobj_attr {
 	struct msm_rpmstats_platform_data *pd;
 };
 
+#ifdef CONFIG_SEC_PM
+struct msm_rpmstats_platform_data *debug_pdata;
+#endif
+
 static inline u64 get_time_in_sec(u64 counter)
 {
 	do_div(counter, MSM_ARCH_TIMER_FREQ);
@@ -174,6 +178,70 @@ static inline int msm_rpmstats_copy_stats(
 	return length;
 }
 
+#ifdef CONFIG_SEC_PM
+void debug_rpmstats_show(char *annotation)
+{
+	void __iomem *reg;
+	struct msm_rpm_stats_data data;
+	int i;
+	char stat_type[5];
+	u64 time_in_last_mode;
+	u64 time_since_last_mode;
+	u64 actual_last_sleep;
+
+	reg = ioremap_nocache(debug_pdata->phys_addr_base,
+					debug_pdata->phys_size);
+	if (!reg) {
+		pr_err("%s: ERROR could not ioremap start=%pa, len=%u\n",
+			__func__, &debug_pdata->phys_addr_base,
+			debug_pdata->phys_size);
+		return;
+	}
+
+	pr_cont("PM: %s:", annotation);
+	for (i = 0; i < RPM_STATS_NUM_REC; i++) {
+		data.stat_type = msm_rpmstats_read_long_register(reg, i,
+				offsetof(struct msm_rpm_stats_data,
+					stat_type));
+		data.count = msm_rpmstats_read_long_register(reg, i,
+				offsetof(struct msm_rpm_stats_data, count));
+		data.last_entered_at = msm_rpmstats_read_quad_register(reg,
+				i, offsetof(struct msm_rpm_stats_data,
+					last_entered_at));
+		data.last_exited_at = msm_rpmstats_read_quad_register(reg,
+				i, offsetof(struct msm_rpm_stats_data,
+					last_exited_at));
+		data.accumulated = msm_rpmstats_read_quad_register(reg,
+				i, offsetof(struct msm_rpm_stats_data,
+					accumulated));
+
+		stat_type[4] = 0;
+		memcpy(stat_type, &data.stat_type, sizeof(u32));
+
+		time_in_last_mode = data.last_exited_at - data.last_entered_at;
+		time_in_last_mode = get_time_in_sec(time_in_last_mode);
+		time_since_last_mode = arch_counter_get_cntvct()
+						- data.last_exited_at;
+		time_since_last_mode = get_time_in_sec(time_since_last_mode);
+		actual_last_sleep = get_time_in_sec(data.accumulated);
+
+		pr_cont(" %s(%d, %llu, %llu, %llu)",
+			stat_type, data.count, time_in_last_mode,
+			time_since_last_mode, actual_last_sleep);
+
+		if (i < (RPM_STATS_NUM_REC - 1))
+			pr_cont(",");
+		else
+			pr_cont("\n");
+	}
+
+	iounmap(reg);
+
+	return;
+}
+EXPORT_SYMBOL(debug_rpmstats_show);
+#endif
+
 static ssize_t rpmstats_show(struct kobject *kobj,
 			struct kobj_attribute *attr, char *buf)
 {
@@ -276,6 +344,9 @@ static int msm_rpmstats_probe(struct platform_device *pdev)
 	key = "qcom,num-records";
 	if (of_property_read_u32(pdev->dev.of_node, key, &pdata->num_records))
 		pdata->num_records = RPM_STATS_NUM_REC;
+#ifdef CONFIG_SEC_PM
+	debug_pdata = pdata;
+#endif
 
 	msm_rpmstats_create_sysfs(pdev, pdata);
 

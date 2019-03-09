@@ -34,6 +34,8 @@
  * @context: fence context
  * @list_head: fence list to hold all the fence created on this context
  * @name: name of fence context/timeline
+ * @fence_timeline_update: create fence fd only if timeline update.
+ * @fd: store current commit fence fd for all get_prop calls
  */
 struct sde_fence_context {
 	unsigned int commit_count;
@@ -45,6 +47,8 @@ struct sde_fence_context {
 	u64 context;
 	struct list_head fence_list_head;
 	char name[SDE_FENCE_NAME_SIZE];
+	bool fence_timeline_update;
+	int fd;
 };
 
 /**

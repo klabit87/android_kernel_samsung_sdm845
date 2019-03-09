@@ -2100,6 +2100,9 @@ config PANIC_ON_DATA_CORRUPTION
 	 recoverable data corruption scenarios to system-halting panics,
 	 for easier detection and debug.
 
+config DEBUG_TASK_USAGE
+	bool "task_struct usage debugging"
+
 source "samples/Kconfig"
 
 source "lib/Kconfig.kgdb"

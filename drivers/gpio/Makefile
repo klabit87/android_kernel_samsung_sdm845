@@ -2,6 +2,8 @@
 
 ccflags-$(CONFIG_DEBUG_GPIO)	+= -DDEBUG
 
+ccflags-y += $(KBUILD_FP_SENSOR_CFLAGS)
+
 obj-$(CONFIG_GPIOLIB)		+= devres.o
 obj-$(CONFIG_GPIOLIB)		+= gpiolib.o
 obj-$(CONFIG_GPIOLIB)		+= gpiolib-legacy.o
@@ -143,4 +145,12 @@ obj-$(CONFIG_GPIO_ZYNQ)		+= gpio-zynq.o
 obj-$(CONFIG_GPIO_ZX)		+= gpio-zx.o
 obj-$(CONFIG_GPIO_LOONGSON1)	+= gpio-loongson1.o
 obj-$(CONFIG_MSM_SMP2P)		+= gpio-msm-smp2p.o
-obj-$(CONFIG_MSM_SMP2P_TEST)	+= gpio-msm-smp2p-test.o
+obj-$(CONFIG_GPIO_PCAL6524)	+= gpio-pcal6524.o
+
+# Debug and verify gpio configurations.
+obj-$(CONFIG_SEC_GPIO_DVS)      += secgpio_dvs.o
+obj-$(CONFIG_SEC_PM_DEBUG)      += sec-pinmux.o
+
+ifeq ($(CONFIG_SEC_FACTORY),y)
+    obj-$(CONFIG_SEC_CONNECTOR_DETECTOR)      += sec-detect-conn.o
+endif

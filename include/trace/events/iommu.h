@@ -55,34 +55,36 @@ DEFINE_EVENT(iommu_group_event, remove_device_from_group,
 
 DECLARE_EVENT_CLASS(iommu_device_event,
 
-	TP_PROTO(struct device *dev),
+	TP_PROTO(struct iommu_domain *domain, struct device *dev),
 
-	TP_ARGS(dev),
+	TP_ARGS(domain, dev),
 
 	TP_STRUCT__entry(
+		__field(void *, domain)
 		__string(device, dev_name(dev))
 	),
 
 	TP_fast_assign(
+		__entry->domain = domain;
 		__assign_str(device, dev_name(dev));
 	),
 
-	TP_printk("IOMMU: device=%s", __get_str(device)
+	TP_printk("IOMMU: domain %p device=%s", __entry->domain, __get_str(device)
 	)
 );
 
 DEFINE_EVENT(iommu_device_event, attach_device_to_domain,
 
-	TP_PROTO(struct device *dev),
+	TP_PROTO(struct iommu_domain *domain, struct device *dev),
 
-	TP_ARGS(dev)
+	TP_ARGS(domain, dev)
 );
 
 DEFINE_EVENT(iommu_device_event, detach_device_from_domain,
 
-	TP_PROTO(struct device *dev),
+	TP_PROTO(struct iommu_domain *domain, struct device *dev),
 
-	TP_ARGS(dev)
+	TP_ARGS(domain, dev)
 );
 
 TRACE_EVENT(map,

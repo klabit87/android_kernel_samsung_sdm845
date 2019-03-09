@@ -11,7 +11,7 @@
  */
 
 #include <dt-bindings/gpio/gpio.h>
-
+/*
 #include "pmi8998.dtsi"
 
 &vendor {
@@ -26,6 +26,7 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&usb2_ext_5v_boost_default>;
 	};
+
 };
 
 &pmi8998_charger {
@@ -45,3 +46,4 @@
 &usb0 {
 	extcon = <&pmi8998_pdphy>, <&pmi8998_pdphy>, <&eud>;
 };
+*/

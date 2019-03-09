@@ -265,6 +265,9 @@ bool is_sde_rsc_available(int rsc_index);
  */
 enum sde_rsc_state get_sde_rsc_current_state(int rsc_index);
 
+void sde_read_disp_cc_mdp_rcgr(u32 rsc_index, u32 *offset,
+				u32 count, u32 *value);
+
 #else
 
 static inline struct sde_rsc_client *sde_rsc_client_create(u32 rsc_index,

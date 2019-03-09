@@ -30,6 +30,11 @@
 
 #include <trace/events/sched.h>
 
+#ifdef CONFIG_SEC_DEBUG_SUMMARY
+#include <linux/sec_debug.h>
+#include <linux/sec_debug_summary.h>
+#endif
+
 const char *task_event_names[] = {"PUT_PREV_TASK", "PICK_NEXT_TASK",
 				  "TASK_WAKE", "TASK_MIGRATE", "TASK_UPDATE",
 				"IRQ_UPDATE"};
@@ -2102,6 +2107,17 @@ struct sched_cluster *sched_cluster[NR_CPUS];
 int num_clusters;
 
 struct list_head cluster_head;
+
+#ifdef CONFIG_SEC_DEBUG_SUMMARY
+void summary_set_lpm_info_cluster(struct sec_debug_summary_data_apss *apss)
+{
+	apss->aplpm.num_clusters = num_clusters;
+	pr_info("%s : 0x%llx\n", __func__, virt_to_phys((void *)sched_cluster));
+	pr_info("%s : offset 0x%lx\n", __func__, offsetof(struct sched_cluster, dstate));
+	apss->aplpm.p_cluster = virt_to_phys((void *)sched_cluster);
+	apss->aplpm.dstate_offset = offsetof(struct sched_cluster, dstate);
+}
+#endif
 
 static void
 insert_cluster(struct sched_cluster *cluster, struct list_head *head)

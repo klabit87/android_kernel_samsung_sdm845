@@ -36,6 +36,10 @@
 
 #include <trace/events/thermal.h>
 
+#ifdef CONFIG_SEC_PM
+extern void *thermal_ipc_log;
+#endif
+
 /*
  * Cooling state <-> CPUFreq frequency
  *
@@ -739,6 +743,9 @@ static int cpufreq_set_cur_state(struct thermal_cooling_device *cdev,
 		if (cpu_online(cpu) &&
 			(!cpumask_test_and_set_cpu(cpu,
 			&cpus_isolated_by_thermal))) {
+#ifdef CONFIG_SEC_PM
+			THERMAL_IPC_LOG("isolate cpu%d\n", cpu);
+#endif
 			if (sched_isolate_cpu(cpu))
 				cpumask_clear_cpu(cpu,
 					&cpus_isolated_by_thermal);
@@ -754,6 +761,9 @@ static int cpufreq_set_cur_state(struct thermal_cooling_device *cdev,
 			goto update_frequency;
 		} else if (cpumask_test_and_clear_cpu(cpu,
 			&cpus_isolated_by_thermal)) {
+#ifdef CONFIG_SEC_PM
+			THERMAL_IPC_LOG("unisolate cpu%d\n", cpu);
+#endif
 			sched_unisolate_cpu(cpu);
 		}
 	}

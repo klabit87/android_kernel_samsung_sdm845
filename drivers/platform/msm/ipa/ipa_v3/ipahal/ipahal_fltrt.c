@@ -14,6 +14,7 @@
 #include <linux/ipc_logging.h>
 #include <linux/debugfs.h>
 #include <linux/ipa.h>
+#include <linux/delay.h>
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
 #include "ipahal_fltrt_i.h"
@@ -3189,6 +3190,7 @@ int ipahal_rt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
  * @mem: mem object that points to DMA mem representing the hdr structure
  * @atomic: should DMA allocation be executed with atomic flag
  */
+#define BUFALLOC_RETRY_CNT 10
 int ipahal_flt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
 	u32 nhash_hdr_size, u64 ep_bitmap, struct ipa_mem_buffer *mem,
 	bool atomic)
@@ -3242,13 +3244,24 @@ int ipahal_flt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
 	mem->size = tbls_num * obj->tbl_hdr_width;
 	if (ep_bitmap)
 		mem->size += obj->tbl_hdr_width;
-	mem->base = dma_alloc_coherent(ipahal_ctx->ipa_pdev, mem->size,
-		&mem->phys_base, flag);
+	
+	i = 0;
+	do {
+		mem->base = dma_alloc_coherent(ipahal_ctx->ipa_pdev, mem->size,
+			&mem->phys_base, flag);
+		if (!mem->base) {
+			if (atomic)
+				mdelay(10);
+			else
+				msleep(20);
+		}
+	} while(!mem->base && i++ < BUFALLOC_RETRY_CNT);
+	
 	if (!mem->base) {
 		IPAHAL_ERR("fail to alloc DMA buff of size %d\n", mem->size);
 		return -ENOMEM;
 	}
-
+	
 	if (ep_bitmap) {
 		flt_bitmap = obj->create_flt_bitmap(ep_bitmap);
 		IPAHAL_DBG("flt bitmap 0x%llx\n", flt_bitmap);

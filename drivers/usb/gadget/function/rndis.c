@@ -873,8 +873,10 @@ int rndis_msg_parser(struct rndis_params *params, u8 *buf)
 		 */
 		pr_warning("%s: unknown RNDIS message 0x%08X len %d\n",
 			__func__, MsgType, MsgLength);
+		/*
 		print_hex_dump_bytes(__func__, DUMP_PREFIX_OFFSET,
 				     buf, MsgLength);
+		*/
 		break;
 	}
 

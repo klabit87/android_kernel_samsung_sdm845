@@ -271,6 +271,10 @@ static int arch_timer_shutdown_phys_mem(struct clock_event_device *clk)
 {
 	return timer_shutdown(ARCH_TIMER_MEM_PHYS_ACCESS, clk);
 }
+u32 get_virtual_timer_tval(struct clock_event_device *clk)
+{
+	return arch_timer_reg_read(ARCH_TIMER_MEM_VIRT_ACCESS, ARCH_TIMER_REG_TVAL, clk);
+}
 
 static __always_inline void set_next_event(const int access, unsigned long evt,
 					   struct clock_event_device *clk)

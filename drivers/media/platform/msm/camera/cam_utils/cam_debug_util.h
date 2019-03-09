@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,18 +35,23 @@
 #define CAM_CTXT       (1 << 19)
 #define CAM_OIS        (1 << 20)
 #define CAM_RES        (1 << 21)
-#define CAM_MEM        (1 << 22)
-
-/* CAM_IRQ_CTRL: For events in irq controller */
-#define CAM_IRQ_CTRL   (1 << 23)
-
-/* CAM_REQ: Tracks a request submitted to KMD */
-#define CAM_REQ        (1 << 24)
-
-/* CAM_PERF: Used for performance (clock, BW etc) logs */
-#define CAM_PERF       (1 << 25)
+#define CAM_APERTURE   (1 << 22)
+#if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
+#define CAM_HWB        (1 << 25)
+#endif
 
 #define STR_BUFFER_MAX_LENGTH  1024
+
+#if defined(CONFIG_CAMERA_FRS_DRAM_TEST)
+#define CAMERA_FRS_DRAM_TEST_DBG_LOG	1 // To debug frame drop issue
+#endif
+
+enum cam_debug_level {
+	CAM_LEVEL_DBG,
+#if defined(CONFIG_CAMERA_FRS_DRAM_TEST)
+	CAM_LEVEL_DBG_FRS,
+#endif
+};
 
 /*
  *  cam_debug_log()
@@ -55,14 +60,15 @@
  *               respective debug logs
  *
  * @module_id :  Respective Module ID which is calling this function
+ * @dbg_level :  Debug level from cam_module_debug_level enum entries
  * @func      :  Function which is calling to print logs
  * @line      :  Line number associated with the function which is calling
  *               to print log
  * @fmt       :  Formatted string which needs to be print in the log
  *
  */
-void cam_debug_log(unsigned int module_id, const char *func, const int line,
-	const char *fmt, ...);
+void cam_debug_log(unsigned int module_id, enum cam_debug_level dbg_level,
+	const char *func, const int line, const char *fmt, ...);
 
 /*
  * cam_get_module_name()
@@ -115,14 +121,27 @@ const char *cam_get_module_name(unsigned int module_id);
  * @args     :  Arguments which needs to be print in log
  */
 #define CAM_DBG(__module, fmt, args...)                            \
-	cam_debug_log(__module, __func__, __LINE__, fmt, ##args)
+	cam_debug_log(__module, CAM_LEVEL_DBG, __func__, __LINE__, fmt, ##args)
+
+#if defined(CONFIG_CAMERA_FRS_DRAM_TEST)
+/*
+ * CAM_DBG_FRS
+ * @brief :     This Macro will print frs debug logs
+ *
+ * @__module :  Respective module id which is been calling this Macro
+ * @fmt      :  Formatted string which needs to be print in log
+ * @args     :  Arguments which needs to be print in log
+ */
+#define CAM_DBG_FRS(__module, fmt, args...)                            \
+	cam_debug_log(__module, CAM_LEVEL_DBG_FRS, __func__, __LINE__, fmt, ##args)
+#endif
 
 /*
  * CAM_ERR_RATE_LIMIT
  * @brief :     This Macro will prevent error print logs with ratelimit
  */
 #define CAM_ERR_RATE_LIMIT(__module, fmt, args...)                 \
-	pr_err_ratelimited("CAM_ERR: %s: %s: %d " fmt "\n",            \
+	pr_err_ratelimited("CAM_ERR: %s: %s: %d" fmt "\n",            \
 		cam_get_module_name(__module), __func__,  __LINE__, ##args)
 
 #endif /* _CAM_DEBUG_UTIL_H_ */

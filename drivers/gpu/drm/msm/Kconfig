@@ -1,3 +1,4 @@
+source "drivers/gpu/drm/msm/samsung/Kconfig"
 
 config DRM_MSM
 	tristate "MSM DRM"
@@ -149,3 +150,21 @@ config DRM_SDE_RSC
           avoids the display core power collapse. A client can also register
           for display core power collapse events on rsc.
 
+config SEC_DISPLAYPORT
+	bool "SEC DISPLAYPORT feature"
+	depends on DRM_MSM
+	help
+          Samsung specific displayport changes.
+
+config SEC_DISPLAYPORT_BIGDATA
+	bool "DISPLAYPORT bigdata"
+	depends on !SEC_FACTORY
+	default n
+	help
+          Enable DISPLAYPORT bigdata.
+
+config SEC_DISPLAYPORT_LOGGER
+	bool "SEC DISPLAYPORT LOGGER feature"
+	depends on SEC_DISPLAYPORT
+	help
+          Samsung specific displayport log changes.

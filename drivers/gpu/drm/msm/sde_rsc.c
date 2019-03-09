@@ -30,9 +30,6 @@
 #include "sde_rsc_priv.h"
 #include "sde_dbg.h"
 
-#define SDE_RSC_DRV_DBG_NAME		"sde_rsc_drv"
-#define SDE_RSC_WRAPPER_DBG_NAME	"sde_rsc_wrapper"
-
 /* worst case time to execute the one tcs vote(sleep/wake) - ~1ms */
 #define SINGLE_TCS_EXECUTION_TIME				1064000
 
@@ -65,6 +62,19 @@
 #define PRIMARY_VBLANK_WORST_CASE_MS 34
 
 static struct sde_rsc_priv *rsc_prv_list[MAX_RSC_COUNT];
+
+void sde_read_disp_cc_mdp_rcgr(u32 rsc_index, u32 *offset,
+				u32 count, u32 *value)
+{
+	struct sde_rsc_priv *rsc = rsc_prv_list[rsc_index];
+	int i = 0;
+
+	for (i = 0; i < count; i++) {
+		value[i] = readl_relaxed(rsc->dispcc_io.base + offset[i]);
+		pr_debug("disp_cc_mdss: offset:0x%x: 0x%x\n",
+				offset[i], value[i]);
+	}
+}
 
 /**
  * sde_rsc_client_create() - create the client for sde rsc.
@@ -1291,6 +1301,12 @@ static int sde_rsc_bind(struct device *dev,
 							rsc->drv_io.len);
 	sde_dbg_reg_register_base(SDE_RSC_WRAPPER_DBG_NAME,
 				rsc->wrapper_io.base, rsc->wrapper_io.len);
+	sde_dbg_reg_register_base(SDE_PDC_DBG_NAME,
+				rsc->pdc_io.base, rsc->pdc_io.len);
+	sde_dbg_reg_register_base(SDE_PDC_SEQ_DBG_NAME,
+				rsc->pdc_seq_mem_io.base, rsc->pdc_seq_mem_io.len);
+	sde_dbg_reg_register_base(DISP_CC_DBG_NAME,
+				rsc->dispcc_io.base, rsc->dispcc_io.len);
 	return 0;
 }
 
@@ -1383,6 +1399,9 @@ static int sde_rsc_probe(struct platform_device *pdev)
 		pr_err("sde rsc: drv io data mapping failed ret:%d\n", ret);
 		goto sde_rsc_fail;
 	}
+	ret = msm_dss_ioremap_byname(pdev, &rsc->pdc_io, "pdc");
+	ret = msm_dss_ioremap_byname(pdev, &rsc->pdc_seq_mem_io, "pdc_seq_mem");
+	ret = msm_dss_ioremap_byname(pdev, &rsc->dispcc_io, "dispcc");
 
 	rsc->fs = devm_regulator_get(&pdev->dev, "vdd");
 	if (IS_ERR_OR_NULL(rsc->fs)) {

@@ -157,6 +157,12 @@ static int qti_ice_setting_config(struct request *req,
 		memcpy(&setting->crypto_data, crypto_data,
 				sizeof(setting->crypto_data));
 
+		if (unlikely(req->cmd_flags & REQ_BYPASS)) {
+			setting->encr_bypass = true;
+			setting->decr_bypass = true;
+			return 0;
+		}
+
 		switch (rq_data_dir(req)) {
 		case WRITE:
 			if (!ice_fde_flag || (ice_fde_flag & QCOM_ICE_ENCRYPT))

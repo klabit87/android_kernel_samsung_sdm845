@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -182,6 +182,7 @@ static struct cam_ctx_ops
 	/* Acquired */
 	{
 		.ioctl_ops = {
+			.config_dev = __cam_lrme_ctx_config_dev_in_activated,
 			.release_dev = __cam_lrme_ctx_release_dev_in_acquired,
 			.start_dev = __cam_lrme_ctx_start_dev_in_acquired,
 		},

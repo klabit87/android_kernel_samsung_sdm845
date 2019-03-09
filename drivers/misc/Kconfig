@@ -366,6 +366,16 @@ config SENSORS_APDS990X
 	   To compile this driver as a module, choose M here: the
 	   module will be called apds990x. If unsure, say N here.
 
+config TIMA_LOG
+	tristate "Support for dumping TIMA log"
+	depends on TIMA
+	default y
+	help
+	  This option enables support for dumping TIMA log
+	  Please check the memory in device tree file.
+	  And in tz side.
+	  you can see it in debugfs
+
 config HMC6352
 	tristate "Honeywell HMC6352 compass"
 	depends on I2C
@@ -495,6 +505,12 @@ config QSEECOM
           QTI Secure Execution Environment (QSEE) using Secure Channel
           Manager (SCM) interface. It exposes APIs for both userspace and
           kernel clients.
+
+config QSEECOM_DEBUG
+        bool "QTI Secure Execution Communicator driver debug"
+	default	n
+        help
+          QTI Secure Execution Communicator driver debug
 
 config VEXPRESS_SYSCFG
 	bool "Versatile Express System Configuration driver"
@@ -693,7 +709,7 @@ config PANEL_LCD_PIN_RS
 
 	          0 : no connection (eg: connected to ground)
 	      1..17 : directly connected to any of these pins on the DB25 plug
-	    -1..-17 : connected to the same pin through an inverter (eg: transistor).
+	    -1..-17 : connected to the same pin through an inverter (eg: transistor)
 
 	  Default for the 'RS' pin in custom profile is '17' (SELECT IN).
 
@@ -813,6 +829,12 @@ config QPNP_MISC
 	  and the driver provides an API to check if this interrupt
 	  is available on the current PMIC chip.
 
+config KNOX_KAP
+	bool "Enable KNOX KAP mode"
+	default n
+	help
+	  Knox Active Protection mode
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -826,4 +848,6 @@ source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/fpr_FingerprintCard/Kconfig"
+source "drivers/misc/samsung/Kconfig"
+source "drivers/misc/dev_ril_bridge/Kconfig"
 endmenu

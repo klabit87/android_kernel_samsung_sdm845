@@ -500,12 +500,23 @@ not_flushed:
 	SDE_ATRACE_END("vblank_irq");
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+extern int secdp_get_hpd_status(void);
+#endif
+
 static void sde_encoder_phys_vid_underrun_irq(void *arg, int irq_idx)
 {
 	struct sde_encoder_phys *phys_enc = arg;
 
 	if (!phys_enc)
 		return;
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (secdp_get_hpd_status()) {
+		/* prints underrun log in case of DP connection */
+		SDE_ERROR("%s: %d\n", __func__, phys_enc->intf_idx);
+	}
+#endif
 
 	if (phys_enc->parent_ops.handle_underrun_virt)
 		phys_enc->parent_ops.handle_underrun_virt(phys_enc->parent,

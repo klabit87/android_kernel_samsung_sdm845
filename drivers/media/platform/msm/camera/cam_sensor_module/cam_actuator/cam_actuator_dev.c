@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,6 +15,10 @@
 #include "cam_actuator_soc.h"
 #include "cam_actuator_core.h"
 #include "cam_trace.h"
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+struct cam_actuator_ctrl_t *g_a_ctrls[2];
+#endif
 
 static long cam_actuator_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
@@ -146,12 +150,13 @@ static int32_t cam_actuator_driver_i2c_probe(struct i2c_client *client,
 	struct cam_hw_soc_info          *soc_info = NULL;
 	struct cam_actuator_soc_private *soc_private = NULL;
 
+#if 0//TEMP_845
 	if (client == NULL || id == NULL) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args client: %pK id: %pK",
 			client, id);
 		return -EINVAL;
 	}
-
+#endif
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		CAM_ERR(CAM_ACTUATOR, "%s :: i2c_check_functionality failed",
 			 client->name);
@@ -186,6 +191,10 @@ static int32_t cam_actuator_driver_i2c_probe(struct i2c_client *client,
 		goto free_soc;
 	}
 
+	/* Fill sub device id*/
+	// a_ctrl->id = a_ctrl->soc_info.index;		// Integration comment: We dont have pdev here to save device id, id was removed from a_ctrl structure
+							// as part of use soc_info.idex to replace subdev_id/id
+
 	rc = cam_actuator_init_subdev(a_ctrl);
 	if (rc)
 		goto free_soc;
@@ -204,6 +213,7 @@ static int32_t cam_actuator_driver_i2c_probe(struct i2c_client *client,
 	}
 
 	INIT_LIST_HEAD(&(a_ctrl->i2c_data.init_settings.list_head));
+        INIT_LIST_HEAD(&(a_ctrl->i2c_data.config_settings.list_head));
 
 	for (i = 0; i < MAX_PER_FRAME_ARRAY; i++)
 		INIT_LIST_HEAD(&(a_ctrl->i2c_data.per_frame[i].list_head));
@@ -215,6 +225,15 @@ static int32_t cam_actuator_driver_i2c_probe(struct i2c_client *client,
 		cam_actuator_establish_link;
 	a_ctrl->bridge_intf.ops.apply_req =
 		cam_actuator_apply_request;
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4) || defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	if (a_ctrl->soc_info.index == 0)
+		g_a_ctrls[0] = a_ctrl;
+#endif
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	if (a_ctrl->soc_info.index == 2)
+		g_a_ctrls[1] = a_ctrl;
+#endif
 
 	v4l2_set_subdevdata(&(a_ctrl->v4l2_dev_str.sd), a_ctrl);
 
@@ -233,10 +252,8 @@ free_ctrl:
 
 static int32_t cam_actuator_platform_remove(struct platform_device *pdev)
 {
+	struct cam_actuator_ctrl_t  *a_ctrl;
 	int32_t rc = 0;
-	struct cam_actuator_ctrl_t      *a_ctrl;
-	struct cam_actuator_soc_private *soc_private;
-	struct cam_sensor_power_ctrl_t  *power_info;
 
 	a_ctrl = platform_get_drvdata(pdev);
 	if (!a_ctrl) {
@@ -244,17 +261,8 @@ static int32_t cam_actuator_platform_remove(struct platform_device *pdev)
 		return 0;
 	}
 
-	soc_private =
-		(struct cam_actuator_soc_private *)a_ctrl->soc_info.soc_private;
-	power_info = &soc_private->power_info;
-
 	kfree(a_ctrl->io_master_info.cci_client);
 	a_ctrl->io_master_info.cci_client = NULL;
-	kfree(power_info->power_setting);
-	kfree(power_info->power_down_setting);
-	power_info->power_setting = NULL;
-	power_info->power_down_setting = NULL;
-	kfree(a_ctrl->soc_info.soc_private);
 	kfree(a_ctrl->i2c_data.per_frame);
 	a_ctrl->i2c_data.per_frame = NULL;
 	devm_kfree(&pdev->dev, a_ctrl);
@@ -264,31 +272,17 @@ static int32_t cam_actuator_platform_remove(struct platform_device *pdev)
 
 static int32_t cam_actuator_driver_i2c_remove(struct i2c_client *client)
 {
+	struct cam_actuator_ctrl_t  *a_ctrl = i2c_get_clientdata(client);
 	int32_t rc = 0;
-	struct cam_actuator_ctrl_t      *a_ctrl =
-		i2c_get_clientdata(client);
-	struct cam_actuator_soc_private *soc_private;
-	struct cam_sensor_power_ctrl_t  *power_info;
 
 	/* Handle I2C Devices */
 	if (!a_ctrl) {
 		CAM_ERR(CAM_ACTUATOR, "Actuator device is NULL");
 		return -EINVAL;
 	}
-
-	soc_private =
-		(struct cam_actuator_soc_private *)a_ctrl->soc_info.soc_private;
-	power_info = &soc_private->power_info;
-
 	/*Free Allocated Mem */
 	kfree(a_ctrl->i2c_data.per_frame);
 	a_ctrl->i2c_data.per_frame = NULL;
-	kfree(power_info->power_setting);
-	kfree(power_info->power_down_setting);
-	kfree(a_ctrl->soc_info.soc_private);
-	power_info->power_setting = NULL;
-	power_info->power_down_setting = NULL;
-	a_ctrl->soc_info.soc_private = NULL;
 	kfree(a_ctrl);
 	return rc;
 }
@@ -306,7 +300,7 @@ static int32_t cam_actuator_driver_platform_probe(
 	struct cam_actuator_ctrl_t      *a_ctrl = NULL;
 	struct cam_actuator_soc_private *soc_private = NULL;
 
-	/* Create actuator control structure */
+	/* Create actuator control structure*/
 	a_ctrl = devm_kzalloc(&pdev->dev,
 		sizeof(struct cam_actuator_ctrl_t), GFP_KERNEL);
 	if (!a_ctrl)
@@ -345,6 +339,7 @@ static int32_t cam_actuator_driver_platform_probe(
 	}
 
 	INIT_LIST_HEAD(&(a_ctrl->i2c_data.init_settings.list_head));
+        INIT_LIST_HEAD(&(a_ctrl->i2c_data.config_settings.list_head));
 
 	for (i = 0; i < MAX_PER_FRAME_ARRAY; i++)
 		INIT_LIST_HEAD(&(a_ctrl->i2c_data.per_frame[i].list_head));
@@ -397,7 +392,6 @@ static struct platform_driver cam_actuator_platform_driver = {
 		.name = "qcom,actuator",
 		.owner = THIS_MODULE,
 		.of_match_table = cam_actuator_driver_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.remove = cam_actuator_platform_remove,
 };
@@ -413,6 +407,8 @@ static struct i2c_driver cam_actuator_driver_i2c = {
 	.remove = cam_actuator_driver_i2c_remove,
 	.driver = {
 		.name = ACTUATOR_DRIVER_I2C,
+		.owner = THIS_MODULE,
+		.of_match_table = cam_actuator_driver_dt_match,
 	},
 };
 

@@ -634,13 +634,17 @@ void kgsl_context_detach(struct kgsl_context *context)
 	 * the context before it gets fully removed, and to make sure
 	 * we don't try to detach twice.
 	 */
-	if (test_and_set_bit(KGSL_CONTEXT_PRIV_DETACHED, &context->priv))
+	if (test_and_set_bit(KGSL_CONTEXT_PRIV_DETACHED, &context->priv)) {
+		pr_err("KGSL: Trying to detach context %d multiple times\n", context->id);
 		return;
+	}
 
 	device = context->device;
 
 	trace_kgsl_context_detach(device, context);
 
+	context->timers[1] = local_clock();
+	pr_debug("KGSL: Detaching context %d, clock:%llu\n", context->id, context->timers[1]);
 	context->device->ftbl->drawctxt_detach(context);
 
 	/*
@@ -664,6 +668,7 @@ kgsl_context_destroy(struct kref *kref)
 	struct kgsl_context *context = container_of(kref, struct kgsl_context,
 						    refcount);
 	struct kgsl_device *device = context->device;
+	unsigned int id = context->id;
 
 	trace_kgsl_context_destroy(device, context);
 
@@ -699,7 +704,13 @@ kgsl_context_destroy(struct kref *kref)
 	kgsl_sync_timeline_destroy(context);
 	kgsl_process_private_put(context->proc_priv);
 
+	context->timers[2] = local_clock();
+	pr_debug("KGSL: Destroying context %d alive:%llu detached:%llu\n", id,
+			context->timers[1] - context->timers[0],
+			context->timers[2] - context->timers[1]);
+
 	device->ftbl->drawctxt_destroy(context);
+	pr_debug("KGSL: Destroyed  context %d\n", id);
 }
 
 struct kgsl_device *kgsl_get_device(int dev_idx)
@@ -1825,6 +1836,9 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 		result = PTR_ERR(context);
 		goto done;
 	}
+	context->timers[0] = local_clock();
+	pr_debug("KGSL: Creating   context %d, clock:%llu tid:%d\n",
+			context->id, context->timers[0], context->tid);
 	trace_kgsl_context_create(dev_priv->device, context, param->flags);
 
 	/* Commit the pointer to the context in context_idr */
@@ -4842,6 +4856,25 @@ void kgsl_device_platform_remove(struct kgsl_device *device)
 }
 EXPORT_SYMBOL(kgsl_device_platform_remove);
 
+static int kgsl_sharedmem_size_notifier(struct notifier_block *nb,
+					unsigned long action, void *data)
+{
+	struct seq_file *s;
+
+	s = (struct seq_file *)data;
+	if (s != NULL)
+		seq_printf(s, "KgslSharedmem:  %8lu kB\n",
+			atomic_long_read(&kgsl_driver.stats.page_alloc) >> 10);
+	else
+		pr_cont("KgslSharedmem:%lukB ",
+			atomic_long_read(&kgsl_driver.stats.page_alloc) >> 10);
+	return 0;
+}
+
+static struct notifier_block kgsl_sharedmem_size_nb = {
+	.notifier_call = kgsl_sharedmem_size_notifier,
+};
+
 static void kgsl_core_exit(void)
 {
 	kgsl_events_exit();
@@ -4867,6 +4900,7 @@ static void kgsl_core_exit(void)
 
 	kgsl_memfree_exit();
 	unregister_chrdev_region(kgsl_driver.major, KGSL_DEVICE_MAX);
+	show_mem_extra_notifier_unregister(&kgsl_sharedmem_size_nb);
 }
 
 static int __init kgsl_core_init(void)
@@ -4959,6 +4993,8 @@ static int __init kgsl_core_init(void)
 		goto err;
 
 	kgsl_memfree_init();
+
+	show_mem_extra_notifier_register(&kgsl_sharedmem_size_nb);
 
 	return 0;
 

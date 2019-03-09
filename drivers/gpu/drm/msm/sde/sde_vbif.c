@@ -99,7 +99,7 @@ int sde_vbif_halt_plane_xin(struct sde_kms *sde_kms, u32 xin_id, u32 clk_ctrl)
 	 * forced on. If status is 1 then its already halted.
 	 */
 	status = vbif->ops.get_halt_ctrl(vbif, xin_id);
-	if (status) {
+	if (status != 0) {
 		mutex_unlock(&vbif->mutex);
 		return 0;
 	}

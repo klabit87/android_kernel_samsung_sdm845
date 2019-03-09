@@ -978,3 +978,4 @@ static void geni_se_dump_dbg_regs(struct se_geni_rsc *rsc, void __iomem *base,
 
 #endif
 #endif
+

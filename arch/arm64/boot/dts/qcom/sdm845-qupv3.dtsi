@@ -62,10 +62,8 @@
 		pinctrl-names = "default", "sleep";
 		pinctrl-0 = <&qupv3_se7_4uart_active>;
 		pinctrl-1 = <&qupv3_se7_4uart_sleep>;
-		interrupts-extended = <&pdc GIC_SPI 608 0>,
-				<&tlmm 96 0>;
+		interrupts-extended = <&pdc GIC_SPI 608 0>;
 		status = "disabled";
-		qcom,wakeup-byte = <0xFD>;
 		qcom,wrapper-core = <&qupv3_0>;
 	};
 
@@ -453,6 +451,23 @@
 		pinctrl-0 = <&qupv3_se10_2uart_active>;
 		pinctrl-1 = <&qupv3_se10_2uart_sleep>;
 		interrupts = <GIC_SPI 355 0>;
+		qcom,wrapper-core = <&qupv3_1>;
+		status = "disabled";
+	};
+
+	/* WIFI_DEBUG_UART */
+	qupv3_se12_2uart: qcom,qup_uart@0xa90000 {
+		compatible = "qcom,msm-geni-console", "qcom,msm-geni-uart";
+		reg = <0xa90000 0x4000>;
+		reg-names = "se_phys";
+		clock-names = "se-clk", "m-ahb", "s-ahb";
+		clocks = <&clock_gcc GCC_QUPV3_WRAP1_S4_CLK>,
+			<&clock_gcc GCC_QUPV3_WRAP_1_M_AHB_CLK>,
+			<&clock_gcc GCC_QUPV3_WRAP_1_S_AHB_CLK>;
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&qupv3_se12_2uart_active>;
+		pinctrl-1 = <&qupv3_se12_2uart_sleep>;
+		interrupts = <GIC_SPI 357 0>;
 		qcom,wrapper-core = <&qupv3_1>;
 		status = "disabled";
 	};

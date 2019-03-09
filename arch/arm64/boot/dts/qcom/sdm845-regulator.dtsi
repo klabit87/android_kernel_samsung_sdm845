@@ -558,9 +558,9 @@
 		pm8998_l20: regulator-l20 {
 			regulator-name = "pm8998_l20";
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
-			regulator-min-microvolt = <2704000>;
+			regulator-min-microvolt = <2960000>;
 			regulator-max-microvolt = <2960000>;
-			qcom,init-voltage = <2704000>;
+			qcom,init-voltage = <2960000>;
 			qcom,init-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 	};
@@ -577,9 +577,9 @@
 		pm8998_l21: regulator-l21 {
 			regulator-name = "pm8998_l21";
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
-			regulator-min-microvolt = <2704000>;
+			regulator-min-microvolt = <2960000>;
 			regulator-max-microvolt = <2960000>;
-			qcom,init-voltage = <2704000>;
+			qcom,init-voltage = <2960000>;
 			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
@@ -615,9 +615,9 @@
 		pm8998_l23: regulator-l23 {
 			regulator-name = "pm8998_l23";
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
-			regulator-min-microvolt = <3000000>;
-			regulator-max-microvolt = <3312000>;
-			qcom,init-voltage = <3000000>;
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			qcom,init-voltage = <1800000>;
 			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
@@ -739,6 +739,8 @@
 		};
 	};
 
+	/*
+	 * TODO: ServiceTask#100911
 	rpmh-regulator-bobb1 {
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
@@ -764,6 +766,7 @@
 			qcom,init-mode = <RPMH_REGULATOR_MODE_AUTO>;
 		};
 	};
+	*/
 
 	/* PM8005 S1 + S4 = 2 phase VDD_GFX supply */
 	rpmh-regulator-gfxlvl {

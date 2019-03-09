@@ -108,7 +108,10 @@ static void adreno_ringbuffer_wptr(struct adreno_device *adreno_dev,
 			ret = adreno_gmu_fenced_write(adreno_dev,
 				ADRENO_REG_CP_RB_WPTR, rb->_wptr,
 				FENCE_STATUS_WRITEDROPPED0_MASK);
-
+			if (ret) { //from  case  03351716 " Young Hwan Kwak (2/21/2018 3:45 PM)"
+				kgsl_device_snapshot(KGSL_DEVICE(adreno_dev), NULL, false);
+				BUG_ON(1);
+			}
 		}
 	}
 

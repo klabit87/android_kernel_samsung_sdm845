@@ -279,6 +279,8 @@ int dsi_display_link_clk_force_update_ctrl(void *handle);
  */
 int dsi_display_clk_ctrl(void *handle, u32 clk_type, u32 clk_state);
 
+int dsi_display_wait_core_clk_off(void *handle);
+
 /**
  * dsi_clk_set_link_frequencies() - set frequencies for link clks
  * @client:     DSI clock client pointer.

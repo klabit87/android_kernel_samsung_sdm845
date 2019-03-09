@@ -21,6 +21,9 @@
 #include "sde_hw_catalog.h"
 #include "sde_hw_catalog_format.h"
 #include "sde_kms.h"
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include "ss_dsi_panel_common.h"
+#endif
 
 /*************************************************************
  * MACRO DEFINITION
@@ -1517,6 +1520,7 @@ static int sde_mixer_parse_dt(struct device_node *np,
 			set_bit(SDE_MIXER_GC, &mixer->features);
 		}
 	}
+	pr_info("%s mixer_count = %d\n", __func__, mixer_count);
 	sde_cfg->mixer_count = mixer_count;
 
 end:
@@ -3393,6 +3397,26 @@ struct sde_mdss_cfg *sde_hw_catalog_init(struct drm_device *dev, u32 hw_rev)
 	rc = sde_parse_dt(np, sde_cfg);
 	if (rc)
 		goto end;
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	{
+		struct samsung_display_driver_data *vdd = samsung_get_vdd();
+		struct sde_kms *sde_kms = NULL;
+
+		if (IS_ERR_OR_NULL(vdd))
+			goto done;
+
+		sde_kms = GET_SDE_KMS(vdd);
+
+		if (IS_ERR_OR_NULL(sde_kms) ||
+				IS_ERR_OR_NULL(sde_kms->base.funcs->ss_callback))
+			goto done;
+
+		sde_kms->base.funcs->ss_callback(sde_kms->dev,
+				SS_EVENT_SDE_HW_CATALOG_INIT, (void *)sde_cfg);
+	}
+done:
+#endif
 
 	rc = sde_perf_parse_dt(np, sde_cfg);
 	if (rc)

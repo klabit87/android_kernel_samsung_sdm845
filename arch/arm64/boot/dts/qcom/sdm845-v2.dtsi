@@ -22,6 +22,10 @@
 	/delete-property/ qcom,sdr104-wa;
 };
 
+&tlmm {
+	compatible = "qcom,sdm845-pinctrl-v2";
+};
+
 /delete-node/ &pdc;
 
 &tlmm {
@@ -51,7 +55,7 @@
 			compatible = "qcom,memshare-peripheral";
 			qcom,peripheral-size = <0x500000>;
 			qcom,client-id = <1>;
-			qcom,allocate-on-request;
+			/* qcom,allocate-on-request; */
 			label = "modem";
 		};
 	};

@@ -1709,6 +1709,10 @@ union rcu_special {
 };
 struct rcu_node;
 
+#ifdef CONFIG_FIVE
+struct task_integrity;
+#endif
+
 enum perf_event_task_context {
 	perf_invalid_context = -1,
 	perf_hw_context = 0,
@@ -1735,6 +1739,9 @@ struct tlbflush_unmap_batch {
 	bool writable;
 };
 
+#ifdef CONFIG_DEBUG_TASK_USAGE
+#define TASK_STRUCT_DUMMY_VAL	0xDEAD4EADC00B700D
+#endif
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -1745,6 +1752,9 @@ struct task_struct {
 #endif
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	void *stack;
+#ifdef CONFIG_DEBUG_TASK_USAGE
+	unsigned long long dummy;
+#endif
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
@@ -2232,8 +2242,14 @@ struct task_struct {
 	unsigned int	sequential_io;
 	unsigned int	sequential_io_avg;
 #endif
+#ifdef CONFIG_SDP
+	unsigned int sensitive;
+#endif
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 	unsigned long	task_state_change;
+#endif
+#ifdef CONFIG_FIVE
+	struct task_integrity *integrity;
 #endif
 	int pagefault_disabled;
 #ifdef CONFIG_MMU
@@ -2498,12 +2514,24 @@ static inline int is_global_init(struct task_struct *tsk)
 extern struct pid *cad_pid;
 
 extern void free_task(struct task_struct *tsk);
+#ifdef CONFIG_DEBUG_TASK_USAGE
+static inline void get_task_struct(struct task_struct *t) {
+	if (t->dummy != TASK_STRUCT_DUMMY_VAL)
+		BUG();
+	atomic_inc(&t->usage);
+}
+#else
 #define get_task_struct(tsk) do { atomic_inc(&(tsk)->usage); } while(0)
+#endif
 
 extern void __put_task_struct(struct task_struct *t);
 
 static inline void put_task_struct(struct task_struct *t)
 {
+#ifdef CONFIG_DEBUG_TASK_USAGE
+	if (t->dummy != TASK_STRUCT_DUMMY_VAL)
+		BUG();
+#endif
 	if (atomic_dec_and_test(&t->usage))
 		__put_task_struct(t);
 }

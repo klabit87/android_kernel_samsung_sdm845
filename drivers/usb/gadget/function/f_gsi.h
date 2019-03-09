@@ -361,8 +361,13 @@ static struct usb_interface_descriptor rmnet_gsi_interface_desc = {
 	.bDescriptorType =	USB_DT_INTERFACE,
 	.bNumEndpoints =	3,
 	.bInterfaceClass =	USB_CLASS_VENDOR_SPEC,
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	.bInterfaceSubClass =	0xE0,
+	.bInterfaceProtocol =	0x01,
+#else
 	.bInterfaceSubClass =	USB_CLASS_VENDOR_SPEC,
 	.bInterfaceProtocol =	USB_CLASS_VENDOR_SPEC,
+#endif
 	/* .iInterface = DYNAMIC */
 };
 
@@ -746,6 +751,97 @@ static struct usb_descriptor_header *gsi_eth_ss_function[] = {
 	(struct usb_descriptor_header *) &rndis_gsi_ss_bulk_comp_desc,
 	NULL,
 };
+
+#if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE)
+/* In VZW Models size of MTU is fixed using Devguru AVD Descriptor */
+
+struct usb_rndis_mtu_avd_descriptor {
+	__u8	bLength;
+	__u8    bDescriptorType;
+	__u8    bDescriptorSubType;
+
+	__u16   bDAU1_Type;
+	__u16   bDAU1_Length;
+	__u32   bDAU1_Value;
+
+	__u16   bDAU2_Type;
+	__u16   bDAU2_Length;
+	__u8    bDAU2_Value;
+} __attribute__ ((packed));
+
+static struct usb_rndis_mtu_avd_descriptor rndis_avd_descriptor = {
+	.bLength            =   0x10,
+	.bDescriptorType    =   0x24,
+	.bDescriptorSubType =   0x80,
+
+	/* First DAU = MTU Size */
+	.bDAU1_Type         =   0x000A,
+	.bDAU1_Length       =   0x0004,
+	.bDAU1_Value        =   0x00000594,     /* 1428Byte */
+
+	/* Second DAU = Rndis version */
+	.bDAU2_Type         =   0x000B,
+	.bDAU2_Length       =   0x0001,
+	.bDAU2_Value        =   0x01,           /* Rndis5.1 */
+};
+
+static struct usb_descriptor_header *gsi_vzw_eth_fs_function[] = {
+	(struct usb_descriptor_header *) &rndis_gsi_iad_descriptor,
+	/* control interface matches ACM, not Ethernet */
+	(struct usb_descriptor_header *) &rndis_gsi_control_intf,
+	(struct usb_descriptor_header *) &rndis_gsi_header_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_call_mgmt_descriptor,
+	(struct usb_descriptor_header *) &rndis_gsi_acm_descriptor,
+	(struct usb_descriptor_header *) &rndis_gsi_union_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_fs_notify_desc,
+	/* data interface has no altsetting */
+	(struct usb_descriptor_header *) &rndis_gsi_data_intf,
+	(struct usb_descriptor_header *) &rndis_gsi_fs_in_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_fs_out_desc,
+	/* rndis avd descriptor for vzw request */
+	(struct usb_descriptor_header *) &rndis_avd_descriptor,
+	NULL,
+};
+
+static struct usb_descriptor_header *gsi_vzw_eth_hs_function[] = {
+	(struct usb_descriptor_header *) &rndis_gsi_iad_descriptor,
+	/* control interface matches ACM, not Ethernet */
+	(struct usb_descriptor_header *) &rndis_gsi_control_intf,
+	(struct usb_descriptor_header *) &rndis_gsi_header_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_call_mgmt_descriptor,
+	(struct usb_descriptor_header *) &rndis_gsi_acm_descriptor,
+	(struct usb_descriptor_header *) &rndis_gsi_union_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_hs_notify_desc,
+	/* data interface has no altsetting */
+	(struct usb_descriptor_header *) &rndis_gsi_data_intf,
+	(struct usb_descriptor_header *) &rndis_gsi_hs_in_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_hs_out_desc,
+	/* rndis avd descriptor for vzw request */
+	(struct usb_descriptor_header *) &rndis_avd_descriptor,
+	NULL,
+};
+
+static struct usb_descriptor_header *gsi_vzw_eth_ss_function[] = {
+	(struct usb_descriptor_header *) &rndis_gsi_iad_descriptor,
+	/* control interface matches ACM, not Ethernet */
+	(struct usb_descriptor_header *) &rndis_gsi_control_intf,
+	(struct usb_descriptor_header *) &rndis_gsi_header_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_call_mgmt_descriptor,
+	(struct usb_descriptor_header *) &rndis_gsi_acm_descriptor,
+	(struct usb_descriptor_header *) &rndis_gsi_union_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_ss_notify_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_ss_intr_comp_desc,
+	/* data interface has no altsetting */
+	(struct usb_descriptor_header *) &rndis_gsi_data_intf,
+	(struct usb_descriptor_header *) &rndis_gsi_ss_in_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_ss_bulk_comp_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_ss_out_desc,
+	(struct usb_descriptor_header *) &rndis_gsi_ss_bulk_comp_desc,
+	/* rndis avd descriptor for vzw request */
+	(struct usb_descriptor_header *) &rndis_avd_descriptor,
+	NULL,
+};
+#endif
 
 /* string descriptors: */
 static struct usb_string rndis_gsi_string_defs[] = {

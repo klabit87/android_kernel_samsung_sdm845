@@ -31,6 +31,9 @@ enum ldo_levels {
 	VOLTAGE_LEVEL_MAX,
 };
 
+#undef dev_dbg
+#define dev_dbg dev_err
+
 #define INIT_MAX_TIME_USEC			1000
 
 /* default CORE votlage and load values */

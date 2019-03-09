@@ -33,6 +33,9 @@
 #include "ufs-qcom-ice.h"
 #include "ufs-qcom-debugfs.h"
 #include <linux/clk/qcom.h>
+#include <linux/cpu.h>
+#include <linux/irq.h>
+#include <linux/sched/core_ctl.h>
 
 #define MAX_PROP_SIZE		   32
 #define VDDP_REF_CLK_MIN_UV        1200000
@@ -854,7 +857,16 @@ out:
 
 static int ufs_qcom_full_reset(struct ufs_hba *hba)
 {
+	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
 	int ret = -ENOTSUPP;
+
+	host->hw_reset_count++;
+	host->last_hw_reset = (unsigned long)ktime_to_us(ktime_get());
+	host->hw_reset_saved_err = hba->saved_err;
+	host->hw_reset_saved_uic_err = hba->saved_uic_err;
+	host->hw_reset_outstanding_tasks = hba->outstanding_tasks;
+	host->hw_reset_outstanding_reqs = hba->outstanding_reqs;
+	memcpy(&host->hw_reset_ufs_stats, &hba->ufs_stats, sizeof(struct ufs_stats));
 
 	if (!hba->core_reset) {
 		dev_err(hba->dev, "%s: failed, err = %d\n", __func__,
@@ -2260,6 +2272,13 @@ out_host_free:
 	devm_kfree(dev, host);
 	ufshcd_set_variant(hba, NULL);
 out:
+	/*
+	 * host->hw_reset_count's default is -1
+	 * because full_reset is called 1 time on ufshcd_hba_probe()
+	 */
+	if (host)
+		host->hw_reset_count = -1;
+
 	return err;
 }
 
@@ -2680,6 +2699,46 @@ static void ufs_qcom_dump_dbg_regs(struct ufs_hba *hba, bool no_sleep)
 	ufs_qcom_ice_print_regs(host);
 }
 
+static void ufs_qcom_set_irq_mask(struct ufs_hba *hba, bool on)
+{
+	bool boost = false;
+	static bool boosted;
+	int target_core = 0;
+	struct cpumask mask;
+	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
+	struct ufs_pa_layer_attr *attr;
+	int gear;
+
+	if (!host)
+		return;
+
+	attr = &host->dev_req_params;
+	gear =  max_t(u32, attr->gear_rx, attr->gear_tx);
+	if (on && gear == UFS_HS_G3) {
+		boost = true;
+		target_core = 4;
+	}
+
+	cpu_maps_update_begin();
+
+	cpumask_and(&mask, cpu_coregroup_mask(target_core), cpu_online_mask);
+	if (!cpumask_equal(&mask, cpu_coregroup_mask(target_core))) {
+		/* Some target cores are offline now. Stop setting affinity */
+		boost = false;
+		cpumask_copy(&mask, cpu_online_mask);
+	}
+
+	if (boosted ^ boost) {
+		core_ctl_set_boost(boost);
+		boosted = boost;
+	}
+
+	if (!cpumask_equal(&mask, irq_get_affinity_mask(hba->irq)))
+		irq_set_affinity(hba->irq, &mask);
+
+	cpu_maps_update_done();
+}
+
 /**
  * struct ufs_hba_qcom_vops - UFS QCOM specific variant operations
  *
@@ -2706,6 +2765,7 @@ static struct ufs_hba_variant_ops ufs_hba_qcom_vops = {
 #ifdef CONFIG_DEBUG_FS
 	.add_debugfs		= ufs_qcom_dbg_add_debugfs,
 #endif
+	.set_irq_mask		= ufs_qcom_set_irq_mask,
 };
 
 static struct ufs_hba_crypto_variant_ops ufs_hba_crypto_variant_ops = {

@@ -18,6 +18,7 @@
 #include "rpmh_master_stat.h"
 #include <soc/qcom/lpm_levels.h>
 #include <soc/qcom/rpmh.h>
+#include "../../../kernel/time/tick-internal.h"
 
 #define PDC_TIME_VALID_SHIFT	31
 #define PDC_TIME_UPPER_MASK	0xFFFFFF

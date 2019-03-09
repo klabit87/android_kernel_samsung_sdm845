@@ -473,8 +473,14 @@ int mmc_retune(struct mmc_host *host)
 	}
 
 	err = mmc_execute_tuning(host->card);
-	if (err)
-		goto out;
+	if (err) {
+		err = mmc_hw_reset(host);
+		if (err) {
+			pr_err("%s: reset is failed with %d.\n",
+					mmc_hostname(host), err);
+			goto out;
+		}
+	}
 
 	if (return_to_hs400)
 		err = mmc_hs200_to_hs400(host->card);
@@ -714,6 +720,10 @@ again:
 
 	spin_lock_init(&host->lock);
 	init_waitqueue_head(&host->wq);
+	host->wlock_name = kasprintf(GFP_KERNEL,
+			"%s_detect", mmc_hostname(host));
+	wake_lock_init(&host->detect_wake_lock, WAKE_LOCK_SUSPEND,
+			host->wlock_name);
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);
 	setup_timer(&host->retune_timer, mmc_retune_timer, (unsigned long)host);
 
@@ -1044,6 +1054,7 @@ EXPORT_SYMBOL(mmc_remove_host);
 void mmc_free_host(struct mmc_host *host)
 {
 	mmc_pwrseq_free(host);
+	wake_lock_destroy(&host->detect_wake_lock);
 	put_device(&host->class_dev);
 }
 

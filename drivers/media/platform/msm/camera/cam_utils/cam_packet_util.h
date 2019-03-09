@@ -15,6 +15,9 @@
 
 #include <uapi/media/cam_defs.h>
 
+//Maximum entries as part of patch logging buffer
+#define CAM_MAX_PATCH_INFO 100
+
 /**
  * @brief                  KMD scratch buffer information
  *
@@ -31,6 +34,25 @@ struct cam_kmd_buf_info {
 	uint32_t   offset;
 	uint32_t   size;
 	uint32_t   used_bytes;
+};
+
+/**
+ * @brief                  Patch info for debugging
+ *
+ * @dst_buf_hdl:           dst_buffer handle
+ * @src_buf_hdl:           src_buffer handle
+ * @dst_cpu_addr:          dst_cpu address
+ * @src_buf_iova:          src_buf iova
+ * @src_buf_size:          src_buffer size
+ * @end_addr:              end_address
+ */
+struct cam_patch_info {
+	int32_t dst_buf_hdl;
+	int32_t src_buf_hdl;
+	uint32_t *dst_cpu_addr;
+	uint32_t *src_buf_iova;
+	size_t src_buf_size;
+	uint32_t end_addr;
 };
 
 /* Generic Cmd Buffer blob callback function type */

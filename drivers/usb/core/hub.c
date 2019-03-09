@@ -32,9 +32,15 @@
 
 #include "hub.h"
 #include "otg_whitelist.h"
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+#include <linux/usb_notify.h>
+#endif
 
 #define USB_VENDOR_GENESYS_LOGIC		0x05e3
 #define HUB_QUIRK_CHECK_PORT_AUTOSUSPEND	0x01
+
+#undef dev_dbg
+#define dev_dbg dev_err
 
 /* Protect struct usb_device->state and ->children members
  * Note: Both are also protected by ->dev.sem, except that ->state can
@@ -931,7 +937,11 @@ static int hub_set_port_link_state(struct usb_hub *hub, int port1,
  */
 static void hub_port_logical_disconnect(struct usb_hub *hub, int port1)
 {
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&hub->ports[port1 - 1]->dev, "logical disconnect\n");
+#else
 	dev_dbg(&hub->ports[port1 - 1]->dev, "logical disconnect\n");
+#endif
 	hub_port_disable(hub, port1, 1);
 
 	/* FIXME let caller ask to power down the port:
@@ -2329,7 +2339,19 @@ static int usb_enumerate_device(struct usb_device *udev)
 		}
 		return -ENOTSUPP;
 	}
-
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+	if (IS_ENABLED(CONFIG_USB_NOTIFY_LAYER) &&
+		/*hcd->tpl_support &&*/
+		!usb_check_whitelist_for_mdm(udev)) {
+		if (IS_ENABLED(CONFIG_USB_OTG) && (udev->bus->b_hnp_enable
+			|| udev->bus->is_b_host)) {
+			err = usb_port_suspend(udev, PMSG_AUTO_SUSPEND);
+			if (err < 0)
+				dev_dbg(&udev->dev, "HNP fail, %d\n", err);
+		}
+		return -ENOTSUPP;
+	}
+#endif
 	usb_detect_interface_quirks(udev);
 
 	return 0;
@@ -4763,11 +4785,17 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 	struct usb_device *udev = port_dev->child;
 	static int unreliable_port = -1;
 	enum usb_device_speed dev_speed = USB_SPEED_UNKNOWN;
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&port_dev->dev,
+		"port %d, status %04x, change %04x, %s\n",
+		port1, portstatus, portchange, portspeed(hub, portstatus));
+#endif
 
 	/* Disconnect any existing devices under this port */
 	if (udev) {
-		if (hcd->usb_phy && !hdev->parent)
-			usb_phy_notify_disconnect(hcd->usb_phy, udev->speed);
+		/* don't need to notify situation to usb phy at sdm845 */
+		// if (hcd->usb_phy && !hdev->parent)
+		//	usb_phy_notify_disconnect(hcd->usb_phy, udev->speed);
 		usb_disconnect(&port_dev->child);
 	}
 
@@ -4932,11 +4960,13 @@ retry_enum:
 				port_dev->child = NULL;
 				spin_unlock_irq(&device_state_lock);
 				mutex_unlock(&usb_port_peer_mutex);
-			} else {
-				if (hcd->usb_phy && !hdev->parent)
-					usb_phy_notify_connect(hcd->usb_phy,
-							udev->speed);
 			}
+			/* don't need to notify situation to usb phy at sdm845 */
+			// else {
+			//	if (hcd->usb_phy && !hdev->parent)
+			//		usb_phy_notify_connect(hcd->usb_phy,
+			//				udev->speed);
+			// }
 		}
 
 		if (status)

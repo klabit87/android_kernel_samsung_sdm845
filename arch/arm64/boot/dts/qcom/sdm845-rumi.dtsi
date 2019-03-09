@@ -103,6 +103,8 @@
 		#size-cells = <0>;
 	};
 
+	/*
+	 * TODO: ServiceTask#100911
 	qcom,pmi8998@2 {
 		compatible = "qcom,spmi-pmic";
 		reg = <0x2 SPMI_USID>;
@@ -116,6 +118,7 @@
 		#address-cells = <2>;
 		#size-cells = <0>;
 	};
+	*/
 
 	qcom,pm8005@4 {
 		compatible = "qcom,spmi-pmic";
@@ -132,9 +135,12 @@
 	};
 };
 
+/*
+ * TODO: ServiceTask#100911
 &pmi8998_charger {
 	qcom,suspend-input;
 };
+*/
 
 &usb0 {
 	/delete-property/ qcom,usb-dbm;

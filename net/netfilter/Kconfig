@@ -1549,6 +1549,10 @@ config NETFILTER_XT_MATCH_U32
 
 endif # NETFILTER_XTABLES
 
+config NF_HISTORY
+	bool "Support NF HISTORY"
+	default n
+
 endmenu
 
 source "net/netfilter/ipset/Kconfig"

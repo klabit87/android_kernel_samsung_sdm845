@@ -134,6 +134,7 @@ void cam_res_mgr_gpio_free_arry(struct device *dev,
  */
 int cam_res_mgr_gpio_set_value(unsigned int gpio, int value);
 
+
 /**
  * @brief: Config the shared clk ref count
  *
@@ -144,5 +145,6 @@ int cam_res_mgr_gpio_set_value(unsigned int gpio, int value);
  * @return None
  */
 void cam_res_mgr_shared_clk_config(bool value);
+
 
 #endif /* __CAM_RES_MGR_API_H__ */

@@ -83,6 +83,10 @@ static int selinux_xfrm_alloc_user(struct xfrm_sec_ctx **ctxp,
 	struct xfrm_sec_ctx *ctx = NULL;
 	u32 str_len;
 
+#ifdef CONFIG_RKP_KDP
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 	if (ctxp == NULL || uctx == NULL ||
 	    uctx->ctx_doi != XFRM_SC_DOI_LSM ||
 	    uctx->ctx_alg != XFRM_SC_ALG_SELINUX)
@@ -154,6 +158,12 @@ int selinux_xfrm_policy_lookup(struct xfrm_sec_ctx *ctx, u32 fl_secid, u8 dir)
 {
 	int rc;
 
+#ifdef CONFIG_RKP_KDP
+	int rc = 0;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
+
 	/* All flows should be treated as polmatch'ing an otherwise applicable
 	 * "non-labeled" policy. This would prevent inadvertent "leaks". */
 	if (!ctx)
@@ -178,6 +188,11 @@ int selinux_xfrm_state_pol_flow_match(struct xfrm_state *x,
 {
 	u32 state_sid;
 
+#ifdef CONFIG_RKP_KDP
+	int rc;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 	if (!xp->security)
 		if (x->security)
 			/* unlabeled policy and labeled SA can't match */
@@ -226,6 +241,11 @@ static int selinux_xfrm_skb_sid_ingress(struct sk_buff *skb,
 {
 	u32 sid_session = SECSID_NULL;
 	struct sec_path *sp = skb->sp;
+#ifdef CONFIG_RKP_KDP
+	int rc;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 
 	if (sp) {
 		int i;
@@ -258,6 +278,12 @@ out:
  */
 int selinux_xfrm_decode_session(struct sk_buff *skb, u32 *sid, int ckall)
 {
+
+#ifdef CONFIG_RKP_KDP
+	int rc = 0;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 	if (skb == NULL) {
 		*sid = SECSID_NULL;
 		return 0;
@@ -283,6 +309,11 @@ int selinux_xfrm_policy_alloc(struct xfrm_sec_ctx **ctxp,
 			      struct xfrm_user_sec_ctx *uctx,
 			      gfp_t gfp)
 {
+#ifdef CONFIG_RKP_KDP
+	int rc;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 	return selinux_xfrm_alloc_user(ctxp, uctx, gfp);
 }
 
@@ -294,6 +325,11 @@ int selinux_xfrm_policy_clone(struct xfrm_sec_ctx *old_ctx,
 			      struct xfrm_sec_ctx **new_ctxp)
 {
 	struct xfrm_sec_ctx *new_ctx;
+#ifdef CONFIG_RKP_KDP
+	int rc;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 
 	if (!old_ctx)
 		return 0;
@@ -313,6 +349,12 @@ int selinux_xfrm_policy_clone(struct xfrm_sec_ctx *old_ctx,
  */
 void selinux_xfrm_policy_free(struct xfrm_sec_ctx *ctx)
 {
+#ifdef CONFIG_RKP_KDP
+	int rc;
+
+	if ((rc = security_integrity_current()))
+		return;
+#endif  /* CONFIG_RKP_KDP */
 	selinux_xfrm_free(ctx);
 }
 
@@ -321,6 +363,11 @@ void selinux_xfrm_policy_free(struct xfrm_sec_ctx *ctx)
  */
 int selinux_xfrm_policy_delete(struct xfrm_sec_ctx *ctx)
 {
+#ifdef CONFIG_RKP_KDP
+	int rc = 0;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 	return selinux_xfrm_delete(ctx);
 }
 
@@ -331,6 +378,12 @@ int selinux_xfrm_policy_delete(struct xfrm_sec_ctx *ctx)
 int selinux_xfrm_state_alloc(struct xfrm_state *x,
 			     struct xfrm_user_sec_ctx *uctx)
 {
+#ifdef CONFIG_RKP_KDP
+	int rc;
+
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif  /* CONFIG_RKP_KDP */
 	return selinux_xfrm_alloc_user(&x->security, uctx, GFP_KERNEL);
 }
 
@@ -345,6 +398,12 @@ int selinux_xfrm_state_alloc_acquire(struct xfrm_state *x,
 	struct xfrm_sec_ctx *ctx;
 	char *ctx_str = NULL;
 	int str_len;
+
+#ifdef CONFIG_RKP_KDP
+	int rc;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
 
 	if (!polsec)
 		return 0;
@@ -380,6 +439,11 @@ out:
  */
 void selinux_xfrm_state_free(struct xfrm_state *x)
 {
+#ifdef CONFIG_RKP_KDP
+	int rc;
+	if ((rc = security_integrity_current()))
+		return;
+#endif
 	selinux_xfrm_free(x->security);
 }
 
@@ -388,6 +452,12 @@ void selinux_xfrm_state_free(struct xfrm_state *x)
  */
 int selinux_xfrm_state_delete(struct xfrm_state *x)
 {
+#ifdef CONFIG_RKP_KDP
+	int rc = 0;
+	if ((rc = security_integrity_current()))
+		return rc;
+#endif
+
 	return selinux_xfrm_delete(x->security);
 }
 

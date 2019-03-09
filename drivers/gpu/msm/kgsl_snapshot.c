@@ -663,6 +663,7 @@ void kgsl_device_snapshot(struct kgsl_device *device,
 	 * Overwrite a non-GMU fault snapshot if a GMU fault occurs.
 	 */
 	if (device->snapshot != NULL) {
+		KGSL_DRV_ERR(device, "snapshot: device->snapshot is NULL\n");
 		if (!device->prioritize_unrecoverable ||
 				!device->snapshot->recovered)
 			return;
@@ -678,8 +679,10 @@ void kgsl_device_snapshot(struct kgsl_device *device,
 
 	/* Allocate memory for the snapshot instance */
 	snapshot = kzalloc(sizeof(*snapshot), GFP_KERNEL);
-	if (snapshot == NULL)
+	if (snapshot == NULL) {
+		KGSL_DRV_ERR(device, "snapshot: allocation failed for snapshot\n");
 		return;
+	}
 
 	init_completion(&snapshot->dump_gate);
 	INIT_LIST_HEAD(&snapshot->obj_list);
@@ -1281,8 +1284,11 @@ static void kgsl_snapshot_save_frozen_objs(struct work_struct *work)
 	size_t size = 0;
 	void *ptr;
 
-	if (IS_ERR_OR_NULL(device))
+	KGSL_DRV_ERR(device, "kgsl_snapshot_save_frozen_objs start\n");
+	if (IS_ERR_OR_NULL(device)) {
+		KGSL_DRV_ERR(device, "kgsl_snapshot_save_frozen_objs - device null or error\n");
 		return;
+	}
 
 	if (snapshot->gmu_fault)
 		goto gmu_only;

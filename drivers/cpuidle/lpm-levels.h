@@ -13,6 +13,10 @@
 #include <soc/qcom/pm.h>
 #include <soc/qcom/spm.h>
 
+#ifdef CONFIG_SEC_PM
+extern void debug_rpmstats_show(char *annotation);
+#endif
+
 #define NR_LPM_LEVELS 8
 #define MAXSAMPLES 5
 #define CLUST_SMPL_INVLD_TIME 40000

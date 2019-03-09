@@ -56,6 +56,8 @@
 
 #include "tick-internal.h"
 
+#include <linux/sec_debug.h>
+
 /*
  * The timer bases:
  *
@@ -92,6 +94,10 @@ DEFINE_PER_CPU(struct hrtimer_cpu_base, hrtimer_bases) =
 		},
 	}
 };
+
+#define RECORD_NUM 11
+static DEFINE_PER_CPU(u64 [RECORD_NUM], debug_timestamps);
+static DEFINE_PER_CPU(u64 [RECORD_NUM], debug_timestamps_snapshot);
 
 static const int hrtimer_clock_to_base_table[MAX_CLOCKS] = {
 	/* Make sure we catch unsupported clockids */
@@ -1191,6 +1197,9 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 {
 	enum hrtimer_restart (*fn)(struct hrtimer *);
 	int restart;
+	u64 *tmp;
+
+	tmp = this_cpu_ptr(debug_timestamps);
 
 	lockdep_assert_held(&cpu_base->lock);
 
@@ -1222,11 +1231,17 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 	 * they get migrated to another cpu, therefore its safe to unlock
 	 * the timer base.
 	 */
+	tmp[4] = sched_clock();
 	raw_spin_unlock(&cpu_base->lock);
 	trace_hrtimer_expire_entry(timer, now);
+	secdbg_msg("hrtimer %pS entry", fn);
+	tmp[5] = sched_clock();
 	restart = fn(timer);
+	tmp[6] = sched_clock();
+	secdbg_msg("hrtimer %pS exit", fn);
 	trace_hrtimer_expire_exit(timer);
 	raw_spin_lock(&cpu_base->lock);
+	tmp[7] = sched_clock();
 
 	/*
 	 * Note: We clear the running state after enqueue_hrtimer and
@@ -1258,7 +1273,9 @@ static void __hrtimer_run_queues(struct hrtimer_cpu_base *cpu_base, ktime_t now)
 {
 	struct hrtimer_clock_base *base = cpu_base->clock_base;
 	unsigned int active = cpu_base->active_bases;
+	u64 *tmp;
 
+	tmp = this_cpu_ptr(debug_timestamps);
 	for (; active; base++, active >>= 1) {
 		struct timerqueue_node *node;
 		ktime_t basenow;
@@ -1267,10 +1284,12 @@ static void __hrtimer_run_queues(struct hrtimer_cpu_base *cpu_base, ktime_t now)
 			continue;
 
 		basenow = ktime_add(now, base->offset);
+		tmp[2] = sched_clock();
 
 		while ((node = timerqueue_getnext(&base->active))) {
 			struct hrtimer *timer;
 
+			tmp[3] = sched_clock();
 			timer = container_of(node, struct hrtimer, node);
 
 			/*
@@ -1304,13 +1323,17 @@ void hrtimer_interrupt(struct clock_event_device *dev)
 	struct hrtimer_cpu_base *cpu_base = this_cpu_ptr(&hrtimer_bases);
 	ktime_t expires_next, now, entry_time, delta;
 	int retries = 0;
+	u64 *tmp, *copy_tmp;
 
 	BUG_ON(!cpu_base->hres_active);
 	cpu_base->nr_events++;
 	dev->next_event.tv64 = KTIME_MAX;
 
+	tmp = this_cpu_ptr(debug_timestamps);
+	tmp[0] = sched_clock();
 	raw_spin_lock(&cpu_base->lock);
 	entry_time = now = hrtimer_update_base(cpu_base);
+	tmp[1] = sched_clock();
 retry:
 	cpu_base->in_hrtirq = 1;
 	/*
@@ -1353,6 +1376,7 @@ retry:
 	 * Acquire base lock for updating the offsets and retrieving
 	 * the current time.
 	 */
+	tmp[8] = sched_clock();
 	raw_spin_lock(&cpu_base->lock);
 	now = hrtimer_update_base(cpu_base);
 	cpu_base->nr_retries++;
@@ -1368,6 +1392,7 @@ retry:
 	cpu_base->hang_detected = 1;
 	raw_spin_unlock(&cpu_base->lock);
 	delta = ktime_sub(now, entry_time);
+	tmp[9] = sched_clock();
 	if ((unsigned int)delta.tv64 > cpu_base->max_hang_time)
 		cpu_base->max_hang_time = (unsigned int) delta.tv64;
 	/*
@@ -1381,6 +1406,9 @@ retry:
 	tick_program_event(expires_next, 1);
 	printk_once(KERN_WARNING "hrtimer: interrupt took %llu ns\n",
 		    ktime_to_ns(delta));
+
+	copy_tmp = this_cpu_ptr(debug_timestamps_snapshot);
+	memcpy(copy_tmp, tmp, sizeof(int)*RECORD_NUM);
 }
 
 /*

@@ -1298,7 +1298,7 @@ int dsi_display_clk_ctrl(void *handle, u32 clk_type, u32 clk_state)
 
 	return rc;
 }
-
+ 
 void *dsi_register_clk_handle(void *clk_mngr, char *client)
 {
 	void *handle = NULL;

@@ -31,6 +31,15 @@
 #include <linux/workqueue.h>
 #include <uapi/linux/thermal.h>
 
+#ifdef CONFIG_SEC_PM
+#include <linux/ipc_logging.h>
+#define THERMAL_IPC_LOG(msg...)						\
+	do {								\
+		if (thermal_ipc_log)					\
+			ipc_log_string(thermal_ipc_log, msg);		\
+	} while (0)
+#endif
+
 #define THERMAL_TRIPS_NONE	-1
 #define THERMAL_MAX_TRIPS	12
 

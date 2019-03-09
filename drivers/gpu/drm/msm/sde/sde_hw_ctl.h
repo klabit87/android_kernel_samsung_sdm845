@@ -90,6 +90,8 @@ struct sde_hw_ctl_ops {
 	 * @ctx       : ctl path ctx pointer
 	 */
 	void (*trigger_start)(struct sde_hw_ctl *ctx);
+	void (*reset_lutdma_start)(struct sde_hw_ctl *ctx);
+	u32 (*read_start)(struct sde_hw_ctl *ctx);
 
 	/**
 	 * kickoff prepare is in progress hw operation for sw

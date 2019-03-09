@@ -38,8 +38,45 @@
 #include "sde_hdcp.h"
 #include "dp_debug.h"
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include <linux/switch.h>
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+#include <linux/displayport_bigdata.h>
+#endif
+#include "secdp.h"
+#include "secdp_sysfs.h"
+#define CCIC_DP_NOTI_REG_DELAY		60000
+
+struct secdp_event {
+	struct dp_display_private *dp;
+	u32 id;
+};
+
+#define SECDP_EVENT_Q_MAX 4
+
+struct secdp_event_data {
+	wait_queue_head_t event_q;
+	u32 pndx;
+	u32 gndx;
+	struct secdp_event event_list[SECDP_EVENT_Q_MAX];
+	spinlock_t event_lock;
+};
+
+static void secdp_handle_attention(struct dp_display_private *dp);
+#endif
+
 static struct dp_display *g_dp_display;
 #define HPD_STRING_SIZE 30
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+static struct switch_dev switch_secdp = {
+	.name = "secdp",
+};
+
+static struct switch_dev switch_secdp_msg = {
+	.name = "secdp_msg",
+};
+#endif
 
 struct dp_hdcp {
 	void *data;
@@ -79,6 +116,20 @@ struct dp_display_private {
 
 	struct dp_hdcp hdcp;
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	struct completion dp_off_comp;
+
+	struct secdp_sysfs	*sysfs;
+	struct secdp_misc	 sec;
+
+	/* for ccic event handler */
+	struct secdp_event_data dp_event;
+	struct task_struct *ev_thread;
+	struct list_head attention_head;
+	struct mutex attention_lock;
+	struct workqueue_struct *workq;
+	atomic_t notification_status;
+#endif
 	struct dp_usbpd_cb usbpd_cb;
 	struct dp_display_mode mode;
 	struct dp_display dp_display;
@@ -97,6 +148,129 @@ static const struct of_device_id dp_dt_match[] = {
 	{.compatible = "qcom,dp-display"},
 	{}
 };
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+struct dp_display_private *g_secdp_priv;
+
+void secdp_send_poor_connection_event(void)
+{
+	switch_set_state(&switch_secdp_msg, 1);
+	switch_set_state(&switch_secdp_msg, 0);
+}
+
+bool secdp_get_power_status(void)
+{
+	if (!g_secdp_priv)
+		return false;
+
+	return g_secdp_priv->power_on;
+}
+
+/* check if dp cable has connected or not */
+bool secdp_get_cable_status(void)
+{
+	if (!g_secdp_priv)
+		return false;
+
+	return g_secdp_priv->sec.cable_connected;
+}
+
+/* check if hpd high has come or not */
+int secdp_get_hpd_status(void)
+{
+	if (!g_secdp_priv)
+		return 0;
+
+	return g_secdp_priv->sec.hpd;
+}
+
+int secdp_read_branch_revision(struct dp_display_private *dp)
+{
+	int rlen = 0;
+	struct drm_dp_aux *drm_aux;
+	char *fw_ver;
+
+	if (!dp || !dp->aux || !dp->aux->drm_aux) {
+		pr_err("invalid param\n");
+		goto end;
+	}
+
+	drm_aux = dp->aux->drm_aux;
+	fw_ver = dp->sec.dex.fw_ver;
+
+	rlen = drm_dp_dpcd_read(drm_aux, DPCD_BRANCH_HW_REVISION, fw_ver,
+						LEN_BRANCH_REVISION);
+	if (rlen < 3) {
+		pr_err("read fail, rlen(%d)\n", rlen);
+		goto end;
+	}
+
+	pr_info("branch revision: HW(0x%X), SW(0x%X, 0x%X)\n",
+		fw_ver[0], fw_ver[1], fw_ver[2]);
+
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	secdp_bigdata_save_item(BD_ADAPTER_HWID, fw_ver[0]);
+	secdp_bigdata_save_item(BD_ADAPTER_FWVER, (fw_ver[1] << 8) | fw_ver[2]);
+#endif
+
+end:
+	return rlen;
+}
+
+void secdp_clear_branch_info(struct dp_display_private *dp)
+{
+	int i;
+	char *fw_ver;
+
+	if (!dp)
+		goto end;
+
+	fw_ver = dp->sec.dex.fw_ver;
+
+	for (i = 0; i < LEN_BRANCH_REVISION; i++)
+		fw_ver[i] = 0;
+
+end:
+	return;
+}
+
+static enum dex_support_res_t secdp_check_adapter_type(uint64_t ven_id, uint64_t prod_id)
+{
+	enum dex_support_res_t type = DEX_RES_DFT;	/* default resolution */
+
+	pr_info("ven_id(0x%04x), prod_id(0x%04x)\n", (uint)ven_id, (uint)prod_id);
+
+#ifdef NOT_SUPPORT_DEX_RES_CHANGE
+	return DEX_RES_NOT_SUPPORT;
+#endif
+
+	if (ven_id == SAMSUNG_VENDOR_ID) {
+		switch (prod_id) {
+			case 0xa029: /* PAD */
+			case 0xa020: /* Station */
+			case 0xa02a:
+			case 0xa02b:
+			case 0xa02c:
+			case 0xa02d:
+			case 0xa02e:
+			case 0xa02f:
+			case 0xa030:
+			case 0xa031:
+			case 0xa032:
+			case 0xa033:
+				type = DEX_RES_MAX;
+				break;
+		default:
+			pr_info("it's SS dongle but UNKNOWN\n");
+			break;
+		}
+	} else {
+		pr_info("it's NOT SS dongle\n");
+	}
+
+	return type;
+}
+#endif
 
 static bool dp_display_framework_ready(struct dp_display_private *dp)
 {
@@ -133,6 +307,10 @@ static irqreturn_t dp_display_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+static void dp_display_handle_maintenance_req(struct dp_display_private *dp);
+#endif
+
 static void dp_display_hdcp_cb_work(struct work_struct *work)
 {
 	struct dp_display_private *dp;
@@ -140,6 +318,8 @@ static void dp_display_hdcp_cb_work(struct work_struct *work)
 	struct sde_hdcp_ops *ops;
 	int rc = 0;
 	u32 hdcp_auth_state;
+
+	pr_debug("+++\n");
 
 	dp = container_of(dw, struct dp_display_private, hdcp_cb_work);
 
@@ -161,6 +341,10 @@ static void dp_display_hdcp_cb_work(struct work_struct *work)
 			rc = dp->hdcp.ops->authenticate(dp->hdcp.data);
 		break;
 	case HDCP_STATE_AUTH_FAIL:
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+		secdp_bigdata_inc_error_cnt(ERR_HDCP_AUTH);
+#endif
+
 		if (dp->power_on) {
 			if (ops && ops->reauthenticate) {
 				rc = ops->reauthenticate(dp->hdcp.data);
@@ -168,7 +352,7 @@ static void dp_display_hdcp_cb_work(struct work_struct *work)
 					pr_err("failed rc=%d\n", rc);
 			}
 		} else {
-			pr_debug("not reauthenticating, cable disconnected\n");
+			pr_info("not reauthenticating, cable disconnected\n");
 		}
 		break;
 	default:
@@ -185,6 +369,8 @@ static void dp_display_notify_hdcp_status_cb(void *ptr,
 		pr_err("invalid input\n");
 		return;
 	}
+
+	pr_debug("+++\n");
 
 	dp->link->hdcp_status.hdcp_state = state;
 
@@ -217,6 +403,8 @@ static void dp_display_update_hdcp_info(struct dp_display_private *dp)
 		return;
 	}
 
+	pr_debug("+++\n");
+
 	fd = dp->hdcp.hdcp2;
 	if (fd)
 		ops = sde_dp_hdcp2p2_start(fd);
@@ -226,7 +414,7 @@ static void dp_display_update_hdcp_info(struct dp_display_private *dp)
 	else
 		hdcp2_present = false;
 
-	pr_debug("hdcp2p2: %s\n",
+	pr_info("hdcp2p2: %s\n",
 			hdcp2_present ? "supported" : "not supported");
 
 	if (!hdcp2_present) {
@@ -241,12 +429,17 @@ static void dp_display_update_hdcp_info(struct dp_display_private *dp)
 		dp->link->hdcp_status.hdcp_version = HDCP_VERSION_2P2;
 	}
 
-	pr_debug("hdcp1x: %s\n",
+	pr_info("hdcp1x: %s\n",
 			hdcp1_present ? "supported" : "not supported");
 
 	if (hdcp2_present || hdcp1_present) {
 		dp->hdcp.data = fd;
 		dp->hdcp.ops = ops;
+
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+		secdp_bigdata_save_item(BD_HDCP_VER,
+				dp->link->hdcp_status.hdcp_version == HDCP_VERSION_2P2 ? "hdcp2" : "hdcp1");
+#endif
 	} else {
 		dp->hdcp.data = NULL;
 		dp->hdcp.ops = NULL;
@@ -350,6 +543,13 @@ static int dp_display_bind(struct device *dev, struct device *master,
 
 	dp->dp_display.drm_dev = drm;
 	dp->priv = drm->dev_private;
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	rc = secdp_init(pdev);
+	if (rc)
+		pr_err("secdp_init failed\n");
+#endif
+
 end:
 	return rc;
 }
@@ -359,6 +559,8 @@ static void dp_display_unbind(struct device *dev, struct device *master,
 {
 	struct dp_display_private *dp;
 	struct platform_device *pdev = to_platform_device(dev);
+
+	pr_debug("+++\n");
 
 	if (!dev || !pdev) {
 		pr_err("invalid param(s)\n");
@@ -370,6 +572,10 @@ static void dp_display_unbind(struct device *dev, struct device *master,
 		pr_err("Invalid params\n");
 		return;
 	}
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	secdp_deinit(pdev);
+#endif
 
 	(void)dp->power->power_client_deinit(dp->power);
 	(void)dp->aux->drm_aux_deregister(dp->aux);
@@ -408,6 +614,11 @@ static void dp_display_send_hpd_event(struct dp_display_private *dp)
 		return;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	switch_set_state(&switch_secdp, (int)dp->dp_display.is_connected);
+	pr_info("secdp displayport uevent: %d\n", dp->dp_display.is_connected);
+	msleep(100);
+#endif
 	connector->status = connector->funcs->detect(connector, false);
 
 	dev = dp->dp_display.connector->dev;
@@ -467,26 +678,55 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 	u32 timeout_sec;
 	int ret = 0;
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (hpd && !secdp_get_cable_status()) {
+		pr_info("cable is out\n");
+		return -EIO;
+	}
+
+	pr_debug("+++\n");
+#endif
+
 	dp->dp_display.is_connected = hpd;
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	if  (dp_display_framework_ready(dp))
 		timeout_sec = 5;
 	else
 		timeout_sec = 10;
+#else
+	timeout_sec = 15;
+#endif
 
 	dp->aux->state |= DP_STATE_NOTIFICATION_SENT;
 
 	reinit_completion(&dp->notification_comp);
 	dp_display_send_hpd_event(dp);
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (!hpd && !dp->power_on) {
+		pr_info("DP is already off, no wait\n");
+		return 0;
+	}
+
+	atomic_set(&dp->notification_status, 1);
+#endif
+
 	if (!wait_for_completion_timeout(&dp->notification_comp,
 						HZ * timeout_sec)) {
 		pr_warn("%s timeout\n", hpd ? "connect" : "disconnect");
+#ifndef CONFIG_SEC_DISPLAYPORT
+		/* cancel any pending request */
+		dp->ctrl->abort(dp->ctrl);
+		/* once timeout happens, this makes hdcp failure. not necessary */
+		dp->aux->abort(dp->aux);
+#endif
 		ret = -EINVAL;
 	}
 
 	dp->aux->state &= ~DP_STATE_NOTIFICATION_SENT;
 
+	pr_debug("---\n");
 	return ret;
 }
 
@@ -494,6 +734,15 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 {
 	int rc = 0;
 	struct edid *edid;
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (dp->dp_display.is_connected) {
+		pr_debug("it's already handled\n");
+		return rc;
+	}
+
+	pr_debug("+++\n");
+#endif
 
 	dp->aux->init(dp->aux, dp->parser->aux_cfg);
 
@@ -507,6 +756,7 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 
 	rc = dp->panel->read_sink_caps(dp->panel,
 		dp->dp_display.connector, dp->usbpd->multi_func);
+#ifndef CONFIG_SEC_DISPLAYPORT
 	if (rc) {
 		/*
 		 * ETIMEDOUT --> cable may have been removed
@@ -517,19 +767,56 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 		else
 			goto notify;
 	}
+#else
+	if (rc) {
+		if (!secdp_get_hpd_status() || !secdp_get_cable_status() || rc == -EIO) {
+			pr_info("hpd_low or cable_lost or AUX failure\n");
+#ifndef CONFIG_SEC_FACTORY
+			dp->link->poor_connection = true;
+#endif
+			goto end;
+		}
+
+		pr_info("fall through failsafe\n");
+		goto notify;
+	}
+
+	dp->sec.dex.prev = secdp_check_dex_mode();
+	pr_info("dex.setting_ui: %d, dex.curr: %d\n", dp->sec.dex.setting_ui, dp->sec.dex.curr);
+
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	if (dp->sec.dex.prev)
+		secdp_bigdata_save_item(BD_DP_MODE, "DEX");
+	else
+		secdp_bigdata_save_item(BD_DP_MODE, "MIRROR");
+#endif
+
+	secdp_read_branch_revision(dp);
+#endif
 
 	edid = dp->panel->edid_ctrl->edid;
 
 	dp->audio_supported = drm_detect_monitor_audio(edid);
 
 	dp->link->process_request(dp->link);
+	mutex_lock(&dp->audio->ops_lock);
 	dp->panel->handle_sink_request(dp->panel);
+	mutex_unlock(&dp->audio->ops_lock);
 
 	dp->dp_display.max_pclk_khz = dp->parser->max_pclk_khz;
 notify:
 	dp_display_send_hpd_notification(dp, true);
 
 end:
+#ifdef CONFIG_SEC_DISPLAYPORT
+#ifndef CONFIG_SEC_FACTORY
+	if (dp->link->poor_connection) {
+		secdp_send_poor_connection_event();
+		pr_info("poor connection! send secdp_msg uevent\n");
+		dp->link->poor_connection = 0;
+	}
+#endif
+#endif
 	return rc;
 }
 
@@ -537,6 +824,8 @@ static void dp_display_host_init(struct dp_display_private *dp)
 {
 	bool flip = false;
 	bool reset;
+
+	pr_debug("+++\n");
 
 	if (dp->core_initialized) {
 		pr_debug("DP core already initialized\n");
@@ -556,6 +845,8 @@ static void dp_display_host_init(struct dp_display_private *dp)
 
 static void dp_display_host_deinit(struct dp_display_private *dp)
 {
+	pr_debug("+++\n");
+
 	if (!dp->core_initialized) {
 		pr_debug("DP core already off\n");
 		return;
@@ -577,6 +868,13 @@ static int dp_display_process_hpd_low(struct dp_display_private *dp)
 		return 0;
 	}
 
+	pr_debug("+++\n");
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	cancel_delayed_work_sync(&dp->sec.hdcp_start_work);
+	cancel_delayed_work(&dp->sec.link_status_work);
+#endif
+
 	if (dp_display_is_hdcp_enabled(dp) && dp->hdcp.ops->off)
 		dp->hdcp.ops->off(dp->hdcp.data);
 
@@ -585,6 +883,17 @@ static int dp_display_process_hpd_low(struct dp_display_private *dp)
 
 	dp->audio_status = -ENODEV;
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (!dp->power_on && secdp_get_cable_status()) {
+		pr_info("DP is already off, skip\n");
+		if (dp->dp_display.is_connected) {
+			pr_info("platform reset? clear!\n");
+			dp->dp_display.is_connected = false;
+		}
+		dp->panel->video_test = false;
+		return rc;
+	}
+#endif
 	rc = dp_display_send_hpd_notification(dp, false);
 
 	dp->panel->video_test = false;
@@ -592,6 +901,73 @@ static int dp_display_process_hpd_low(struct dp_display_private *dp)
 	return rc;
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+void secdp_dex_do_reconnecting(void)
+{
+	struct dp_display_private *dp = g_secdp_priv;
+
+	if (dp->link->poor_connection) {
+		pr_info("poor connection, return!\n");
+		return;
+	}
+
+	mutex_lock(&dp->attention_lock);
+	pr_info("dex_reconnect hpd low++\n");
+	dp->sec.dex.reconnecting = 1;
+
+	if (dp->sec.dex.curr == DEX_ENABLED)
+		dp->sec.dex.curr = DEX_DURING_MODE_CHANGE;
+
+	dp->usbpd->hpd_high = false;
+	dp_display_host_init(dp);
+	dp_display_process_hpd_low(dp);
+
+	pr_info("dex_reconnect hpd low--\n");
+	mutex_unlock(&dp->attention_lock);
+
+	msleep(400);
+
+	mutex_lock(&dp->attention_lock);
+	if (!dp->power_on && dp->sec.dex.reconnecting) {
+		pr_info("dex_reconnect hpd high++\n");
+
+		dp->usbpd->hpd_high = true;
+		dp_display_host_init(dp);
+		dp_display_process_hpd_high(dp);
+
+		pr_info("dex_reconnect hpd high--\n");
+	}
+	dp->sec.dex.reconnecting = 0;
+	mutex_unlock(&dp->attention_lock);
+}
+
+/** check if dex is running now */
+bool secdp_check_dex_mode(void)
+{
+	struct dp_display_private *dp = g_secdp_priv;
+	bool mode = false;
+
+	if (dp->sec.dex.res == DEX_RES_NOT_SUPPORT)
+		goto end;
+
+	if (dp->sec.dex.setting_ui == DEX_DISABLED && dp->sec.dex.curr == DEX_DISABLED)
+		goto end;
+
+	mode = true;
+end:
+	return mode;
+}
+
+/** get dex resolution. it depends on which dongle/adapter is connected */
+enum dex_support_res_t secdp_get_dex_res(void)
+{
+	struct dp_display_private *dp = g_secdp_priv;
+
+	return dp->sec.dex.res;
+}
+#endif
+
+#ifndef CONFIG_SEC_DISPLAYPORT
 static int dp_display_usbpd_configure_cb(struct device *dev)
 {
 	int rc = 0;
@@ -620,9 +996,32 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 end:
 	return rc;
 }
+#else
+static int secdp_display_usbpd_configure_cb(void)
+{
+	int rc = 0;
+	struct dp_display_private *dp = g_secdp_priv;
+
+	pr_debug("+++\n");
+
+	dp_display_host_init(dp);
+
+	/* check for hpd high and framework ready */
+	if  (dp->usbpd->hpd_high && dp_display_framework_ready(dp))
+		queue_delayed_work(dp->wq, &dp->connect_work, 0);
+
+	return rc;
+}
+#endif
 
 static void dp_display_clean(struct dp_display_private *dp)
 {
+	pr_debug("+++\n");
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	cancel_delayed_work_sync(&dp->sec.hdcp_start_work);
+	cancel_delayed_work(&dp->sec.link_status_work);
+#endif
 	if (dp_display_is_hdcp_enabled(dp)) {
 		dp->link->hdcp_status.hdcp_state = HDCP_STATE_INACTIVE;
 
@@ -642,6 +1041,8 @@ static int dp_display_handle_disconnect(struct dp_display_private *dp)
 {
 	int rc;
 
+	pr_debug("+++\n");
+
 	rc = dp_display_process_hpd_low(dp);
 	if (rc) {
 		/* cancel any pending request */
@@ -660,7 +1061,7 @@ static int dp_display_handle_disconnect(struct dp_display_private *dp)
 
 	return rc;
 }
-
+#ifndef CONFIG_SEC_DISPLAYPORT
 static int dp_display_usbpd_disconnect_cb(struct device *dev)
 {
 	int rc = 0;
@@ -703,19 +1104,93 @@ static int dp_display_usbpd_disconnect_cb(struct device *dev)
 end:
 	return rc;
 }
+#else
+static int secdp_display_usbpd_disconnect_cb(void)
+{
+	int rc = 0;
+	struct dp_display_private *dp = g_secdp_priv;
+
+	if (!dp) {
+		pr_err("no driver data found\n");
+		rc = -ENODEV;
+		goto end;
+	}
+
+	pr_debug("+++, psm(%d)\n", dp->debug->psm_enabled);
+
+	if (atomic_read(&dp->notification_status)) {
+		reinit_completion(&dp->notification_comp);
+		pr_info("wait for connection logic++\n");
+		if (atomic_read(&dp->notification_status) &&
+			!wait_for_completion_timeout(&dp->notification_comp, HZ * 5)) {
+
+			pr_warn("notification_comp timeout\n");
+		}
+		pr_info("wait for connection logic--\n");
+	}
+
+	atomic_set(&dp->notification_status, 0);
+
+	/*
+	 * In case cable/dongle is disconnected during adb shell stop,
+	 * reset psm_enabled flag to false since it is no more needed
+	 */
+	if (dp->dp_display.post_open)
+		dp->debug->psm_enabled = false;
+
+	if (dp->debug->psm_enabled)
+		dp->link->psm_config(dp->link, &dp->panel->link_info, true);
+
+	/* cancel any pending request */
+	atomic_set(&dp->aborted, 1);
+	dp->ctrl->abort(dp->ctrl);
+	dp->aux->abort(dp->aux);
+
+	/* wait for idle state */
+	cancel_delayed_work(&dp->connect_work);
+	flush_workqueue(dp->wq);
+
+	dp_display_handle_disconnect(dp);
+	atomic_set(&dp->aborted, 0);
+
+end:
+	pr_debug("---\n");
+	return rc;
+}
+#endif
 
 static void dp_display_handle_maintenance_req(struct dp_display_private *dp)
 {
+#ifdef CONFIG_SEC_DISPLAYPORT
+	int ret;
+
+	if (!secdp_get_cable_status()) {
+		pr_info("cable is out\n");
+		return;
+	}
+#endif
 	mutex_lock(&dp->audio->ops_lock);
 
 	if (dp->audio_supported && !IS_ERR_VALUE(dp->audio_status))
 		dp->audio->off(dp->audio);
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	dp->ctrl->link_maintenance(dp->ctrl);
 
 	if (dp->audio_supported && !IS_ERR_VALUE(dp->audio_status))
 		dp->audio_status = dp->audio->on(dp->audio);
-
+#else
+	ret = dp->ctrl->link_maintenance(dp->ctrl);
+	if (!ret && dp->audio_supported) {
+/* In case of poor connection, hpd irq is coming continuously in a short time.
+ * and audio off/on fucntions are called rapidly.
+ * It can causes dp audio problem. so, added delay.
+ */
+		if (dp->link->sink_request & DP_LINK_STATUS_UPDATED)
+			msleep(30);
+		dp->audio->on(dp->audio);
+	}
+#endif
 	mutex_unlock(&dp->audio->ops_lock);
 }
 
@@ -724,10 +1199,14 @@ static void dp_display_attention_work(struct work_struct *work)
 	struct dp_display_private *dp = container_of(work,
 			struct dp_display_private, attention_work);
 
-	if (dp_display_is_hdcp_enabled(dp) && dp->hdcp.ops->cp_irq) {
-		if (!dp->hdcp.ops->cp_irq(dp->hdcp.data))
-			return;
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (!secdp_get_hpd_status() || !secdp_get_cable_status()) {
+		pr_info("hpd_low or cable_lost\n");
+		return;
 	}
+
+	pr_debug("+++, sink_request: 0x%08x\n", dp->link->sink_request);
+#endif
 
 	if (dp->link->sink_request & DS_PORT_STATUS_CHANGED) {
 		dp_display_handle_disconnect(dp);
@@ -736,6 +1215,11 @@ static void dp_display_attention_work(struct work_struct *work)
 			pr_debug("sink count is zero, nothing to do\n");
 			return;
 		}
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+		/* add some delay to guarantee hpd event handling in framework side */
+		msleep(60);
+#endif
 
 		queue_delayed_work(dp->wq, &dp->connect_work, 0);
 		return;
@@ -756,18 +1240,20 @@ static void dp_display_attention_work(struct work_struct *work)
 		return;
 	}
 
-	if (dp->link->sink_request & DP_LINK_STATUS_UPDATED) {
-		dp_display_handle_maintenance_req(dp);
-		return;
-	}
-
 	if (dp->link->sink_request & DP_TEST_LINK_TRAINING) {
 		dp->link->send_test_response(dp->link);
 		dp_display_handle_maintenance_req(dp);
 		return;
 	}
+
+	if (dp->link->sink_request & DP_LINK_STATUS_UPDATED)
+		dp_display_handle_maintenance_req(dp);
+
+	if (dp_display_is_hdcp_enabled(dp) && dp->hdcp.ops->cp_irq)
+		dp->hdcp.ops->cp_irq(dp->hdcp.data);
 }
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 static int dp_display_usbpd_attention_cb(struct device *dev)
 {
 	struct dp_display_private *dp;
@@ -813,6 +1299,547 @@ static int dp_display_usbpd_attention_cb(struct device *dev)
 	return 0;
 }
 
+#else
+static int secdp_event_thread(void *data)
+{
+	unsigned long flag;
+	u32 todo = 0;
+
+	struct secdp_event_data *ev_data;
+	struct secdp_event *ev;
+	struct dp_display_private *dp = NULL;
+
+	if (!data)
+		return -EINVAL;
+
+	ev_data = (struct secdp_event_data *)data;
+	init_waitqueue_head(&ev_data->event_q);
+	spin_lock_init(&ev_data->event_lock);
+
+	while (!kthread_should_stop()) {
+		wait_event(ev_data->event_q,
+			(ev_data->pndx != ev_data->gndx) ||
+			kthread_should_stop());
+		spin_lock_irqsave(&ev_data->event_lock, flag);
+		ev = &(ev_data->event_list[ev_data->gndx++]);
+		todo = ev->id;
+		dp = ev->dp;
+		ev->id = 0;
+		ev_data->gndx %= SECDP_EVENT_Q_MAX;
+		spin_unlock_irqrestore(&ev_data->event_lock, flag);
+
+		pr_debug("todo=%s\n", secdp_ev_event_to_string(todo));
+
+		switch (todo) {
+		case EV_USBPD_ATTENTION:
+			secdp_handle_attention(dp);
+			break;
+		default:
+			pr_err("Unknown event:%d\n", todo);
+		}
+	}
+
+	return 0;
+}
+
+static int secdp_event_setup(struct dp_display_private *dp)
+{
+
+	dp->ev_thread = kthread_run(secdp_event_thread,
+		(void *)&dp->dp_event, "secdp_event");
+	if (IS_ERR(dp->ev_thread)) {
+		pr_err("unable to start event thread\n");
+		return PTR_ERR(dp->ev_thread);
+	}
+
+	dp->workq = create_workqueue("secdp_hpd");
+	if (!dp->workq) {
+		pr_err("error creating workqueue\n");
+		return -EPERM;
+	}
+
+	INIT_LIST_HEAD(&dp->attention_head);
+	return 0;
+}
+
+static void secdp_event_cleanup(struct dp_display_private *dp)
+{
+	destroy_workqueue(dp->workq);
+
+	if (dp->ev_thread == current)
+		return;
+
+	kthread_stop(dp->ev_thread);
+}
+
+static void secdp_send_events(struct dp_display_private *dp, u32 event)
+{
+	struct secdp_event *ev;
+	struct secdp_event_data *ev_data = &dp->dp_event;
+
+	pr_debug("event=%s\n", secdp_ev_event_to_string(event));
+
+	spin_lock(&ev_data->event_lock);
+	ev = &ev_data->event_list[ev_data->pndx++];
+	ev->id = event;
+	ev->dp = dp;
+	ev_data->pndx %= SECDP_EVENT_Q_MAX;
+	wake_up(&ev_data->event_q);
+	spin_unlock(&ev_data->event_lock);
+}
+
+static void secdp_process_attention(struct dp_display_private *dp,
+		CC_NOTI_TYPEDEF *noti)
+{
+	int rc = 0;
+
+	if (!noti || !dp)
+		goto end;
+
+	pr_debug("sub1(%d), sub2(%d), sub3(%d)\n", noti->sub1, noti->sub2, noti->sub3);
+
+	dp->sec.dex.reconnecting = 0;
+
+	if (noti->id == CCIC_NOTIFY_ID_DP_CONNECT && noti->sub1 == CCIC_NOTIFY_DETACH) {
+		dp->usbpd->hpd_high = false;
+
+		rc = secdp_display_usbpd_disconnect_cb();
+		goto end;
+	}
+
+	if (noti->id == CCIC_NOTIFY_ID_DP_HPD &&
+		noti->sub1 == CCIC_NOTIFY_HIGH && noti->sub2 == CCIC_NOTIFY_IRQ) {
+
+		if (!secdp_get_cable_status()) {
+			pr_info("cable is out\n");
+			goto end;
+		}
+
+		if (dp->link->poor_connection) {
+			pr_info("poor connection\n");
+			goto end;
+		}
+
+		if (!dp->power_on) {
+			flush_workqueue(dp->wq);
+			if (!dp->power_on) {
+				pr_debug("handle it as hpd high\n");
+
+				if (dp->dp_display.is_connected) {
+					pr_info("platform reset!\n");
+					secdp_display_usbpd_disconnect_cb();
+					msleep(100);
+				}
+				goto handle_hpd_high;
+			}
+		}
+
+		/* do the same with: dp_display_usbpd_attention_cb */
+		dp->link->process_request(dp->link);
+		queue_work(dp->wq, &dp->attention_work);
+
+		goto end;
+	}
+
+	if (noti->id == CCIC_NOTIFY_ID_DP_HPD && noti->sub1 == CCIC_NOTIFY_LOW) {
+		dp->sec.dex.prev = dp->sec.dex.curr = DEX_DISABLED;
+		secdp_clear_link_status_update_cnt(dp->link);
+
+/* Following functions were copied from dp_display_usbpd_disconnect_cb() fucntion.
+ * Sometimes they make connection status abnormal and it's causing CTS failure
+ * when running CTS continuously. so, we commented it out.
+ */
+#if 0
+		/* cancel any pending request */
+		atomic_set(&dp->aborted, 1);
+		dp->ctrl->abort(dp->ctrl);
+		dp->aux->abort(dp->aux);
+#endif
+
+		/* wait for idle state */
+		cancel_delayed_work(&dp->connect_work);
+		flush_workqueue(dp->wq);
+
+		dp_display_handle_disconnect(dp);
+		atomic_set(&dp->aborted, 0);
+		goto end;
+	}
+
+handle_hpd_high:
+	/* handle it as hpd high */
+	pr_info("is_connected <%d>\n", dp->dp_display.is_connected);
+	if (!dp->dp_display.is_connected) {
+		secdp_clear_link_status_update_cnt(dp->link);
+		queue_delayed_work(dp->wq, &dp->connect_work, 0);
+	}
+
+end:
+	return;
+}
+
+static void secdp_handle_attention(struct dp_display_private *dp)
+{
+	int i = 0;
+
+	while (!list_empty_careful(&dp->attention_head)) {
+		struct secdp_attention_node *node;
+
+		pr_debug("+++ processing item %d in the list +++\n", ++i);
+
+		mutex_lock(&dp->attention_lock);
+		node = list_first_entry(&dp->attention_head,
+				struct secdp_attention_node, list);
+
+		secdp_process_attention(dp, &node->noti);
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+		/* add some delay to guarantee hpd event handling in framework side */
+		msleep(60);
+#endif
+
+		list_del(&node->list);
+		mutex_unlock(&dp->attention_lock);
+
+		kzfree(node);
+
+		pr_debug("--- processing item %d in the list ---\n", i);
+	};
+
+}
+
+static int secdp_ccic_noti_cb(struct notifier_block *nb, unsigned long action,
+		void *data)
+{
+	struct dp_display_private *dp = g_secdp_priv;
+	CC_NOTI_TYPEDEF noti = *(CC_NOTI_TYPEDEF *)data;
+	struct secdp_attention_node *node;
+	int rc = 0;
+
+	if (noti.dest != CCIC_NOTIFY_DEV_DP) {
+		/*pr_debug("not DP, skip\n");*/
+		goto end;
+	}
+
+	switch (noti.id) {
+	case CCIC_NOTIFY_ID_ATTACH:
+		pr_info("CCIC_NOTIFY_ID_ATTACH\n");
+		break;
+
+	case CCIC_NOTIFY_ID_DP_CONNECT:
+		pr_info("CCIC_NOTIFY_ID_DP_CONNECT, <%d>\n", noti.sub1);
+
+		switch (noti.sub1) {
+		case CCIC_NOTIFY_ATTACH:
+			dp->sec.cable_connected = true;
+			dp->usbpd->alt_mode_cfg_done = true;
+			secdp_clear_link_status_update_cnt(dp->link);
+			dp->usbpd->orientation = secdp_get_plug_orientation();
+			dp->sec.dex.res =
+				secdp_check_adapter_type(noti.sub2, noti.sub3);
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+			secdp_bigdata_connection();
+			secdp_bigdata_save_item(BD_ORIENTATION,
+				dp->usbpd->orientation == ORIENTATION_CC1 ? "CC1" : "CC2");
+			secdp_bigdata_save_item(BD_ADT_VID, noti.sub2);
+			secdp_bigdata_save_item(BD_ADT_PID, noti.sub3);
+#endif
+			secdp_logger_set_max_count(150);
+
+			/* see dp_display_usbpd_configure_cb() */
+			dp_display_host_init(dp);
+
+			break;
+
+		case CCIC_NOTIFY_DETACH:
+			if (!secdp_get_cable_status()) {
+				pr_info("already disconnected\n");
+				goto end;
+			}
+
+			secdp_logger_set_max_count(150);
+
+			/* set flags here as soon as disconnected
+			 * resource clear will be made later at "secdp_process_attention"
+			 */
+			dp->sec.dex.prev = dp->sec.dex.curr = DEX_DISABLED;
+			dp->sec.dex.res = DEX_RES_NOT_SUPPORT;
+			dp->sec.dex.reconnecting = 0;
+			dp->sec.cable_connected = false;
+			dp->sec.link_conf = false;
+			dp->sec.hpd = false;
+			dp->usbpd->orientation = ORIENTATION_NONE;
+			secdp_clear_link_status_update_cnt(dp->link);
+			dp->usbpd->alt_mode_cfg_done = false;
+
+			secdp_clear_branch_info(dp);
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+			secdp_bigdata_disconnection();
+#endif
+			break;
+
+		default:
+			break;
+		}
+		break;
+
+	case CCIC_NOTIFY_ID_DP_LINK_CONF:
+		pr_info("CCIC_NOTIFY_ID_DP_LINK_CONF, <%c>\n",
+			noti.sub1 + 'A' - 1);
+		if (!secdp_get_cable_status()) {
+			pr_info("cable is out\n");
+			goto end;
+		}
+
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+		secdp_bigdata_save_item(BD_LINK_CONFIGURE, noti.sub1 + 'A' - 1);
+#endif
+		dp->sec.link_conf = true;
+		break;
+
+	case CCIC_NOTIFY_ID_DP_HPD:
+		pr_info("CCIC_NOTIFY_ID_DP_HPD, sub1 <%s>, sub2<%s>\n",
+			(noti.sub1 == CCIC_NOTIFY_HIGH) ? "high" :
+				((noti.sub1 == CCIC_NOTIFY_LOW) ? "low" : "??"),
+			(noti.sub2 == CCIC_NOTIFY_IRQ) ? "irq" : "??");
+		if (!secdp_get_cable_status()) {
+			pr_info("cable is out\n");
+			goto end;
+		}
+
+		if (noti.sub1 == CCIC_NOTIFY_HIGH) {
+			secdp_logger_set_max_count(150);
+			dp->sec.hpd = true;
+		} else /* if (noti.sub1 == CCIC_NOTIFY_LOW) */ {
+			dp->sec.hpd = false;
+		}
+
+		break;
+
+	default:
+		break;
+	}
+
+	pr_debug("sec.link_conf(%d), sec.hpd(%d)\n", dp->sec.link_conf, dp->sec.hpd);
+	if ((dp->sec.link_conf && dp->sec.hpd) || /*hpd high? or hpd_irq?*/
+		(noti.id == CCIC_NOTIFY_ID_DP_HPD && noti.sub1 == CCIC_NOTIFY_LOW) || /*hpd low?*/
+		(noti.id == CCIC_NOTIFY_ID_DP_CONNECT && noti.sub1 == CCIC_NOTIFY_DETACH)) { /*cable disconnect?*/
+
+		node = kzalloc(sizeof(*node), GFP_KERNEL);
+
+		node->noti.src  = noti.src;
+		node->noti.dest = noti.dest;
+		node->noti.id   = noti.id;
+		node->noti.sub1 = noti.sub1;
+		node->noti.sub2 = noti.sub2;
+		node->noti.sub3 = noti.sub3;
+
+		mutex_lock(&dp->attention_lock);
+		list_add_tail(&node->list, &dp->attention_head);
+		mutex_unlock(&dp->attention_lock);
+
+		secdp_send_events(dp, EV_USBPD_ATTENTION);
+
+		if ((noti.id == CCIC_NOTIFY_ID_DP_CONNECT && noti.sub1 == CCIC_NOTIFY_DETACH) &&
+				(dp->power_on == true || atomic_read(&dp->notification_status))) {
+			int ret;
+
+			init_completion(&dp->dp_off_comp);
+			ret = wait_for_completion_timeout(&dp->dp_off_comp, msecs_to_jiffies(10000));
+			if (ret <= 0)
+				pr_err("dp_off_comp timedout\n");
+			else
+				pr_debug("detach complete!\n");
+
+			atomic_set(&dp->notification_status, 0);
+		}
+	}
+
+end:
+	return rc;
+}
+
+int secdp_ccic_noti_register_ex(struct secdp_misc *sec, bool retry)
+{
+	int rc;
+
+	sec->ccic_noti_registered = true;
+	rc = manager_notifier_register(&sec->ccic_noti_block,
+				secdp_ccic_noti_cb, MANAGER_NOTIFY_CCIC_DP);
+	if (!rc) {
+		pr_debug("success\n");
+		goto exit;
+	}
+
+	sec->ccic_noti_registered = false;
+	if (!retry) {
+		pr_debug("no more try\n");
+		goto exit;
+	}
+
+	pr_err("manager_dev is not ready yet, rc(%d)\n", rc);
+	pr_err("try again in %d[ms]\n", CCIC_DP_NOTI_REG_DELAY);
+
+	schedule_delayed_work(&sec->ccic_noti_reg_work,
+			msecs_to_jiffies(CCIC_DP_NOTI_REG_DELAY));
+
+exit:
+	return rc;
+}
+
+static void secdp_ccic_noti_register(struct work_struct *work)
+{
+	int rc;
+	struct dp_display_private *dp = g_secdp_priv;
+	struct secdp_misc *sec = &dp->sec;
+
+	mutex_lock(&sec->notifier_lock);
+	if (sec->ccic_noti_registered) {
+		pr_info("already registered\n");
+		goto exit;
+	}
+
+	rc = secdp_ccic_noti_register_ex(sec, true);
+	if (rc) {
+		pr_err("fail, rc(%d)\n", rc);
+		goto exit;
+	}
+
+	pr_debug("success\n");
+	sec->ccic_noti_registered = true;
+
+	/* cancel immediately */
+	rc = cancel_delayed_work(&sec->ccic_noti_reg_work);
+	pr_debug("cancel_work, rc(%d)\n", rc);
+	destroy_delayed_work_on_stack(&sec->ccic_noti_reg_work);
+
+exit:
+	mutex_unlock(&sec->notifier_lock);
+	return;
+}
+
+static void secdp_hdcp_start_work(struct work_struct *work)
+{
+	struct dp_display_private *dp = g_secdp_priv;
+
+	pr_debug("+++\n");
+	if (secdp_get_cable_status() && dp->power_on) {
+		dp_display_update_hdcp_info(dp);
+
+		if (dp_display_is_hdcp_enabled(dp)) {
+			cancel_delayed_work_sync(&dp->hdcp_cb_work);
+
+			dp->link->hdcp_status.hdcp_state = HDCP_STATE_AUTHENTICATING;
+			queue_delayed_work(dp->wq, &dp->hdcp_cb_work, HZ / 2);
+		}
+	}
+}
+
+/* This logic is to check poor DP connection. if link train is failed or
+ * irq hpd is coming more than 4th times in 13 sec, regard it as a poor connection
+ * and do disconnection of displayport
+ */
+static void secdp_link_status_work(struct work_struct *work)
+{
+	struct dp_display_private *dp = g_secdp_priv;
+
+	pr_info("+++ status_update_cnt %d\n", dp->link->status_update_cnt);
+
+	if (secdp_get_cable_status() && dp->power_on) {
+
+		if (!dp->ctrl->get_link_train_status(dp->ctrl) ||
+			dp->link->status_update_cnt > 4) {
+
+			dp->link->poor_connection = true;
+			dp->link->status_update_cnt = 0;
+
+			/* cancel any pending request */
+			dp->ctrl->abort(dp->ctrl);
+			dp->aux->abort(dp->aux);
+
+			/* wait for idle state */
+			flush_workqueue(dp->wq);
+
+			dp_display_handle_disconnect(dp);
+
+			secdp_send_poor_connection_event();
+			pr_info("poor connection! send secdp_msg uevent\n");
+		} else {
+			if (!secdp_check_link_stable(dp->link)) {
+				pr_info("Check poor connection, again\n");
+				schedule_delayed_work(&dp->sec.link_status_work,
+							msecs_to_jiffies(3000));
+			}
+		}
+	}
+}
+
+int secdp_init(struct platform_device *pdev)
+{
+	int rc = -1;
+	struct dp_display_private *dp;
+
+	dp = platform_get_drvdata(pdev);
+
+	INIT_DELAYED_WORK(&dp->sec.hdcp_start_work, secdp_hdcp_start_work);
+	INIT_DELAYED_WORK(&dp->sec.link_status_work, secdp_link_status_work);
+
+	INIT_DELAYED_WORK(&dp->sec.ccic_noti_reg_work, secdp_ccic_noti_register);
+	schedule_delayed_work(&dp->sec.ccic_noti_reg_work,
+			msecs_to_jiffies(CCIC_DP_NOTI_REG_DELAY));
+
+	rc = secdp_power_request_gpios(dp->power);
+	if (rc)
+		pr_err("DRM DP gpio request failed\n");
+
+	rc = secdp_sysfs_init();
+	if (rc)
+		pr_err("secdp_sysfs_init failed\n");
+
+	mutex_init(&dp->attention_lock);
+	mutex_init(&dp->sec.notifier_lock);
+
+	rc = secdp_event_setup(dp);
+	if (rc)
+		pr_err("secdp_event_setup failed\n");
+
+	pr_info("exit, rc(%d)\n", rc);
+	return rc;
+}
+
+void secdp_deinit(struct platform_device *pdev)
+{
+	struct dp_display_private *dp;
+
+	dp = platform_get_drvdata(pdev);
+
+	secdp_event_cleanup(dp);
+}
+
+struct dp_panel *secdp_get_panel_info(void)
+{
+	struct dp_display_private *dp = g_secdp_priv;
+	struct dp_panel *panel = NULL;
+
+	if (dp)
+		panel = dp->panel;
+
+	pr_debug("panel\n");
+	return panel;
+}
+
+struct drm_connector *secdp_get_connector(void)
+{
+	struct dp_display *dp_disp = g_dp_display;
+	struct drm_connector *connector = NULL;
+
+	if (dp_disp)
+		connector = dp_disp->connector;
+
+	pr_debug("connector\n");
+	return connector;
+}
+#endif
+
 static void dp_display_connect_work(struct work_struct *work)
 {
 	struct delayed_work *dw = to_delayed_work(work);
@@ -829,6 +1856,9 @@ static void dp_display_connect_work(struct work_struct *work)
 		return;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	dp_display_host_init(dp);
+#endif
 	dp_display_process_hpd_high(dp);
 }
 
@@ -836,6 +1866,9 @@ static void dp_display_deinit_sub_modules(struct dp_display_private *dp)
 {
 	dp_audio_put(dp->audio);
 	dp_ctrl_put(dp->ctrl);
+#ifdef CONFIG_SEC_DISPLAYPORT
+	secdp_sysfs_put(dp->sysfs);
+#endif
 	dp_link_put(dp->link);
 	dp_panel_put(dp->panel);
 	dp_aux_put(dp->aux);
@@ -919,6 +1952,16 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 		goto error_link;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	dp->sysfs = secdp_sysfs_get(dev, &dp->sec);
+	if (IS_ERR(dp->sysfs)) {
+		rc = PTR_ERR(dp->sysfs);
+		pr_err("failed to initialize sysfs, rc = %d\n", rc);
+		dp->sysfs = NULL;
+		goto error_sysfs;
+	}
+#endif
+
 	panel_in.aux = dp->aux;
 	panel_in.catalog = &dp->catalog->panel;
 	panel_in.link = dp->link;
@@ -954,11 +1997,19 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 		goto error_audio;
 	}
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	cb->configure  = dp_display_usbpd_configure_cb;
 	cb->disconnect = dp_display_usbpd_disconnect_cb;
 	cb->attention  = dp_display_usbpd_attention_cb;
 
 	dp->usbpd = dp_usbpd_get(dev, cb);
+#else
+	cb->configure  = secdp_display_usbpd_configure_cb;
+	cb->disconnect = secdp_display_usbpd_disconnect_cb;
+
+	dp->usbpd = secdp_usbpd_get(dev, cb);
+#endif
+
 	if (IS_ERR(dp->usbpd)) {
 		rc = PTR_ERR(dp->usbpd);
 		pr_err("failed to initialize usbpd, rc = %d\n", rc);
@@ -987,6 +2038,10 @@ error_ctrl:
 	dp_panel_put(dp->panel);
 error_panel:
 	dp_link_put(dp->link);
+#ifdef CONFIG_SEC_DISPLAYPORT
+error_sysfs:
+	secdp_sysfs_put(dp->sysfs);
+#endif
 error_link:
 	dp_aux_put(dp->aux);
 error_aux:
@@ -1072,6 +2127,8 @@ static int dp_display_enable(struct dp_display *dp_display)
 		return -EINVAL;
 	}
 
+	pr_debug("+++\n");
+
 	dp = container_of(dp_display, struct dp_display_private, dp_display);
 
 	mutex_lock(&dp->session_lock);
@@ -1081,10 +2138,12 @@ static int dp_display_enable(struct dp_display *dp_display)
 		goto end;
 	}
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	if (atomic_read(&dp->aborted)) {
 		pr_err("aborted\n");
 		goto end;
 	}
+#endif
 
 	dp->aux->init(dp->aux, dp->parser->aux_cfg);
 
@@ -1114,6 +2173,8 @@ static int dp_display_post_enable(struct dp_display *dp_display)
 		return -EINVAL;
 	}
 
+	pr_debug("+++\n");
+
 	dp = container_of(dp_display, struct dp_display_private, dp_display);
 
 	mutex_lock(&dp->session_lock);
@@ -1123,10 +2184,12 @@ static int dp_display_post_enable(struct dp_display *dp_display)
 		goto end;
 	}
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	if (atomic_read(&dp->aborted)) {
 		pr_err("aborted\n");
 		goto end;
 	}
+#endif
 
 	dp->panel->spd_config(dp->panel);
 
@@ -1136,6 +2199,7 @@ static int dp_display_post_enable(struct dp_display *dp_display)
 		dp->audio_status = dp->audio->on(dp->audio);
 	}
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	dp_display_update_hdcp_info(dp);
 
 	if (dp_display_is_hdcp_enabled(dp)) {
@@ -1144,6 +2208,20 @@ static int dp_display_post_enable(struct dp_display *dp_display)
 		dp->link->hdcp_status.hdcp_state = HDCP_STATE_AUTHENTICATING;
 		queue_delayed_work(dp->wq, &dp->hdcp_cb_work, HZ / 2);
 	}
+#else
+#ifdef SECDP_HDCP_DISABLE
+	pr_info("skip hdcp\n");
+#else
+	schedule_delayed_work(&dp->sec.hdcp_start_work,
+					msecs_to_jiffies(3500));
+#endif
+#ifndef CONFIG_SEC_FACTORY
+	schedule_delayed_work(&dp->sec.link_status_work,
+					msecs_to_jiffies(13000));
+#else
+	pr_info("skip checking poor connection\n");
+#endif
+#endif
 
 	dp->panel->setup_hdr(dp->panel, NULL);
 end:
@@ -1151,6 +2229,9 @@ end:
 	dp_display->post_open = NULL;
 	dp->aux->state |= DP_STATE_CTRL_POWERED_ON;
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	atomic_set(&dp->notification_status, 0);
+#endif
 	complete_all(&dp->notification_comp);
 	mutex_unlock(&dp->session_lock);
 	return 0;
@@ -1165,6 +2246,8 @@ static int dp_display_pre_disable(struct dp_display *dp_display)
 		return -EINVAL;
 	}
 
+	pr_debug("+++\n");
+
 	dp = container_of(dp_display, struct dp_display_private, dp_display);
 
 	mutex_lock(&dp->session_lock);
@@ -1174,10 +2257,29 @@ static int dp_display_pre_disable(struct dp_display *dp_display)
 		goto end;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (dp->dp_display.is_connected) {
+		/* send audio disconnect event to audio framework if DP is still connected.
+		 * it can happen in case of platform reset with DP connection.
+		 */
+		pr_info("audio is still on DP side -> send audio disconnect event!\n");
+		if (dp->audio_supported)
+			dp->audio->off(dp->audio);
+	}
+
+	cancel_delayed_work_sync(&dp->sec.hdcp_start_work);
+	cancel_delayed_work(&dp->sec.link_status_work);
+#endif
 	if (dp_display_is_hdcp_enabled(dp)) {
 		dp->link->hdcp_status.hdcp_state = HDCP_STATE_INACTIVE;
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 		cancel_delayed_work_sync(&dp->hdcp_cb_work);
+#else
+		pr_info("cable <%d>\n", secdp_get_cable_status());
+		cancel_delayed_work(&dp->hdcp_cb_work);
+		usleep_range(3000, 5000);
+#endif
 		if (dp->hdcp.ops->off)
 			dp->hdcp.ops->off(dp->hdcp.data);
 	}
@@ -1207,6 +2309,8 @@ static int dp_display_disable(struct dp_display *dp_display)
 		pr_err("invalid input\n");
 		return -EINVAL;
 	}
+
+	pr_debug("+++\n");
 
 	dp = container_of(dp_display, struct dp_display_private, dp_display);
 	connector = dp->dp_display.connector;
@@ -1244,7 +2348,13 @@ static int dp_display_disable(struct dp_display *dp_display)
 	dp->aux->state = DP_STATE_CTRL_POWERED_OFF;
 end:
 	complete_all(&dp->notification_comp);
+#ifdef CONFIG_SEC_DISPLAYPORT
+	atomic_set(&dp->notification_status, 0);
+	complete(&dp->dp_off_comp);
+#endif
 	mutex_unlock(&dp->session_lock);
+
+	pr_debug("---\n");
 	return 0;
 }
 
@@ -1400,6 +2510,16 @@ static int dp_display_probe(struct platform_device *pdev)
 	}
 
 	init_completion(&dp->notification_comp);
+#ifdef CONFIG_SEC_DISPLAYPORT
+	init_completion(&dp->dp_off_comp);
+	rc = switch_dev_register(&switch_secdp);
+	if (rc)
+		pr_info("Failed to register secdp switch(%d)\n", rc);
+
+	rc = switch_dev_register(&switch_secdp_msg);
+	if (rc)
+		pr_info("Failed to register secdp_msg switch(%d)\n", rc);
+#endif
 
 	dp->pdev = pdev;
 	dp->name = "drm_dp";
@@ -1411,6 +2531,12 @@ static int dp_display_probe(struct platform_device *pdev)
 		pr_err("Failed to create workqueue\n");
 		goto error;
 	}
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	g_secdp_priv = dp;
+	secdp_logger_init();
+	atomic_set(&dp->notification_status, 0);
+#endif
 
 	platform_set_drvdata(pdev, dp);
 
@@ -1436,6 +2562,8 @@ static int dp_display_probe(struct platform_device *pdev)
 		pr_err("component add failed, rc=%d\n", rc);
 		goto error;
 	}
+
+	pr_info("exit, rc(%d)\n", rc);
 
 	return 0;
 error:
@@ -1482,6 +2610,10 @@ static int dp_display_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 	devm_kfree(&pdev->dev, dp);
 
+#ifdef CONFIG_SEC_DISPLAYPORT 
+	switch_dev_unregister(&switch_secdp); 
+	switch_dev_unregister(&switch_secdp_msg); 
+#endif
 	return 0;
 }
 

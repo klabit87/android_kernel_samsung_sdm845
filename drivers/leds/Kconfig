@@ -668,6 +668,22 @@ config LEDS_MLXCPLD
 	  This option enabled support for the LEDs on the Mellanox
 	  boards. Say Y to enabled these.
 
+config LEDS_SM5720_RGB
+	tristate "Support for SM5720 RGB-LED"
+	depends on MFD_SM5720 && LEDS_CLASS && I2C
+	help
+	  If you say yes here you will get support for
+	  for the SM5720 RGB-LED chip.
+
+config LEDS_MAX77705_RGB
+        tristate "LED support for MAX77705 RGB"
+        depends on MFD_MAX77705 && LEDS_CLASS && I2C
+        help
+          If you say yes here you will get support for
+          the MAX77705 RGB led chip.
+          To enable this driver, MFD_MAX77705 should be enabled and
+          MFD_MAX77705 calls this driver.
+
 config LEDS_QPNP
 	tristate "Support for QPNP LEDs"
 	depends on LEDS_CLASS && SPMI
@@ -732,6 +748,19 @@ config LEDS_QPNP_VIBRATOR
 	  is connected on the VIB_DRV_N line and can be controlled
 	  manually or by the DTEST lines.It uses the android timed-output
 	  framework.
+
+config LEDS_S2MPB02
+	bool "LED support for the S2MPB02"
+	depends on LEDS_CLASS
+	help
+	  This option enables support for the LEDs on the S2MPB02.
+
+config SAMSUNG_SECURE_CAMERA
+	  tristate "Flash current for Secure camera"
+	  depends on LEDS_CLASS
+	  default n
+	  help
+	  Enables support for flash current for secure camera
 
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"

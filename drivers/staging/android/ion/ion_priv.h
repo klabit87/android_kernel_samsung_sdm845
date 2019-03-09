@@ -111,6 +111,9 @@ struct ion_buffer {
 	int handle_count;
 	char task_comm[TASK_COMM_LEN];
 	pid_t pid;
+
+	char thread_comm[TASK_COMM_LEN];
+	pid_t tid;
 };
 void ion_buffer_destroy(struct ion_buffer *buffer);
 
@@ -218,6 +221,7 @@ struct ion_heap {
 
 	int (*debug_show)(struct ion_heap *heap, struct seq_file *, void *);
 	atomic_long_t total_allocated;
+	atomic_long_t total_allocated_peak;
 	atomic_long_t total_handles;
 };
 
@@ -403,6 +407,11 @@ void ion_system_heap_destroy(struct ion_heap *);
 struct ion_heap *ion_system_contig_heap_create(struct ion_platform_heap *);
 void ion_system_contig_heap_destroy(struct ion_heap *);
 
+#ifdef CONFIG_ION_RBIN_HEAP
+struct ion_heap *ion_rbin_heap_create(struct ion_platform_heap *);
+void ion_rbin_heap_destroy(struct ion_heap *);
+#endif
+
 struct ion_heap *ion_carveout_heap_create(struct ion_platform_heap *);
 void ion_carveout_heap_destroy(struct ion_heap *);
 
@@ -480,6 +489,8 @@ struct ion_page_pool {
 struct ion_page_pool *ion_page_pool_create(struct device *dev, gfp_t gfp_mask,
 					   unsigned int order);
 void ion_page_pool_destroy(struct ion_page_pool *);
+struct page *ion_page_pool_remove(struct ion_page_pool *pool, bool high);
+void *ion_page_pool_only_alloc(struct ion_page_pool *a);
 void *ion_page_pool_alloc(struct ion_page_pool *a, bool *from_pool);
 void *ion_page_pool_alloc_pool_only(struct ion_page_pool *a);
 void ion_page_pool_free(struct ion_page_pool *a, struct page *b);
@@ -549,4 +560,6 @@ int ion_handle_put(struct ion_handle *handle);
 
 void show_ion_usage(struct ion_device *dev);
 
+void show_ion_system_heap_size(struct seq_file *s);
+void show_ion_system_heap_pool_size(struct seq_file *s);
 #endif /* _ION_PRIV_H */

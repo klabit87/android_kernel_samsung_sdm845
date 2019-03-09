@@ -47,6 +47,7 @@
 #include <linux/extcon.h>
 #include <linux/reset.h>
 #include <linux/clk/qcom.h>
+#include <linux/sec_class.h>
 
 #include "power.h"
 #include "core.h"
@@ -54,6 +55,16 @@
 #include "dbm.h"
 #include "debug.h"
 #include "xhci.h"
+#if defined(CONFIG_CCIC_S2MM005)
+#include <linux/ccic/s2mm005_ext.h>
+#endif
+#if defined(CONFIG_CCIC_MAX77705)
+#include <linux/ccic/max77705_usbc.h>
+#include <linux/ccic/max77705_alternate.h>
+#endif
+
+#undef dev_dbg
+#define dev_dbg dev_err
 
 #define SDP_CONNETION_CHECK_TIME 10000 /* in ms */
 
@@ -127,6 +138,8 @@ MODULE_PARM_DESC(cpu_to_affin, "affin usb irq to this cpu");
 #define DWC3_GEVNTADRHI_EVNTADRHI_GSI_EN(n)	(n << 22)
 #define DWC3_GEVNTADRHI_EVNTADRHI_GSI_IDX(n)	(n << 16)
 #define DWC3_GEVENT_TYPE_GSI			0x3
+
+struct device *msm_dwc3;
 
 struct dwc3_msm_req_complete {
 	struct list_head list_item;
@@ -269,6 +282,8 @@ struct dwc3_msm {
 	int pm_qos_latency;
 	struct pm_qos_request pm_qos_req_dma;
 	struct delayed_work perf_vote_work;
+	int dwc3_msm_probe_done;
+	int dwc3_msm_current_speed_mode;
 	struct delayed_work sdp_check;
 	bool usb_compliance_mode;
 	struct mutex suspend_resume_mutex;
@@ -290,7 +305,10 @@ struct dwc3_msm {
 
 #define DSTS_CONNECTSPD_SS		0x4
 
-
+int speed_setting;
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+#include <linux/ccic/s2mm005_ext.h>
+#endif
 static void dwc3_pwr_event_handler(struct dwc3_msm *mdwc);
 static int dwc3_msm_gadget_vbus_draw(struct dwc3_msm *mdwc, unsigned int mA);
 static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned int event,
@@ -1830,6 +1848,34 @@ static void dwc3_msm_qscratch_reg_init(struct dwc3_msm *mdwc)
 
 }
 
+#ifdef CONFIG_USB_CHARGING_EVENT
+/* for BC1.2 spec */
+int dwc3_set_vbus_current(int state)
+{
+	struct power_supply *psy;
+	union power_supply_propval pval = {0};
+
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		pr_err("%s: fail to get battery power_supply\n", __func__);
+		return -1;
+	}
+
+	pval.intval = state;
+	power_supply_set_property(psy, POWER_SUPPLY_EXT_PROP_USB_CONFIGURE, &pval);
+	power_supply_put(psy);
+
+	return 0;
+}
+
+static void dwc3_msm_set_vbus_current_work(struct work_struct *w)
+{
+	struct dwc3 *dwc = container_of(w, struct dwc3,	set_vbus_current_work);
+
+	dwc3_set_vbus_current(dwc->vbus_current);
+}
+#endif
+
 static void dwc3_msm_vbus_draw_work(struct work_struct *w)
 {
 	struct dwc3_msm *mdwc = container_of(w, struct dwc3_msm,
@@ -2186,6 +2232,59 @@ static void dwc3_set_phy_speed_flags(struct dwc3_msm *mdwc)
 
 static void msm_dwc3_perf_vote_update(struct dwc3_msm *mdwc,
 						bool perf_mode);
+int dwc3_msm_is_suspended(void)
+{
+	struct dwc3_msm *mdwc;
+	int cur_status = 0;
+
+	if(msm_dwc3 == NULL) {
+		pr_info("%s(): dwc3 is not initialized.\n", __func__);
+		return 1;
+	}
+
+	mdwc = dev_get_drvdata(msm_dwc3);
+	if(mdwc == NULL || !mdwc->dwc3_msm_probe_done) {
+		pr_info("%s(): mdwc is not initialized.\n", __func__);
+		return 1;
+	}
+
+	cur_status = pm_runtime_suspended(mdwc->dev);
+
+	dev_info(mdwc->dev, "%s : cur_status = %d, in_host_mode = %d\n",
+		__func__, cur_status, mdwc->in_host_mode);
+
+	if (mdwc->in_host_mode)
+		cur_status = 0;
+
+	return cur_status;
+}
+EXPORT_SYMBOL(dwc3_msm_is_suspended);
+
+int dwc3_msm_is_host_highspeed(void)
+{
+	struct dwc3_msm *mdwc;
+	struct dwc3 *dwc;
+
+	if(msm_dwc3 == NULL) {
+		pr_info("%s(): dwc3 is not initialized.\n", __func__);
+		return 0;
+	}
+
+	mdwc = dev_get_drvdata(msm_dwc3);
+	if(mdwc == NULL || !mdwc->dwc3_msm_probe_done) {
+		pr_info("%s(): mdwc is not initialized.\n", __func__);
+		return 0;
+	}
+
+	dwc = platform_get_drvdata(mdwc->dwc3);
+
+	dev_info(mdwc->dev, "%s : current maximum speed is = %d !\n", __func__, dwc->maximum_speed);
+	if(dwc->maximum_speed == USB_SPEED_HIGH)
+		return 1;
+	else
+		return 0;
+}
+EXPORT_SYMBOL(dwc3_msm_is_host_highspeed);
 
 static void configure_usb_wakeup_interrupt(struct dwc3_msm *mdwc,
 	struct usb_irq *uirq, unsigned int polarity, bool enable)
@@ -2445,6 +2544,15 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc, bool hibernation)
 		mdwc->lpm_flags |= MDWC3_ASYNC_IRQ_WAKE_CAPABILITY;
 	}
 
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+#if defined(CONFIG_CCIC_S2MM005)
+	set_usb_phy_completion(1);
+#endif
+#if defined(CONFIG_CCIC_MAX77705)
+	max77705_set_usb_phy_completion(1);
+#endif
+#endif
+	mdwc->dwc3_msm_current_speed_mode = USB_SPEED_UNKNOWN;
 	dev_info(mdwc->dev, "DWC3 in low power mode\n");
 	dbg_event(0xFF, "Ctl Sus", atomic_read(&dwc->in_lpm));
 	mutex_unlock(&mdwc->suspend_resume_mutex);
@@ -2611,6 +2719,15 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 		schedule_delayed_work(&mdwc->perf_vote_work,
 			msecs_to_jiffies(1000 * PM_QOS_SAMPLE_SEC));
 
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+#if defined(CONFIG_CCIC_S2MM005)
+	set_usb_phy_completion(0);
+#endif
+#if defined(CONFIG_CCIC_MAX77705)
+	max77705_set_usb_phy_completion(0);
+#endif
+#endif
+	mdwc->dwc3_msm_current_speed_mode = dwc->maximum_speed;
 	dbg_event(0xFF, "Ctl Res", atomic_read(&dwc->in_lpm));
 	mutex_unlock(&mdwc->suspend_resume_mutex);
 
@@ -2658,6 +2775,7 @@ static void dwc3_resume_work(struct work_struct *w)
 {
 	struct dwc3_msm *mdwc = container_of(w, struct dwc3_msm, resume_work);
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
+#ifdef CONFIG_USB_USE_EXTCON
 	union extcon_property_value val;
 	unsigned int extcon_id;
 	struct extcon_dev *edev = NULL;
@@ -2706,6 +2824,23 @@ static void dwc3_resume_work(struct work_struct *w)
 
 		dbg_event(0xFF, "cc_state", mdwc->typec_orientation);
 	}
+#else
+	int cc_state;
+	int speed;
+
+	cc_state = gpio_get_value(38);
+	mdwc->typec_orientation = cc_state ? ORIENTATION_CC2 : ORIENTATION_CC1;
+	dbg_event(0xFF, "cc_state", mdwc->typec_orientation);
+
+	speed = speed_setting;
+	dwc->maximum_speed = (speed == 1) ? USB_SPEED_HIGH : USB_SPEED_SUPER;
+	dev_info(mdwc->dev, "%s : max_speed = %d, typec_orientation = %d\n", __func__, dwc->maximum_speed, mdwc->typec_orientation);
+	if (mdwc->dwc3_msm_current_speed_mode != USB_SPEED_UNKNOWN && dwc->maximum_speed != mdwc->dwc3_msm_current_speed_mode) {
+		pr_info("%s : !!!warning!!! phy is already resumed!\n", __func__);
+		pr_info("%s : working speed is = %d , wanting speed is %d!\n", __func__, mdwc->dwc3_msm_current_speed_mode, dwc->maximum_speed);
+		dwc->maximum_speed = mdwc->dwc3_msm_current_speed_mode;
+	}
+#endif
 
 	/*
 	 * exit LPM first to meet resume timeline from device side.
@@ -2948,6 +3083,14 @@ static int dwc3_msm_get_clk_gdsc(struct dwc3_msm *mdwc)
 	return 0;
 }
 
+void dwc3_max_speed_setting(int speed)
+{
+	// speed 0 , it means Super speed
+	// speed 1 , it means High speed restrict enable
+	speed_setting = speed;
+}
+EXPORT_SYMBOL(dwc3_max_speed_setting);
+
 static int dwc3_msm_id_notifier(struct notifier_block *nb,
 	unsigned long event, void *ptr)
 {
@@ -2968,6 +3111,60 @@ static int dwc3_msm_id_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+int dwc_msm_id_event(bool enable)
+{
+	struct dwc3_msm *mdwc;
+	struct dwc3 *dwc;
+	enum dwc3_id_state id;
+
+	mdwc = dev_get_drvdata(msm_dwc3);
+	if(mdwc == NULL) {
+		pr_info("%s(): mdwc is not initialized.\n", __func__);
+		return 1;
+	}
+	dwc = platform_get_drvdata(mdwc->dwc3);
+
+	id = enable ? DWC3_ID_GROUND : DWC3_ID_FLOAT;
+
+	dev_dbg(mdwc->dev, "host: enable=%d (id:%d) event received\n", enable, id);
+
+	if(!enable)
+		mdwc->typec_orientation = ORIENTATION_NONE;
+
+	if (mdwc->id_state != id) {
+		mdwc->id_state = id;
+		dbg_event(0xFF, "id_state", mdwc->id_state);
+		queue_work(mdwc->dwc3_wq, &mdwc->resume_work);
+	}
+
+	return NOTIFY_DONE;
+
+}
+EXPORT_SYMBOL(dwc_msm_id_event);
+
+int dwc_msm_vbus_event(bool enable)
+{
+	struct dwc3_msm *mdwc;
+	struct dwc3 *dwc;
+
+	mdwc = dev_get_drvdata(msm_dwc3);
+	dwc = platform_get_drvdata(mdwc->dwc3);
+
+	if(!enable)
+		mdwc->typec_orientation = ORIENTATION_NONE;
+
+	if (mdwc->vbus_active == enable)
+		return NOTIFY_DONE;
+
+	mdwc->vbus_active = enable;
+
+	if (dwc->is_drd && !mdwc->in_restart) {
+		dbg_event(0xFF, "Q RW (vbus)", mdwc->vbus_active);
+		queue_work(mdwc->dwc3_wq, &mdwc->resume_work);
+	}
+	return NOTIFY_DONE;
+}
+EXPORT_SYMBOL(dwc_msm_vbus_event);
 
 static void check_for_sdp_connection(struct work_struct *w)
 {
@@ -3044,6 +3241,10 @@ static int dwc3_msm_extcon_register(struct dwc3_msm *mdwc, int start_idx)
 	struct device_node *node = mdwc->dev->of_node;
 	struct extcon_dev *edev;
 	int ret = 0;
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	return 0;
+#endif
 
 	if (!of_property_read_bool(node, "extcon"))
 		return 0;
@@ -3364,6 +3565,7 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mdwc);
 	mdwc->dev = &pdev->dev;
+	dev_set_drvdata(msm_dwc3, mdwc);
 
 	INIT_LIST_HEAD(&mdwc->req_complete_list);
 	INIT_WORK(&mdwc->resume_work, dwc3_resume_work);
@@ -3616,6 +3818,9 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to get dwc3 device\n");
 		goto put_dwc3;
 	}
+#ifdef CONFIG_USB_CHARGING_EVENT
+	INIT_WORK(&dwc->set_vbus_current_work, dwc3_msm_set_vbus_current_work);
+#endif
 
 	mdwc->irq_to_affin = platform_get_irq(mdwc->dwc3, 0);
 	mdwc->dwc3_cpu_notifier.notifier_call = dwc3_cpu_notifier_cb;
@@ -3709,6 +3914,10 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		dwc3_ext_event_notify(mdwc);
 	}
 
+	schedule_delayed_work(&mdwc->sm_work, 0);
+	mdwc->dwc3_msm_probe_done = 1;
+	mdwc->dwc3_msm_current_speed_mode = USB_SPEED_UNKNOWN;
+	pr_info("%s : dwc3_msm_probe_done = %d\n", __func__, mdwc->dwc3_msm_probe_done);
 	return 0;
 
 put_psy:
@@ -3936,6 +4145,9 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 {
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 	int ret = 0;
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+	int dp_is_connect = 0;
+#endif
 
 	/*
 	 * The vbus_reg pointer could have multiple values
@@ -3956,7 +4168,20 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 	}
 
 	if (on) {
-		dev_dbg(mdwc->dev, "%s: turn on host\n", __func__);
+		dev_info(mdwc->dev, "%s: turn on host\n", __func__);
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+#if defined(CONFIG_CCIC_S2MM005)
+		dp_is_connect |= get_diplayport_status();
+#endif
+#if defined(CONFIG_CCIC_MAX77705)
+		dp_is_connect |= max77705_get_diplayport_status();
+#endif
+		if (dp_is_connect && dwc->maximum_speed != USB_SPEED_HIGH) {
+			dev_err(mdwc->dev, "%s: The PHY Speed is not HIGH. But Now is DP mode!!\n", __func__);
+			dev_err(mdwc->dev, "%s: The PHY Speed is forcely restricted as HIGH!!\n", __func__);
+			dwc->maximum_speed = USB_SPEED_HIGH;
+		}
+#endif
 
 		mdwc->hs_phy->flags |= PHY_HOST_MODE;
 		pm_runtime_get_sync(mdwc->dev);
@@ -3969,6 +4194,7 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 		}
 
 		usb_phy_notify_connect(mdwc->hs_phy, USB_SPEED_HIGH);
+
 		if (!IS_ERR_OR_NULL(mdwc->vbus_reg))
 			ret = regulator_enable(mdwc->vbus_reg);
 		if (ret) {
@@ -4049,10 +4275,26 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 		msm_dwc3_perf_vote_update(mdwc, true);
 		schedule_delayed_work(&mdwc->perf_vote_work,
 				msecs_to_jiffies(1000 * PM_QOS_SAMPLE_SEC));
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+#if defined(CONFIG_CCIC_S2MM005)
+		set_host_turn_on_event(on);
+#endif
+#if defined(CONFIG_CCIC_MAX77705)
+		max77705_set_host_turn_on_event(on);
+#endif
+#endif
 	} else {
-		dev_dbg(mdwc->dev, "%s: turn off host\n", __func__);
+		dev_info(mdwc->dev, "%s: turn off host\n", __func__);
 
 		usb_unregister_atomic_notify(&mdwc->usbdev_nb);
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+#if defined(CONFIG_CCIC_S2MM005)
+		set_host_turn_on_event(on);
+#endif
+#if defined(CONFIG_CCIC_MAX77705)
+		max77705_set_host_turn_on_event(on);
+#endif
+#endif
 		if (!IS_ERR_OR_NULL(mdwc->vbus_reg))
 			ret = regulator_disable(mdwc->vbus_reg);
 		if (ret) {
@@ -4125,7 +4367,7 @@ static int dwc3_otg_start_peripheral(struct dwc3_msm *mdwc, int on)
 		atomic_read(&mdwc->dev->power.usage_count));
 
 	if (on) {
-		dev_dbg(mdwc->dev, "%s: turn on gadget %s\n",
+		dev_info(mdwc->dev, "%s: turn on gadget %s\n",
 					__func__, dwc->gadget.name);
 
 		dwc3_override_vbus_status(mdwc, true);
@@ -4152,7 +4394,7 @@ static int dwc3_otg_start_peripheral(struct dwc3_msm *mdwc, int on)
 		schedule_delayed_work(&mdwc->perf_vote_work,
 				msecs_to_jiffies(1000 * PM_QOS_SAMPLE_SEC));
 	} else {
-		dev_dbg(mdwc->dev, "%s: turn off gadget %s\n",
+		dev_info(mdwc->dev, "%s: turn off gadget %s\n",
 					__func__, dwc->gadget.name);
 		cancel_delayed_work_sync(&mdwc->perf_vote_work);
 		msm_dwc3_perf_vote_update(mdwc, false);
@@ -4325,7 +4567,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	}
 
 	state = usb_otg_state_string(mdwc->otg_state);
-	dev_dbg(mdwc->dev, "%s state\n", state);
+	dev_info(mdwc->dev, "%s state\n", state);
 	dbg_event(0xFF, state, 0);
 
 	/* Check OTG state */
@@ -4353,11 +4595,11 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		/* fall-through */
 	case OTG_STATE_B_IDLE:
 		if (!test_bit(ID, &mdwc->inputs)) {
-			dev_dbg(mdwc->dev, "!id\n");
+			dev_info(mdwc->dev, "!id\n");
 			mdwc->otg_state = OTG_STATE_A_IDLE;
 			work = 1;
 		} else if (test_bit(B_SESS_VLD, &mdwc->inputs)) {
-			dev_dbg(mdwc->dev, "b_sess_vld\n");
+			dev_info(mdwc->dev, "b_sess_vld\n");
 			if (get_psy_type(mdwc) == POWER_SUPPLY_TYPE_USB_FLOAT)
 				queue_delayed_work(mdwc->dwc3_wq,
 						&mdwc->sdp_check,
@@ -4375,14 +4617,14 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			work = 1;
 		} else {
 			dwc3_msm_gadget_vbus_draw(mdwc, 0);
-			dev_dbg(mdwc->dev, "Cable disconnected\n");
+			dev_info(mdwc->dev, "Cable disconnected\n");
 		}
 		break;
 
 	case OTG_STATE_B_PERIPHERAL:
 		if (!test_bit(B_SESS_VLD, &mdwc->inputs) ||
 				!test_bit(ID, &mdwc->inputs)) {
-			dev_dbg(mdwc->dev, "!id || !bsv\n");
+			dev_info(mdwc->dev, "!id || !bsv\n");
 			mdwc->otg_state = OTG_STATE_B_IDLE;
 			cancel_delayed_work_sync(&mdwc->sdp_check);
 			dwc3_otg_start_peripheral(mdwc, 0);
@@ -4397,7 +4639,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			work = 1;
 		} else if (test_bit(B_SUSPEND, &mdwc->inputs) &&
 			test_bit(B_SESS_VLD, &mdwc->inputs)) {
-			dev_dbg(mdwc->dev, "BPER bsv && susp\n");
+			dev_info(mdwc->dev, "BPER bsv && susp\n");
 			mdwc->otg_state = OTG_STATE_B_SUSPEND;
 			/*
 			 * Decrement pm usage count upon bus suspend.
@@ -4415,12 +4657,12 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 
 	case OTG_STATE_B_SUSPEND:
 		if (!test_bit(B_SESS_VLD, &mdwc->inputs)) {
-			dev_dbg(mdwc->dev, "BSUSP: !bsv\n");
+			dev_info(mdwc->dev, "BSUSP: !bsv\n");
 			mdwc->otg_state = OTG_STATE_B_IDLE;
 			cancel_delayed_work_sync(&mdwc->sdp_check);
 			dwc3_otg_start_peripheral(mdwc, 0);
 		} else if (!test_bit(B_SUSPEND, &mdwc->inputs)) {
-			dev_dbg(mdwc->dev, "BSUSP !susp\n");
+			dev_info(mdwc->dev, "BSUSP !susp\n");
 			mdwc->otg_state = OTG_STATE_B_PERIPHERAL;
 			/*
 			 * Increment pm usage count upon host
@@ -4437,7 +4679,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	case OTG_STATE_A_IDLE:
 		/* Switch to A-Device*/
 		if (test_bit(ID, &mdwc->inputs)) {
-			dev_dbg(mdwc->dev, "id\n");
+			dev_info(mdwc->dev, "id\n");
 			mdwc->otg_state = OTG_STATE_B_IDLE;
 			mdwc->vbus_retry_count = 0;
 			work = 1;
@@ -4451,7 +4693,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				 * not up yet. Will try to start host after 1sec
 				 */
 				mdwc->otg_state = OTG_STATE_A_IDLE;
-				dev_dbg(mdwc->dev, "Unable to get vbus regulator. Retrying...\n");
+				dev_info(mdwc->dev, "Unable to get vbus regulator. Retrying...\n");
 				delay = VBUS_REG_CHECK_DELAY;
 				work = 1;
 				mdwc->vbus_retry_count++;
@@ -4465,14 +4707,14 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 
 	case OTG_STATE_A_HOST:
 		if (test_bit(ID, &mdwc->inputs) || mdwc->hc_died) {
-			dev_dbg(mdwc->dev, "id || hc_died\n");
+			dev_info(mdwc->dev, "id || hc_died\n");
 			dwc3_otg_start_host(mdwc, 0);
 			mdwc->otg_state = OTG_STATE_B_IDLE;
 			mdwc->vbus_retry_count = 0;
 			mdwc->hc_died = false;
 			work = 1;
 		} else {
-			dev_dbg(mdwc->dev, "still in a_host state. Resuming root hub.\n");
+			dev_info(mdwc->dev, "still in a_host state. Resuming root hub.\n");
 			dbg_event(0xFF, "XHCIResume", 0);
 			if (dwc)
 				pm_runtime_resume(&dwc->xhci->dev);
@@ -4663,6 +4905,13 @@ MODULE_DESCRIPTION("DesignWare USB3 MSM Glue Layer");
 
 static int dwc3_msm_init(void)
 {
+	int ret = 0;
+
+	msm_dwc3 = sec_device_create(0, NULL, "msm_dwc3");
+	if (IS_ERR(msm_dwc3)) {
+		pr_err("%s Failed to create device(switch)!\n", __func__);
+		ret = -ENODEV;
+	}
 	return platform_driver_register(&dwc3_msm_driver);
 }
 module_init(dwc3_msm_init);

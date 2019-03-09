@@ -32,6 +32,15 @@ enum crash_status {
 	CRASH_STATUS_WDOG_BITE,
 };
 
+#ifdef CONFIG_SENSORS_SSC
+enum {
+	SSR_ERROR_FATAL = 0,
+	SSR_WDOG_BITE,
+	SSR_BY_AP,
+	SSR_WITHOUT_PANIC = 99,
+};
+#endif
+
 struct device;
 struct module;
 
@@ -100,6 +109,7 @@ struct subsys_desc {
 	irqreturn_t (*stop_ack_handler)(int irq, void *dev_id);
 	irqreturn_t (*wdog_bite_handler)(int irq, void *dev_id);
 	irqreturn_t (*generic_handler)(int irq, void *dev_id);
+	void (*wdog_resp_wait)(struct work_struct *work);
 	int is_not_loadable;
 	int err_fatal_gpio;
 	unsigned int err_fatal_irq;
@@ -108,6 +118,8 @@ struct subsys_desc {
 	unsigned int wdog_bite_irq;
 	unsigned int generic_irq;
 	int force_stop_gpio;
+	int stop_reason_0_gpio;
+	int stop_reason_1_gpio;
 	int ramdump_disable_gpio;
 	int shutdown_ack_gpio;
 	int ramdump_disable;
@@ -122,6 +134,10 @@ struct subsys_desc {
 #ifdef CONFIG_SETUP_SSR_NOTIF_TIMEOUTS
 	struct subsys_notif_timeout timeout_data;
 #endif /* CONFIG_SETUP_SSR_NOTIF_TIMEOUTS */
+	struct work_struct wdog_work;
+#ifdef CONFIG_SENSORS_SSC
+	int gpio_sensor_ldo;
+#endif
 };
 
 /**
@@ -160,10 +176,16 @@ extern void subsys_default_online(struct subsys_device *dev);
 extern void subsys_set_crash_status(struct subsys_device *dev,
 					enum crash_status crashed);
 extern enum crash_status subsys_get_crash_status(struct subsys_device *dev);
+#ifdef CONFIG_SENSORS_SSC
+extern void subsys_set_ssr_reason(struct subsys_device *dev, int ssr_reason);
+extern int subsys_get_ssr_reason(struct subsys_device *dev);
+#endif // CONFIG_SENSORS_SSC
 void notify_proxy_vote(struct device *device);
 void notify_proxy_unvote(struct device *device);
 void complete_err_ready(struct subsys_device *subsys);
 extern int wait_for_shutdown_ack(struct subsys_desc *desc);
+extern int subsystem_crash(const char *name);
+extern void subsys_force_stop(const char *name, bool val);
 #else
 
 static inline int subsys_get_restart_level(struct subsys_device *dev)
@@ -219,12 +241,21 @@ enum crash_status subsys_get_crash_status(struct subsys_device *dev)
 {
 	return false;
 }
+#ifdef CONFIG_SENSORS_SSC
+void subsys_set_ssr_reason(struct subsys_device *dev, int ssr_reason) { }
+static inline int subsys_get_ssr_reason(struct subsys_device *dev)
+{
+	return 0;
+}
+#endif // CONFIG_SENSORS_SSC
 static inline void notify_proxy_vote(struct device *device) { }
 static inline void notify_proxy_unvote(struct device *device) { }
 static inline int wait_for_shutdown_ack(struct subsys_desc *desc)
 {
 	return -EOPNOTSUPP;
 }
+static inline subsystem_crash(const char *name) { }
+static inline void subsys_force_stop(const char *name, bool val) { }
 #endif /* CONFIG_MSM_SUBSYSTEM_RESTART */
 
 #endif

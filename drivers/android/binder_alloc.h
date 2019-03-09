@@ -23,6 +23,8 @@
 #include <linux/slab.h>
 #include <linux/list_lru.h>
 
+#define BINDER_MIN_ALLOC (1 * PAGE_SIZE)
+
 extern struct list_lru binder_alloc_lru;
 struct binder_transaction;
 

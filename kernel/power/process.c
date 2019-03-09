@@ -19,6 +19,7 @@
 #include <linux/kmod.h>
 #include <trace/events/power.h>
 #include <linux/wakeup_reason.h>
+#include <linux/sec_bsp.h>
 #include <linux/cpuset.h>
 
 /*
@@ -144,11 +145,13 @@ int freeze_processes(void)
 	pm_wakeup_clear();
 	pr_info("Freezing user space processes ... ");
 	pm_freezing = true;
+	sec_suspend_resume_add("Freeze User Process+");
 	error = try_to_freeze_tasks(true);
 	if (!error) {
 		__usermodehelper_set_disable_depth(UMH_DISABLED);
 		pr_cont("done.");
 	}
+	sec_suspend_resume_add("Freeze User Process-");
 	pr_cont("\n");
 	BUG_ON(in_atomic());
 
@@ -179,13 +182,14 @@ int freeze_kernel_threads(void)
 	int error;
 
 	pr_info("Freezing remaining freezable tasks ... ");
-
+	sec_suspend_resume_add("Freeze Remaining+");
 	pm_nosig_freezing = true;
 	error = try_to_freeze_tasks(false);
 	if (!error)
 		pr_cont("done.");
 
 	pr_cont("\n");
+	sec_suspend_resume_add("Freeze Remaining-");
 	BUG_ON(in_atomic());
 
 	if (error)

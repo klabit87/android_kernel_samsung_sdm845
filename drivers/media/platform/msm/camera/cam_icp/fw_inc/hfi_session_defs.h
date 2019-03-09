@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -34,25 +34,11 @@
 #define HFI_IPEBPS_HANDLE_TYPE_IPE_RT                   0x2
 #define HFI_IPEBPS_HANDLE_TYPE_IPE_NON_RT               0x3
 
-/**
- * struct abort_data
- * @num_req_ids: Number of req ids
- * @num_req_id: point to specific req id
- *
- * create abort data
- */
 struct abort_data {
 	uint32_t num_req_ids;
 	uint32_t num_req_id[1];
 };
 
-/**
- * struct hfi_cmd_data
- * @abort: abort data
- * @user data: user supplied argument
- *
- * create session abort data
- */
 struct hfi_cmd_abort {
 	struct abort_data abort;
 	uint64_t user_data;
@@ -261,8 +247,8 @@ enum bps_io_images {
 };
 
 struct frame_buffer {
-	uint32_t buf_ptr[MAX_NUM_OF_IMAGE_PLANES];
-	uint32_t meta_buf_ptr[MAX_NUM_OF_IMAGE_PLANES];
+	uint32_t buffer_ptr[MAX_NUM_OF_IMAGE_PLANES];
+	uint32_t meta_buffer_ptr[MAX_NUM_OF_IMAGE_PLANES];
 } __packed;
 
 struct bps_frame_process_data {
@@ -458,7 +444,7 @@ struct ipe_frame_process_data {
 	uint32_t cdm_tf_ds4;
 	uint32_t cdm_tf_ds16;
 	uint32_t cdm_tf_ds64;
-	uint32_t request_id;
+	uint32_t request_id; 
 	uint32_t frames_in_batch;
 	struct frame_set framesets[MAX_HFR_GROUP];
 } __packed;

@@ -39,6 +39,11 @@
 #include "sde_trace.h"
 #include "sde_core_irq.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include <linux/interrupt.h>
+#include "ss_dsi_panel_common.h"
+#endif
+
 #define SDE_DEBUG_ENC(e, fmt, ...) SDE_DEBUG("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
 
@@ -618,6 +623,24 @@ int sde_encoder_helper_register_irq(struct sde_encoder_phys *phys_enc,
 	SDE_DEBUG_PHYS(phys_enc, "registered irq %s idx: %d\n",
 			irq->name, irq->irq_idx);
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#define IRQS_PENDING	0x00000200
+#define istate core_internal_state__do_not_mess_with_it
+		if (intr_idx == INTR_IDX_RDPTR) {
+			struct samsung_display_driver_data *vdd = samsung_get_vdd();
+			struct irq_desc *desc;
+
+			if (vdd->te_check.te_irq > 0) {
+				vdd->te_check.te_cnt = 0;
+				desc = irq_to_desc(vdd->te_check.te_irq);
+				if (desc->istate & IRQS_PENDING) {
+					desc->istate &= ~IRQS_PENDING;
+				}
+				enable_irq(vdd->te_check.te_irq);
+			}
+		}
+#endif
+
 	return ret;
 }
 
@@ -659,6 +682,14 @@ int sde_encoder_helper_unregister_irq(struct sde_encoder_phys *phys_enc,
 	SDE_DEBUG_PHYS(phys_enc, "unregistered %d\n", irq->irq_idx);
 
 	irq->irq_idx = -EINVAL;
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+		if (intr_idx == INTR_IDX_RDPTR) {
+			struct samsung_display_driver_data *vdd = samsung_get_vdd();
+			disable_irq(vdd->te_check.te_irq);
+			vdd->te_check.te_cnt = 0;
+		}
+#endif
 
 	return 0;
 }
@@ -1006,6 +1037,8 @@ static int _sde_encoder_dsc_update_pic_dim(struct msm_display_dsc_info *dsc,
 	dsc->pic_width = pic_width;
 	dsc->pic_height = pic_height;
 
+	SDE_EVT32(dsc->pic_width, dsc->pic_height);
+
 	return 0;
 }
 
@@ -1340,6 +1373,7 @@ static int _sde_encoder_dsc_2_lm_2_enc_1_intf(struct sde_encoder_virt *sde_enc,
 	SDE_EVT32(DRMID(&sde_enc->base), roi->w, roi->h,
 			dsc_common_mode, i, params->affected_displays);
 
+	SDE_EVT32(DRMID(&sde_enc->base), dsc->pic_width, dsc->pic_height);
 	_sde_encoder_dsc_pipe_cfg(hw_dsc[0], hw_pp[0], dsc, dsc_common_mode,
 			ich_res, true);
 	_sde_encoder_dsc_pipe_cfg(hw_dsc[1], hw_pp[1], dsc, dsc_common_mode,
@@ -1403,6 +1437,8 @@ static int _sde_encoder_dsc_setup(struct sde_encoder_virt *sde_enc,
 	topology = sde_connector_get_topology_name(drm_conn);
 	if (topology == SDE_RM_TOPOLOGY_NONE) {
 		SDE_ERROR_ENC(sde_enc, "topology not set yet\n");
+		// case 03133712
+		SDE_DBG_DUMP("sde", "dsi0_ctrl", "dsi0_phy", "dsi1_ctrl", "dsi1_phy", "panic");
 		return -EINVAL;
 	}
 
@@ -2447,6 +2483,8 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 		}
 	}
 
+	SDE_EVT32(DRMID(drm_enc), msm_is_mode_seamless_dms(adj_mode));
+
 	/* release resources before seamless mode change */
 	if (msm_is_mode_seamless_dms(adj_mode)) {
 		/* restore resource state before releasing them */
@@ -2684,6 +2722,21 @@ static void _sde_encoder_virt_enable_helper(struct drm_encoder *drm_enc)
 	memset(&sde_enc->cur_conn_roi, 0, sizeof(sde_enc->cur_conn_roi));
 }
 
+static void sde_encoder_off_work(struct kthread_work *work)
+{
+	struct sde_encoder_virt *sde_enc = container_of(work,
+			struct sde_encoder_virt, delayed_off_work.work);
+	struct drm_encoder *drm_enc;
+
+	if (!sde_enc) {
+		SDE_ERROR("invalid sde encoder\n");
+		return;
+	}
+	drm_enc = &sde_enc->base;
+
+	sde_encoder_idle_request(drm_enc);
+}
+
 void sde_encoder_virt_restore(struct drm_encoder *drm_enc)
 {
 	struct sde_encoder_virt *sde_enc = NULL;
@@ -2768,6 +2821,11 @@ static void sde_encoder_virt_enable(struct drm_encoder *drm_enc)
 			sde_enc->input_handler_registered = true;
 	}
 
+	if (!(msm_is_mode_seamless_vrr(cur_mode)
+			|| msm_is_mode_seamless_dms(cur_mode)))
+		kthread_init_delayed_work(&sde_enc->delayed_off_work,
+			sde_encoder_off_work);
+
 	ret = sde_encoder_resource_control(drm_enc, SDE_ENC_RC_EVENT_KICKOFF);
 	if (ret) {
 		SDE_ERROR_ENC(sde_enc, "sde resource control failed: %d\n",
@@ -2847,7 +2905,6 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 		input_unregister_handler(sde_enc->input_handler);
 		sde_enc->input_handler_registered = false;
 	}
-
 
 	/* wait for idle */
 	sde_encoder_wait_for_event(drm_enc, MSM_ENC_TX_COMPLETE);
@@ -3092,21 +3149,6 @@ int sde_encoder_idle_request(struct drm_encoder *drm_enc)
 						SDE_ENC_RC_EVENT_ENTER_IDLE);
 
 	return 0;
-}
-
-static void sde_encoder_off_work(struct kthread_work *work)
-{
-	struct sde_encoder_virt *sde_enc = container_of(work,
-			struct sde_encoder_virt, delayed_off_work.work);
-	struct drm_encoder *drm_enc;
-
-	if (!sde_enc) {
-		SDE_ERROR("invalid sde encoder\n");
-		return;
-	}
-	drm_enc = &sde_enc->base;
-
-	sde_encoder_idle_request(drm_enc);
 }
 
 /**

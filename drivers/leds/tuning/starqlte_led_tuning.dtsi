@@ -1,0 +1,76 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	rgb {
+		led_device_type = <0>;
+
+		rgb-name = "led_b", "led_r", "led_g", "led_w";
+		octa-code = "_u", "_bk", "_gd", "_sv", "_bl";
+
+		en-lowpower-mode;
+
+		normal_powermode_current = <10>;
+		low_powermode_current = <10>;
+		br_ratio_r = <700>;
+		br_ratio_g = <60>;
+		br_ratio_b = <120>;
+		br_ratio_r_low = <100>;
+		br_ratio_g_low = <10>;
+		br_ratio_b_low = <10>;
+
+		normal_powermode_current_u = <10>;
+		low_powermode_current_u = <10>;
+		br_ratio_r_u = <700>;
+		br_ratio_g_u = <60>;
+		br_ratio_b_u = <120>;
+		br_ratio_r_low_u = <100>;
+		br_ratio_g_low_u = <10>;
+		br_ratio_b_low_u = <10>;
+
+		normal_powermode_current_bk = <10>;
+		low_powermode_current_bk = <10>;
+		br_ratio_r_bk = <750>;
+		br_ratio_g_bk = <70>;
+		br_ratio_b_bk = <130>;
+		br_ratio_r_low_bk = <70>;
+		br_ratio_g_low_bk = <1>;
+		br_ratio_b_low_bk = <19>;
+
+		normal_powermode_current_gd = <10>;
+		low_powermode_current_gd = <10>;
+		br_ratio_r_gd = <750>;
+		br_ratio_g_gd = <70>;
+		br_ratio_b_gd = <130>;
+		br_ratio_r_low_gd = <70>;
+		br_ratio_g_low_gd = <1>;
+		br_ratio_b_low_gd = <19>;
+
+		normal_powermode_current_sv = <10>;
+		low_powermode_current_sv = <10>;
+		br_ratio_r_sv = <750>;
+		br_ratio_g_sv = <70>;
+		br_ratio_b_sv = <130>;
+		br_ratio_r_low_sv = <70>;
+		br_ratio_g_low_sv = <1>;
+		br_ratio_b_low_sv = <19>;
+
+		normal_powermode_current_bl = <10>;
+		low_powermode_current_bl = <10>;
+		br_ratio_r_bl = <750>;
+		br_ratio_g_bl = <70>;
+		br_ratio_b_bl = <130>;
+		br_ratio_r_low_bl = <70>;
+		br_ratio_g_low_bl = <1>;
+		br_ratio_b_low_bl = <19>;
+	};
+};

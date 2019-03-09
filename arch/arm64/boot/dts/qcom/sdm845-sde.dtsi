@@ -283,9 +283,12 @@
 	sde_rscc: qcom,sde_rscc@af20000 {
 		cell-index = <0>;
 		compatible = "qcom,sde-rsc";
-		reg = <0xaf20000 0x1c44>,
-			<0xaf30000 0x3fd4>;
-		reg-names = "drv", "wrapper";
+		reg =   <0xaf20000 0x2010>,
+			<0xaf30000 0x3fd4>,
+			<0xaf00000 0x8008>,
+			<0xb290000 0x5518>,
+			<0xb490000 0x60>;
+		reg-names = "drv", "wrapper", "dispcc", "pdc", "pdc_seq_mem";
 		qcom,sde-rsc-version = <1>;
 
 		vdd-supply = <&mdss_core_gdsc>;

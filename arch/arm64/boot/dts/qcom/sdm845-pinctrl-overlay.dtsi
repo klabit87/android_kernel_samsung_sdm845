@@ -9,7 +9,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
+/*
 &pmi8998_gpios {
 	usb2_vbus_boost {
 		usb2_vbus_boost_default: usb2_vbus_boost_default {
@@ -38,7 +38,7 @@
 			function = "normal";
 			input-enable;
 			bias-pull-down;
-			power-source = <1>;	/* VPH input supply */
+			power-source = <1>;	// VPH input supply //
 		};
 	};
 
@@ -61,3 +61,4 @@
 		};
 	};
 };
+*/

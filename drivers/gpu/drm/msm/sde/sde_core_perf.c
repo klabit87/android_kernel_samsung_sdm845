@@ -190,6 +190,22 @@ static void _sde_core_perf_calc_crtc(struct sde_kms *kms,
 			perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_LLCC],
 			perf->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_EBI],
 			perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_EBI]);
+
+	/* add debug log (case 03231188) */
+	if (sde_crtc_get_intf_mode(crtc) == INTF_MODE_VIDEO &&
+		(DIV_ROUND_UP_ULL(perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_MNOC], 1000) > kms->catalog->perf.max_bw_high ||
+		DIV_ROUND_UP_ULL(perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_LLCC], 1000) > kms->catalog->perf.max_bw_high ||
+		DIV_ROUND_UP_ULL(perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_EBI], 1000) > kms->catalog->perf.max_bw_high))
+		SDE_ERROR(
+			"crtc=%d clk_rate=%llu core_ib=%llu core_ab=%llu llcc_ib=%llu llcc_ab=%llu mem_ib=%llu mem_ab=%llu max_bw_high=%u\n",
+				crtc->base.id, perf->core_clk_rate,
+				perf->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_MNOC],
+				perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_MNOC],
+				perf->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_LLCC],
+				perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_LLCC],
+				perf->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_EBI],
+				perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_EBI],
+				kms->catalog->perf.max_bw_high);
 }
 
 int sde_core_perf_crtc_check(struct drm_crtc *crtc,

@@ -90,6 +90,9 @@
 #define MAX_POOL_SIZE			(MAX_TCS_PER_TYPE * TCS_TYPE_NR)
 #define TCS_M_INIT			0xFFFF
 
+static void __iomem *isenabler;
+static void __iomem *ispend;
+
 struct rsc_drv;
 
 struct tcs_response {
@@ -172,7 +175,6 @@ struct rsc_drv {
 	ipc_log_string(drv->ipc_log_ctx,				\
 		"tx done: m=%d addr=0x%x err=%d", m, a, e);		\
 	} while (0)
-
 
 static int tcs_response_pool_init(struct rsc_drv *drv)
 {
@@ -1156,6 +1158,9 @@ static int rsc_drv_probe(struct platform_device *pdev)
 	drv->reg_base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(drv->reg_base))
 		return PTR_ERR(drv->reg_base);
+
+	ispend = ioremap_nocache(0x17A00204, 0x4);
+	isenabler = ioremap_nocache(0x17A00104, 0x4);
 
 	config = read_drv_config(drv->base);
 	max_tcs = config & (DRV_NUM_TCS_MASK <<

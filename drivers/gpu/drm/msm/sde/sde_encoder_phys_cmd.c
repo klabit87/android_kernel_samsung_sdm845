@@ -18,6 +18,11 @@
 #include "sde_core_irq.h"
 #include "sde_formats.h"
 #include "sde_trace.h"
+#include "sde_reg_dma.h"
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include "ss_dsi_panel_common.h"
+#endif
 
 #define SDE_DEBUG_CMDENC(e, fmt, ...) SDE_DEBUG("enc%d intf%d " fmt, \
 		(e) && (e)->base.parent ? \
@@ -33,6 +38,19 @@
 	container_of(x, struct sde_encoder_phys_cmd, base)
 
 #define PP_TIMEOUT_MAX_TRIALS	2
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+/*
+ * Incase of AOD, 1frame takes 33ms(30FPS)
+ * So we need to wait more time than normal case
+ */
+#define CTL_START_TIMEOUT_MS	100
+#else
+/* wait for 2 vyncs only */
+#define CTL_START_TIMEOUT_MS	32
+#endif
+
+static int ctl_start_lutdma_recoevery;
 
 /*
  * Tearcheck sync start and continue thresholds are empirically found
@@ -72,6 +90,11 @@ static bool sde_encoder_phys_cmd_mode_fixup(
 	if (phys_enc)
 		SDE_DEBUG_CMDENC(to_sde_encoder_phys_cmd(phys_enc), "\n");
 	return true;
+}
+
+void sde_debugdump(void)
+{
+	SDE_DBG_DUMP("all","dbg_bus","vbif_dbg_bus","dsi_dbg_bus","panic");
 }
 
 static uint64_t _sde_encoder_phys_cmd_get_autorefresh_property(
@@ -473,15 +496,23 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 			atomic_read(&phys_enc->pending_kickoff_cnt),
 			frame_event);
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	SS_XLOG(cmd_enc->pp_timeout_report_cnt);
+#endif
+
 	/* check if panel is still sending TE signal or not */
 	if (sde_connector_esd_status(phys_enc->connector))
 		goto exit;
-
 	if (cmd_enc->pp_timeout_report_cnt >= PP_TIMEOUT_MAX_TRIALS) {
 		cmd_enc->pp_timeout_report_cnt = PP_TIMEOUT_MAX_TRIALS;
 		frame_event |= SDE_ENCODER_FRAME_EVENT_PANEL_DEAD;
-
+#if defined(CONFIG_DISPLAY_SAMSUNG) && defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+		/* Samsung panel recovery instead of panic */
+		phys_enc->sde_kms->base.funcs->ss_callback(phys_enc->parent->dev,
+			SS_EVENT_PANEL_RECOVERY, NULL);
+#else
 		SDE_DBG_DUMP("panic");
+#endif
 	} else if (cmd_enc->pp_timeout_report_cnt == 1) {
 		/* to avoid flooding, only log first time, and "dead" time */
 		SDE_ERROR_CMDENC(cmd_enc,
@@ -492,6 +523,23 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 				atomic_read(&phys_enc->pending_kickoff_cnt));
 
 		SDE_EVT32(DRMID(phys_enc->parent), SDE_EVTLOG_FATAL);
+
+		sde_encoder_helper_unregister_irq(phys_enc, INTR_IDX_RDPTR);
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	phys_enc->sde_kms->base.funcs->ss_callback(phys_enc->parent->dev,
+		SS_EVENT_CHECK_TE, (void *)phys_enc);
+	inc_dpui_u32_field(DPUI_KEY_QCT_PPTO, 1);
+#endif
+
+#if defined(CONFIG_DISPLAY_SAMSUNG) && defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus");
+	if (sec_debug_is_enabled()) SDE_DBG_DUMP("panic");
+#elif defined(CONFIG_DISPLAY_SAMSUNG)
+	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic");
+#else
+	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus");
+#endif
+		sde_encoder_helper_register_irq(phys_enc, INTR_IDX_RDPTR);
 	}
 
 	/* request a ctl reset before the next kickoff */
@@ -626,6 +674,9 @@ static int _sde_encoder_phys_cmd_wait_for_idle(
 		_sde_encoder_phys_cmd_handle_ppdone_timeout(phys_enc);
 	else if (!ret)
 		cmd_enc->pp_timeout_report_cnt = 0;
+
+	if (!ret && ctl_start_lutdma_recoevery)
+		SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic");
 
 	return ret;
 }
@@ -1121,6 +1172,7 @@ static int _sde_encoder_phys_cmd_wait_for_ctl_start(
 	struct sde_encoder_wait_info wait_info;
 	int ret;
 	bool frame_pending = true;
+	struct sde_hw_reg_dma_ops *reg_dma_ops = NULL;
 
 	if (!phys_enc || !phys_enc->hw_ctl) {
 		SDE_ERROR("invalid argument(s)\n");
@@ -1143,11 +1195,34 @@ static int _sde_encoder_phys_cmd_wait_for_ctl_start(
 		if (ctl && ctl->ops.get_start_state)
 			frame_pending = ctl->ops.get_start_state(ctl);
 
-		if (frame_pending)
+		if (frame_pending) {
 			SDE_ERROR_CMDENC(cmd_enc,
 					"ctl start interrupt wait failed\n");
-		else
-			ret = 0;
+			if (ctl && ctl->ops.read_start) {
+				pr_err("start status: 0x%x\n", ctl->ops.read_start(ctl));
+				SDE_EVT32(DRMID(phys_enc->parent), ctl->idx,
+					ctl->ops.read_start(ctl), 0xabcd);
+			}
+
+			if (ctl && ctl->ops.reset_lutdma_start) {
+				reg_dma_ops = sde_reg_dma_get_ops();
+				if (reg_dma_ops && reg_dma_ops->dump_regs)
+					reg_dma_ops->dump_regs();
+				ctl_start_lutdma_recoevery = 1;
+				pr_err("change the LUTDMA block to NON_BLOCKING");
+				ctl->ops.reset_lutdma_start(ctl);
+				SDE_EVT32(DRMID(phys_enc->parent), ctl->idx);
+			}
+
+			usleep_range(200, 200);
+			if (ctl && ctl->ops.read_start) {
+				pr_err("start status: 0x%x\n", ctl->ops.read_start(ctl));
+				SDE_EVT32(DRMID(phys_enc->parent), ctl->idx,
+					ctl->ops.read_start(ctl), 0xdef);
+				SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic");
+			}
+		}
+		ret = -EINVAL;
 	}
 
 	return ret;
@@ -1452,6 +1527,8 @@ struct sde_encoder_phys *sde_encoder_phys_cmd_init(
 	init_waitqueue_head(&cmd_enc->pending_vblank_wq);
 	atomic_set(&cmd_enc->autorefresh.kickoff_cnt, 0);
 	init_waitqueue_head(&cmd_enc->autorefresh.kickoff_wq);
+
+	cmd_enc->serialize_wait4pp = false;
 
 	SDE_DEBUG_CMDENC(cmd_enc, "created\n");
 

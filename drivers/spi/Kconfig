@@ -767,6 +767,11 @@ config SPI_TLE62X0
 	  sysfs interface, with each line presented as a kind of GPIO
 	  exposing both switch control and diagnostic feedback.
 
+config SENSORS_FP_SPI_NUMBER
+	depends on SENSORS_FINGERPRINT
+	int "Fingerprint spi gpio number"
+	default 0
+
 #
 # Add new SPI protocol masters in alphabetical order above this line
 #

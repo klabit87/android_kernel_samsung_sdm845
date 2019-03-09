@@ -1097,3 +1097,12 @@ void proc_sched_set_task(struct task_struct *p)
 	memset(&p->se.statistics, 0, sizeof(p->se.statistics));
 #endif
 }
+
+void
+sched_set_cpu_cstate(int cpu, int cstate, int wakeup_energy, int wakeup_latency)
+{
+	struct rq *rq = cpu_rq(cpu);
+
+	rq->cstate = cstate; /* C1, C2 etc */
+}
+

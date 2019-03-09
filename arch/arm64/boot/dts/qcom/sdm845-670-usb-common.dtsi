@@ -37,6 +37,7 @@
 		qcom,num-gsi-evt-buffs = <0x3>;
 		qcom,use-pdc-interrupts;
 		qcom,pm-qos-latency = <44>;
+		qcom,disable-host-mode-pm;
 		extcon = <0>, <0>, <&eud>, <0>, <0>;
 
 		clocks = <&clock_gcc GCC_USB30_PRIM_MASTER_CLK>,
@@ -126,11 +127,11 @@
 
 		qcom,efuse-bit-pos = <25>;
 		qcom,efuse-num-bits = <3>;
-		vdd-supply = <&pm8998_l1>;
+		vdd-supply = <&pm8998_l5>; /* ServiceTask#100911 */
 		vdda18-supply = <&pm8998_l12>;
 		vdda33-supply = <&pm8998_l24>;
 		qcom,override-bias-ctrl2;
-		qcom,vdd-voltage-level = <0 880000 880000>;
+		qcom,vdd-voltage-level = <0 800000 800000>;
 		qcom,qusb-phy-reg-offset =
 			<0x240 /* QUSB2PHY_PORT_TUNE1 */
 			 0x1a0 /* QUSB2PHY_PLL_COMMON_STATUS_ONE */
@@ -181,9 +182,9 @@
 		reg = <0x88e8000 0x3000>;
 		reg-names = "qmp_phy_base";
 
-		vdd-supply = <&pm8998_l1>;
+		vdd-supply = <&pm8998_l5>; /* ServiceTask#100911 */
 		core-supply = <&pm8998_l26>;
-		qcom,vdd-voltage-level = <0 880000 880000>;
+		qcom,vdd-voltage-level = <0 800000 800000>;
 		qcom,vbus-valid-override;
 		qcom,qmp-phy-init-seq =
 		/* <reg_offset, value, delay> */

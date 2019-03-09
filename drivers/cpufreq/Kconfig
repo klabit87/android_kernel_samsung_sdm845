@@ -47,12 +47,24 @@ config CPU_FREQ_STAT_DETAILS
 
 config CPU_FREQ_TIMES
        bool "CPU frequency time-in-state statistics"
-       default y
+       default n
        help
          This driver exports CPU time-in-state information through procfs file
          system.
 
          If in doubt, say N.
+
+config CPU_FREQ_LIMIT
+	bool "CPU frequency limit API"
+	default n
+	help
+	  This driver supports API to limit CPU frequency.
+
+config CPU_FREQ_BOOT_LIMIT
+	bool "CPU frequency limit API during boot"
+	default n
+	help
+	  This driver supports API to limit CPU frequency during boot.
 
 choice
 	prompt "Default CPUFreq governor"

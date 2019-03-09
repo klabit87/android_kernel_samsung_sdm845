@@ -25,6 +25,10 @@
 #include <asm/stack_pointer.h>
 #include <asm/stacktrace.h>
 
+#ifdef CONFIG_RKP_CFP_ROPP
+#include <linux/rkp_cfp.h>
+#endif
+
 /*
  * AArch64 PCS assigns the frame pointer to x29.
  *
@@ -43,6 +47,10 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
 	unsigned long high, low;
 	unsigned long fp = frame->fp;
 	unsigned long irq_stack_ptr;
+
+#ifdef CONFIG_RKP_CFP_ROPP
+	unsigned long old_pc = 0;
+#endif
 
 	if (!tsk)
 		tsk = current;
@@ -68,7 +76,16 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
 
 	frame->sp = fp + 0x10;
 	frame->fp = READ_ONCE_NOCHECK(*(unsigned long *)(fp));
+#ifdef CONFIG_RKP_CFP_ROPP
+	old_pc = READ_ONCE_NOCHECK(*(unsigned long *)(fp + 8));
+	if ((old_pc >> 40) != 0xffffff) {
+		frame->pc = ropp_enable_backtrace(old_pc, tsk); //not only current
+	} else {
+		frame->pc = old_pc;
+	}
+#else
 	frame->pc = READ_ONCE_NOCHECK(*(unsigned long *)(fp + 8));
+#endif
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 	if (tsk->ret_stack &&

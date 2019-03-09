@@ -22,6 +22,11 @@
 #include "sde_power_handle.h"
 
 #define SDE_RSC_COMPATIBLE "disp_rscc"
+#define SDE_RSC_DRV_DBG_NAME		"sde_rsc_drv"
+#define SDE_RSC_WRAPPER_DBG_NAME	"sde_rsc_wrapper"
+#define SDE_PDC_DBG_NAME		"sde_pdc"
+#define SDE_PDC_SEQ_DBG_NAME	"sde_pdc_seq"
+#define DISP_CC_DBG_NAME		"disp_cc"
 
 #define MAX_RSC_COUNT		5
 
@@ -161,6 +166,9 @@ struct sde_rsc_priv {
 	struct rpmh_client *disp_rsc;
 	struct dss_io_data drv_io;
 	struct dss_io_data wrapper_io;
+	struct dss_io_data pdc_io;
+	struct dss_io_data pdc_seq_mem_io;
+	struct dss_io_data dispcc_io;
 
 	struct list_head client_list;
 	struct list_head event_list;

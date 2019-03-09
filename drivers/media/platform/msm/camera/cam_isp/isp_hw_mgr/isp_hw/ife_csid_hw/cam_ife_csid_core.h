@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -360,6 +360,7 @@ struct cam_ife_csid_tpg_cfg  {
  * @dt:          Data type
  * @cnt:         Cid resource reference count.
  * @tpg_set:     Tpg used for this cid resource
+ * @pixel_count: Pixel resource connected
  *
  */
 struct cam_ife_csid_cid_data {
@@ -367,6 +368,7 @@ struct cam_ife_csid_cid_data {
 	uint32_t                     dt;
 	uint32_t                     cnt;
 	uint32_t                     tpg_set;
+	int                          pixel_count;
 };
 
 
@@ -435,6 +437,8 @@ struct cam_ife_csid_path_cfg {
  * @csid_debug:               csid debug information to enable the SOT, EOT,
  *                            SOF, EOF, measure etc in the csid hw
  * @clk_rate                  Clock rate
+ * @error_irq_count           Error IRQ count, if continuous error irq comes
+ *                            need to stop the CSID and mask interrupts.
  *
  */
 struct cam_ife_csid_hw {
@@ -456,6 +460,7 @@ struct cam_ife_csid_hw {
 	struct completion    csid_rdin_complete[CAM_IFE_CSID_RDI_MAX];
 	uint64_t                         csid_debug;
 	uint64_t                         clk_rate;
+	uint32_t                         error_irq_count;
 };
 
 int cam_ife_csid_hw_probe_init(struct cam_hw_intf  *csid_hw_intf,

@@ -96,7 +96,6 @@ struct cam_res_mgr_dt {
  * @flash_res_list      : List head of the flash resource
  * @gpio_res_lock       : GPIO resource lock
  * @flash_res_lock      : Flash resource lock
- * @clk_res_lock        : Clk resource lock
  */
 struct cam_res_mgr {
 	struct device         *dev;
@@ -111,7 +110,6 @@ struct cam_res_mgr {
 	struct list_head      flash_res_list;
 	struct mutex          gpio_res_lock;
 	struct mutex          flash_res_lock;
-	struct mutex          clk_res_lock;
 };
 
 #endif /* __CAM_RES_MGR_PRIVATE_H__ */

@@ -17,7 +17,7 @@
 /* return true if s1 is a prefix of s2 */
 #define STR_PRFX_EQUAL(s1, s2) !strncmp(s1, s2, strlen(s1))
 
-#define UFS_ANY_VENDOR -1
+#define UFS_ANY_VENDOR 0xffff
 #define UFS_ANY_MODEL  "ANY_MODEL"
 
 #define MAX_MODEL_LEN 16
@@ -138,6 +138,11 @@ struct ufs_card_fix {
  */
 #define UFS_DEVICE_QUIRK_HS_G1_TO_HS_G3_SWITCH (1 << 8)
 
+/*
+ * Some UFS devices support the FATAL MODE
+ * to gether the debug info.
+ */
+#define UFS_DEVICE_QUIRK_SUPPORT_QUERY_FATAL_MODE	(1 << 9)
 
 struct ufs_hba;
 void ufs_advertise_fixup_device(struct ufs_hba *hba);

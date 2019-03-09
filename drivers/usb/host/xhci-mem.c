@@ -997,6 +997,7 @@ void xhci_free_virt_devices_depth_first(struct xhci_hcd *xhci, int slot_id)
 	vdev = xhci->devs[slot_id];
 	if (!vdev)
 		return;
+		
 
 	if (vdev->real_port == 0 ||
 			vdev->real_port > HCS_MAX_PORTS(xhci->hcs_params1)) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -80,6 +80,7 @@ static void cam_set_addr(uint32_t addr, uint8_t addr_len,
 		str[2] = addr >> 8;
 		str[3] = addr;
 	}
+
 }
 
 /**
@@ -112,7 +113,6 @@ static int32_t cam_spi_tx_helper(struct camera_io_master *client,
 {
 	int32_t rc = -EINVAL;
 	struct spi_device *spi = client->spi_client->spi_master;
-	struct device *dev = NULL;
 	char *ctx = NULL, *crx = NULL;
 	uint32_t len, hlen;
 	uint8_t retries = client->spi_client->retries;
@@ -121,19 +121,12 @@ static int32_t cam_spi_tx_helper(struct camera_io_master *client,
 
 	hlen = cam_camera_spi_get_hlen(inst);
 	len = hlen + num_byte;
-	dev = &(spi->dev);
-
-	if (!dev) {
-		CAM_ERR(CAM_SENSOR, "Invalid arguments");
-		return -EINVAL;
-	}
 
 	if (tx) {
 		ctx = tx;
 	} else {
 		txr = PAGE_ALIGN(len) >> PAGE_SHIFT;
-		page_tx = cma_alloc(dev_get_cma_area(dev),
-			txr, 0);
+		page_tx = cma_alloc(dev_get_cma_area(&(spi->dev)), txr, 0);
 		if (!page_tx)
 			return -ENOMEM;
 
@@ -145,12 +138,10 @@ static int32_t cam_spi_tx_helper(struct camera_io_master *client,
 			crx = rx;
 		} else {
 			rxr = PAGE_ALIGN(len) >> PAGE_SHIFT;
-			page_rx = cma_alloc(dev_get_cma_area(dev),
-				rxr, 0);
+			page_rx = cma_alloc(dev_get_cma_area(&(spi->dev)), rxr, 0);
 			if (!page_rx) {
 				if (!tx)
-					cma_release(dev_get_cma_area(dev),
-						page_tx, txr);
+					cma_release(dev_get_cma_area(&(spi->dev)), page_tx, txr);
 
 				return -ENOMEM;
 			}
@@ -175,9 +166,9 @@ static int32_t cam_spi_tx_helper(struct camera_io_master *client,
 
 out:
 	if (!tx)
-		cma_release(dev_get_cma_area(dev), page_tx, txr);
+		cma_release(dev_get_cma_area(&(spi->dev)), page_tx, txr);
 	if (!rx)
-		cma_release(dev_get_cma_area(dev), page_rx, rxr);
+		cma_release(dev_get_cma_area(&(spi->dev)), page_rx, rxr);
 	return rc;
 }
 
@@ -447,13 +438,11 @@ int cam_spi_write(struct camera_io_master *client,
 		|| (data_type <= CAMERA_SENSOR_I2C_TYPE_INVALID)
 		|| (data_type != CAMERA_SENSOR_I2C_TYPE_MAX))
 		return rc;
-
 	CAM_DBG(CAM_EEPROM, "Data: 0x%x", data);
 	len = header_len + (uint8_t)data_type;
 	tx = kmalloc(len, GFP_KERNEL | GFP_DMA);
 	if (!tx)
 		goto NOMEM;
-
 	if (data_type == CAMERA_SENSOR_I2C_TYPE_BYTE) {
 		buf[0] = data;
 		CAM_DBG(CAM_EEPROM, "Byte %d: 0x%x", len, buf[0]);
@@ -470,7 +459,6 @@ int cam_spi_write(struct camera_io_master *client,
 		buf[2] = (data >> 8) & 0x00FF;
 		buf[3] = (data & 0x00FF);
 	}
-
 	rc = cam_spi_page_program(client, addr, buf,
 		addr_type, data_type, tx);
 	if (rc < 0)
@@ -560,7 +548,6 @@ int cam_spi_write_table(struct camera_io_master *client,
 		|| (write_setting->data_type <= CAMERA_SENSOR_I2C_TYPE_INVALID)
 		|| (write_setting->data_type >= CAMERA_SENSOR_I2C_TYPE_MAX))
 		return rc;
-
 	reg_setting = write_setting->reg_setting;
 	client_addr_type = write_setting->addr_type;
 	addr_type = write_setting->addr_type;
@@ -585,8 +572,8 @@ int cam_spi_write_table(struct camera_io_master *client,
 }
 
 int cam_spi_erase(struct camera_io_master *client,
-	uint32_t addr, enum camera_sensor_i2c_type addr_type,
-	uint32_t size) {
+	uint32_t addr, enum camera_sensor_i2c_type addr_type, uint32_t size)
+{
 	struct cam_camera_spi_inst *se = &client->spi_client->cmd_tbl.erase;
 	int rc = 0;
 	uint32_t cur;
@@ -595,8 +582,7 @@ int cam_spi_erase(struct camera_io_master *client,
 
 	end = addr + size;
 	for (cur = rounddown(addr, erase_size); cur < end; cur += erase_size) {
-		CAM_ERR(CAM_SENSOR, "%s: erasing 0x%x size: %d\n",
-			__func__, cur, erase_size);
+		CAM_ERR(CAM_SENSOR, "%s: erasing 0x%x size: %d\n", __func__, cur, erase_size);
 		rc = cam_spi_write_enable(client, addr_type);
 		if (rc < 0)
 			return rc;

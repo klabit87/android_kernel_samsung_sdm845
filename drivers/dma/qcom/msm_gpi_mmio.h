@@ -222,3 +222,7 @@ enum CNTXT_OFFS {
 	(0x20068 + (0x4000 * (n)) + (0x80 * (k)))
 #define GPI_GPII_n_CH_k_SCRATCH_3_OFFS(n, k) \
 	(0x2006C + (0x4000 * (n)) + (0x80 * (k)))
+
+/* Debug registers */
+#define GPI_DEBUG_PC_FOR_DEBUG (0x5048)
+#define GPI_DEBUG_SW_RF_n_READ(n) (0x5100 + (0x4 * n))

@@ -78,13 +78,28 @@ int hw_breakpoint_slots(int type)
 		AARCH64_DBG_WRITE(N, REG, VAL);	\
 		break
 
+//Reserve DBGBVR5_EL1 for CFP_ROPP_SYSREGKEY
+#ifdef CONFIG_RKP_CFP_ROPP_SYSREGKEY
+
+#define _READ_WB_REG_CASE(OFF, N, REG, VAL)
+#define _WRITE_WB_REG_CASE(OFF, N, REG, VAL)
+
+#else // NO CONFIG_RKP_CFP_ROPP_SYSREGKEY
+
+#define _READ_WB_REG_CASE(OFF, N, REG, VAL)	\
+	READ_WB_REG_CASE(OFF,  5, REG, VAL);
+#define _WRITE_WB_REG_CASE(OFF, N, REG, VAL)	\
+	WRITE_WB_REG_CASE(OFF,  5, REG, VAL);
+
+#endif //END CONFIG_RKP_CFP_ROPP_SYSREGKEY
+
 #define GEN_READ_WB_REG_CASES(OFF, REG, VAL)	\
 	READ_WB_REG_CASE(OFF,  0, REG, VAL);	\
 	READ_WB_REG_CASE(OFF,  1, REG, VAL);	\
 	READ_WB_REG_CASE(OFF,  2, REG, VAL);	\
 	READ_WB_REG_CASE(OFF,  3, REG, VAL);	\
 	READ_WB_REG_CASE(OFF,  4, REG, VAL);	\
-	READ_WB_REG_CASE(OFF,  5, REG, VAL);	\
+	_READ_WB_REG_CASE(OFF,  5, REG, VAL);	\
 	READ_WB_REG_CASE(OFF,  6, REG, VAL);	\
 	READ_WB_REG_CASE(OFF,  7, REG, VAL);	\
 	READ_WB_REG_CASE(OFF,  8, REG, VAL);	\
@@ -102,7 +117,7 @@ int hw_breakpoint_slots(int type)
 	WRITE_WB_REG_CASE(OFF,  2, REG, VAL);	\
 	WRITE_WB_REG_CASE(OFF,  3, REG, VAL);	\
 	WRITE_WB_REG_CASE(OFF,  4, REG, VAL);	\
-	WRITE_WB_REG_CASE(OFF,  5, REG, VAL);	\
+	_WRITE_WB_REG_CASE(OFF,  5, REG, VAL);	\
 	WRITE_WB_REG_CASE(OFF,  6, REG, VAL);	\
 	WRITE_WB_REG_CASE(OFF,  7, REG, VAL);	\
 	WRITE_WB_REG_CASE(OFF,  8, REG, VAL);	\
@@ -139,6 +154,9 @@ static void write_wb_reg(int reg, int n, u64 val)
 	GEN_WRITE_WB_REG_CASES(AARCH64_DBG_REG_WVR, AARCH64_DBG_REG_NAME_WVR, val);
 	GEN_WRITE_WB_REG_CASES(AARCH64_DBG_REG_WCR, AARCH64_DBG_REG_NAME_WCR, val);
 	default:
+#ifdef CONFIG_RKP_CFP_ROPP_SYSREGKEY
+		if(n != 5)
+#endif
 		pr_warning("attempt to write to unknown breakpoint register %d\n", n);
 	}
 	isb();

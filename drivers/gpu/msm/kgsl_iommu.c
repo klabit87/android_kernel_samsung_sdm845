@@ -33,6 +33,12 @@
 #include "adreno.h"
 #include "kgsl_trace.h"
 #include "kgsl_pwrctrl.h"
+#if defined(CONFIG_SEC_ABC)
+#include <linux/sti/abc_common.h>
+#endif
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include "../drm/msm/samsung/ss_dpui_common.h"
+#endif
 
 #define CP_APERTURE_REG	0
 #define CP_SMMU_APERTURE_ID 0x1B
@@ -874,6 +880,12 @@ static int kgsl_iommu_fault_handler(struct iommu_domain *domain,
 			else
 				KGSL_LOG_DUMP(ctx->kgsldev, "*EMPTY*\n");
 		}
+#if defined(CONFIG_SEC_ABC)
+		sec_abc_send_event("MODULE=gpu_qc@ERROR=gpu_page_fault");
+#endif
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+			inc_dpui_u32_field(DPUI_KEY_QCT_GPU_PF, 1);
+#endif
 	}
 
 
@@ -903,6 +915,7 @@ static int kgsl_iommu_fault_handler(struct iommu_domain *domain,
 	}
 
 	kgsl_context_put(context);
+
 	return ret;
 }
 
@@ -2048,6 +2061,15 @@ kgsl_iommu_get_current_ttbr0(struct kgsl_mmu *mmu)
 		return 0;
 
 	kgsl_iommu_enable_clk(mmu);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (iommu->ctx[KGSL_IOMMU_CONTEXT_USER].regbase == NULL) {
+		WARN(1, "regbase seems not to be initialzed yet\n");
+		kgsl_iommu_disable_clk(mmu);
+		return 0;
+	}
+#endif
+
 	val = KGSL_IOMMU_GET_CTX_REG_Q(&iommu->ctx[KGSL_IOMMU_CONTEXT_USER],
 					TTBR0);
 	kgsl_iommu_disable_clk(mmu);

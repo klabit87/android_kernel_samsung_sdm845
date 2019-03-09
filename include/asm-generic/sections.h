@@ -44,6 +44,10 @@ extern char __start_rodata[], __end_rodata[];
 extern char __irqentry_text_start[], __irqentry_text_end[];
 extern char __softirqentry_text_start[], __softirqentry_text_end[];
 
+#ifdef	CONFIG_RKP_KDP
+extern char __rkp_ro_start[], __rkp_ro_end[];
+#endif /*CONFIG_RKP_KDP*/
+
 /* Start and end of .ctors section - used for constructor calls. */
 extern char __ctors_start[], __ctors_end[];
 

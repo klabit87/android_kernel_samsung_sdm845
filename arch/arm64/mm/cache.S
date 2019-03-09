@@ -110,6 +110,9 @@ ENDPROC(flush_cache_all)
  */
 ENTRY(flush_icache_range)
 	/* FALLTHROUGH */
+#ifdef CONFIG_RKP_CFP_JOPP
+FALLTHROUGH(__flush_cache_user_range)
+#endif
 
 /*
  *	__flush_cache_user_range(start,end)
@@ -189,6 +192,9 @@ ENDPROC(__clean_dcache_area_pou)
 ENTRY(__dma_inv_area)
 	add	x1, x1, x0
 	/* FALLTHROUGH */
+#ifdef CONFIG_RKP_CFP_JOPP
+FALLTHROUGH(__inval_cache_range)
+#endif
 
 /*
  *	__inval_cache_range(start, end)
@@ -227,6 +233,9 @@ ENDPROC(__dma_inv_area)
  */
 ENTRY(__clean_dcache_area_poc)
 	/* FALLTHROUGH */
+#ifdef CONFIG_RKP_CFP_JOPP
+FALLTHROUGH(__dma_clean_area)
+#endif
 
 /*
  *	__dma_clean_area(start, size)

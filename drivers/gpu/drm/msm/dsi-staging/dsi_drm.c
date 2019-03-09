@@ -21,6 +21,9 @@
 #include "sde_connector.h"
 #include "dsi_drm.h"
 #include "sde_trace.h"
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include "ss_dsi_panel_common.h"
+#endif
 
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
@@ -349,8 +352,16 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 		if (!drm_mode_equal(&cur_mode, adjusted_mode) &&
 			(!(dsi_mode.dsi_mode_flags & DSI_MODE_FLAG_VRR)) &&
 			(!crtc_state->active_changed ||
-			 display->is_cont_splash_enabled))
-			dsi_mode.dsi_mode_flags |= DSI_MODE_FLAG_DMS;
+			 display->is_cont_splash_enabled)) {
+
+			if (display->panel->panel_initialized || display->is_cont_splash_enabled)
+			{
+				dsi_mode.dsi_mode_flags |= DSI_MODE_FLAG_DMS;
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+				pr_info("DMS : switch mode %s -> %s\n", (&cur_mode)->name, adjusted_mode->name);
+#endif
+			}
+		}
 	}
 
 	/* convert back to drm mode, propagating the private info & flags */
@@ -374,6 +385,7 @@ int dsi_conn_get_mode_info(const struct drm_display_mode *drm_mode,
 	if (!dsi_mode.priv_info)
 		return -EINVAL;
 
+	SDE_EVT32(0x1111);
 	memset(mode_info, 0, sizeof(*mode_info));
 
 	timing = &dsi_mode.timing;
@@ -384,6 +396,7 @@ int dsi_conn_get_mode_info(const struct drm_display_mode *drm_mode,
 	mode_info->jitter_denom = dsi_mode.priv_info->panel_jitter_denom;
 	mode_info->clk_rate = dsi_mode.priv_info->clk_rate_hz;
 
+	SDE_EVT32(0x2222);
 	memcpy(&mode_info->topology, &dsi_mode.priv_info->topology,
 			sizeof(struct msm_display_topology));
 
@@ -399,6 +412,7 @@ int dsi_conn_get_mode_info(const struct drm_display_mode *drm_mode,
 			sizeof(dsi_mode.priv_info->roi_caps));
 	}
 
+	SDE_EVT32(0x3333);
 	return 0;
 }
 

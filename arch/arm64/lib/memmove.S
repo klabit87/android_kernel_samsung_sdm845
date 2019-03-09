@@ -59,6 +59,9 @@ D_h	.req	x14
 
 	.weak memmove
 ENTRY(__memmove)
+#ifdef CONFIG_RKP_CFP_JOPP
+FALLTHROUGH(memmove)
+#endif
 ENTRY(memmove)
 	cmp	dstin, src
 	b.lo	__memcpy

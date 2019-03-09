@@ -92,6 +92,9 @@ struct sde_edid_ctrl {
 	char vendor_id[EDID_VENDOR_ID_SIZE];
 	struct sde_edid_sink_caps sink_caps;
 	struct sde_edid_hdr_data hdr_data;
+#if defined(CONFIG_SEC_DISPLAYPORT)
+	int audio_channel_info;
+#endif
 };
 
 /**
@@ -153,6 +156,11 @@ u8 sde_get_edid_checksum(void *input);
  */
 int _sde_edid_update_modes(struct drm_connector *connector,
 							void *edid_ctrl);
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+char *secdp_vic_to_string(int vic);
+extern int forced_resolution;
+#endif
 
 #endif /* _SDE_EDID_PARSER_H_ */
 

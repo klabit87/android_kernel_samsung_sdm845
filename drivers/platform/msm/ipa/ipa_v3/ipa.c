@@ -3678,7 +3678,7 @@ void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
 	ipa3_active_clients_log_inc(id, false);
 	ret = atomic_inc_not_zero(&ipa3_ctx->ipa3_active_clients.cnt);
 	if (ret) {
-		IPADBG_LOW("active clients = %d\n",
+		IPADBG("active clients = %d\n",
 			atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 		return;
 	}
@@ -3689,14 +3689,14 @@ void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
 	ret = atomic_inc_not_zero(&ipa3_ctx->ipa3_active_clients.cnt);
 	if (ret) {
 		mutex_unlock(&ipa3_ctx->ipa3_active_clients.mutex);
-		IPADBG_LOW("active clients = %d\n",
+		IPADBG("active clients = %d\n",
 			atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 		return;
 	}
 
 	ipa3_enable_clks();
 	atomic_inc(&ipa3_ctx->ipa3_active_clients.cnt);
-	IPADBG_LOW("active clients = %d\n",
+	IPADBG("active clients = %d\n",
 		atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 	ipa3_suspend_apps_pipes(false);
 	mutex_unlock(&ipa3_ctx->ipa3_active_clients.mutex);
@@ -3718,7 +3718,7 @@ int ipa3_inc_client_enable_clks_no_block(struct ipa_active_client_logging_info
 	ret = atomic_inc_not_zero(&ipa3_ctx->ipa3_active_clients.cnt);
 	if (ret) {
 		ipa3_active_clients_log_inc(id, true);
-		IPADBG_LOW("active clients = %d\n",
+		IPADBG("active clients = %d\n",
 			atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 		return 0;
 	}
@@ -3762,7 +3762,7 @@ static void __ipa3_dec_client_disable_clks(void)
 unlock_mutex:
 	mutex_unlock(&ipa3_ctx->ipa3_active_clients.mutex);
 bail:
-	IPADBG_LOW("active clients = %d\n",
+	IPADBG("active clients = %d\n",
 		atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 }
 
@@ -3804,7 +3804,7 @@ void ipa3_dec_client_disable_clks_no_block(
 	ipa3_active_clients_log_dec(id, true);
 	ret = atomic_add_unless(&ipa3_ctx->ipa3_active_clients.cnt, -1, 1);
 	if (ret) {
-		IPADBG_LOW("active clients = %d\n",
+		IPADBG("active clients = %d\n",
 			atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 		return;
 	}
@@ -4748,6 +4748,8 @@ static int ipa3_pil_load_ipa_fws(void)
 	if (IS_ERR_OR_NULL(subsystem_get_retval)) {
 		IPAERR("Unable to trigger PIL process for FW loading\n");
 		return -EINVAL;
+	} else {
+		subsystem_put(subsystem_get_retval);
 	}
 
 	IPADBG("PIL FW loading process is complete\n");

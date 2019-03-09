@@ -15,6 +15,7 @@
 #include <linux/security.h>
 #include <linux/evm.h>
 #include <linux/ima.h>
+#include <linux/task_integrity.h>
 
 /**
  * setattr_prepare - check if attribute changes to a dentry are allowed
@@ -316,6 +317,7 @@ int notify_change2(struct vfsmount *mnt, struct dentry * dentry, struct iattr * 
 
 	if (!error) {
 		fsnotify_change(dentry, ia_valid);
+		five_inode_post_setattr(current, dentry);
 		ima_inode_post_setattr(dentry);
 		evm_inode_post_setattr(dentry, ia_valid);
 	}

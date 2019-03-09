@@ -56,6 +56,16 @@ struct cpumask *tick_get_broadcast_mask(void)
 	return tick_broadcast_mask;
 }
 
+bool check_tick_irq_enabled(void __iomem *gic)
+{
+	u32 enabled;
+
+	raw_spin_lock(&tick_broadcast_lock);
+	enabled = readl_relaxed_no_log(gic  + 0x100 + 0x4);
+	raw_spin_unlock(&tick_broadcast_lock);
+	return (enabled & BIT(6));
+}
+
 /*
  * Start the device in periodic mode
  */

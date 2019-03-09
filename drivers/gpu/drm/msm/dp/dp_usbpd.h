@@ -69,6 +69,7 @@ struct dp_usbpd {
 	int (*simulate_attention)(struct dp_usbpd *dp_usbpd, int vdo);
 };
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 /**
  * struct dp_usbpd_cb - callback functions provided by the client
  *
@@ -97,6 +98,24 @@ struct dp_usbpd_cb {
  * the callback functions about the connection and status.
  */
 struct dp_usbpd *dp_usbpd_get(struct device *dev, struct dp_usbpd_cb *cb);
+#else
+/**
+ * struct dp_usbpd_cb - callback functions provided by the client
+ *
+ * @configure: called by usbpd module when PD communication has
+ * been completed and the usb peripheral has been configured on
+ * dp mode.
+ * @disconnect: notify the cable disconnect issued by usb.
+ * @attention: notify any attention message issued by usb.
+ */
+struct dp_usbpd_cb {
+	int (*configure)(void);
+	int (*disconnect)(void);
+};
+
+struct dp_usbpd *secdp_usbpd_get(struct device *dev, struct dp_usbpd_cb *cb);
+
+#endif /* CONFIG_SEC_DISPLAYPORT */
 
 void dp_usbpd_put(struct dp_usbpd *pd);
 #endif /* _DP_USBPD_H_ */

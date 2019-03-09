@@ -1730,5 +1730,19 @@ config RTC_DRV_HID_SENSOR_TIME
 	  If this driver is compiled as a module, it will be named
 	  rtc-hid-sensor-time.
 
+config RTC_AUTO_PWRON
+	bool "RTC Auto Power on PMICs"
+	depends on RTC_DRV_QPNP
+	default n
+	help
+	  Support for the auto power on alarm on the PMIC.
+	  Say Y if you want to enable this feature.
+
+config RTC_AUTO_PWRON_PARAM
+	bool "RTC Auto Power on Alarm with parameter partition"
+	depends on RTC_AUTO_PWRON
+	default n
+	help
+	  Use parameter partition to save alarm time
 
 endif # RTC_CLASS

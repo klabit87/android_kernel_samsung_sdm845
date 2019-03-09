@@ -27,6 +27,7 @@ struct modem_data {
 	u32 pas_id;
 	bool ignore_errors;
 	struct completion stop_ack;
+	struct completion wdog_rcv;
 	void __iomem *rmb_base;
 	struct clk *xo;
 	struct pil_desc desc;

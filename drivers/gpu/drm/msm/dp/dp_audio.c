@@ -19,6 +19,13 @@
 
 #include <drm/drm_dp_helper.h>
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include "secdp.h"
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+#include <linux/displayport_bigdata.h>
+#endif
+#endif
+
 #include "dp_catalog.h"
 #include "dp_audio.h"
 #include "dp_panel.h"
@@ -409,6 +416,11 @@ static int dp_audio_info_setup(struct platform_device *pdev,
 		goto end;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	secdp_bigdata_save_item(BD_AUD_CH, params->num_of_channels);
+	secdp_bigdata_save_item(BD_AUD_FREQ, params->sample_rate_hz);
+#endif
+
 	mutex_lock(&audio->dp_audio.ops_lock);
 
 	audio->channels = params->num_of_channels;
@@ -527,9 +539,11 @@ static int dp_audio_ack_done(struct platform_device *pdev, u32 ack)
 
 	ack_hpd = ack & AUDIO_ACK_CONNECT;
 
-	pr_debug("acknowledging audio (%d)\n", ack_hpd);
+	pr_debug("acknowledging audio (%d), engine_on (%d)\n", ack_hpd, audio->engine_on);
 
+#ifndef CONFIG_SEC_DISPLAYPORT
 	if (!audio->engine_on)
+#endif
 		complete_all(&audio->hpd_comp);
 end:
 	return rc;
@@ -618,6 +632,9 @@ static int dp_audio_notify(struct dp_audio_private *audio, u32 state)
 		goto end;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (state == EXT_DISPLAY_CABLE_DISCONNECT) {
+#endif
 	reinit_completion(&audio->hpd_comp);
 	rc = wait_for_completion_timeout(&audio->hpd_comp, HZ * 5);
 	if (!rc) {
@@ -625,7 +642,9 @@ static int dp_audio_notify(struct dp_audio_private *audio, u32 state)
 		rc = -ETIMEDOUT;
 		goto end;
 	}
-
+#ifdef CONFIG_SEC_DISPLAYPORT
+	}
+#endif
 	pr_debug("success\n");
 end:
 	return rc;
@@ -642,6 +661,12 @@ static int dp_audio_on(struct dp_audio *dp_audio)
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (!secdp_get_cable_status()) {
+		pr_info("cable is out\n");
+		return -EINVAL;
+	}
+#endif
 	audio = container_of(dp_audio, struct dp_audio_private, dp_audio);
 	if (IS_ERR(audio)) {
 		pr_err("invalid input\n");
@@ -683,6 +708,13 @@ static int dp_audio_off(struct dp_audio *dp_audio)
 
 	audio = container_of(dp_audio, struct dp_audio_private, dp_audio);
 	ext = &audio->ext_audio_data;
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (!audio->session_on) {
+		pr_info("dp audio already off\n");
+		return rc;
+	}
+#endif
 
 	work_pending = cancel_delayed_work_sync(&audio->notify_delayed_work);
 	if (work_pending)

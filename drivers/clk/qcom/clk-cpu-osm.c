@@ -36,6 +36,8 @@
 #include <dt-bindings/clock/qcom,cpucc-sdm845.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 
+#include <linux/sec_debug_partition.h>
+
 #include "common.h"
 #include "clk-regmap.h"
 #include "clk-voter.h"
@@ -250,8 +252,8 @@ static int clk_pwrcl_set_rate(struct clk_hw *hw, unsigned long rate,
 		return -EINVAL;
 
 	/*
-	 * Poll the CURRENT_FREQUENCY value of the PSTATE_STATUS register to
-	 * check if the L_VAL has been updated.
+	 * Poll the CURRENT_FREQUENCY value of the PSTATE_STATUS register to check
+	 * if the L_VAL has been updated.
 	 */
 	while (count-- > 0) {
 		curr_lval = CURRENT_LVAL(clk_osm_read_reg(parent,
@@ -293,6 +295,59 @@ static long clk_cpu_round_rate(struct clk_hw *hw, unsigned long rate,
 	*parent_rate = rate;
 	return clk_hw_round_rate(parent_hw, rate);
 }
+
+#ifdef CONFIG_SEC_DEBUG_APPS_CLK_LOGGING
+
+typedef struct {
+	uint64_t ktime;
+	uint64_t qtime;
+	uint64_t rate;
+} apps_clk_log_t;
+
+#define MAX_CLK_LOG_CNT (10)
+
+typedef struct {
+	uint32_t max_cnt;
+	uint32_t index;
+	apps_clk_log_t log[MAX_CLK_LOG_CNT];
+} cpuclk_log_t;
+
+cpuclk_log_t cpuclk_log[3] = {
+	[0] = {.max_cnt = MAX_CLK_LOG_CNT,},
+	[1] = {.max_cnt = MAX_CLK_LOG_CNT,},
+	[2] = {.max_cnt = MAX_CLK_LOG_CNT,},
+};
+
+static void clk_osm_add_log(struct cpufreq_policy *policy, unsigned int index)
+{
+	struct clk_osm *c = policy->driver_data;
+	cpuclk_log_t *clk = NULL;
+	apps_clk_log_t *log = NULL;
+	uint64_t idx = 0;
+	uint32_t cluster = 0;
+
+	cluster = policy->cpu / 4;
+	if (!WARN(cluster >= 2, "%s : invalid cluster_num(%u), dbg_name(%s)\n",
+				__func__, cluster, clk_hw_get_name(&c->hw))) {
+		if (cluster == 0)
+			clk = &cpuclk_log[PWR_CLUSTER];
+		else
+			clk = &cpuclk_log[PERF_CLUSTER];
+		idx = clk->index;
+		log = &clk->log[idx];
+		log->ktime = local_clock();
+		log->qtime = arch_counter_get_cntvct();
+		log->rate = policy->freq_table[index].frequency;
+		clk->index = (clk->index + 1) % MAX_CLK_LOG_CNT;
+	}
+}
+
+void *clk_osm_get_log_addr(void)
+{
+	return (void *)&cpuclk_log;
+}
+EXPORT_SYMBOL(clk_osm_get_log_addr);
+#endif
 
 static int l3_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 				    unsigned long parent_rate)
@@ -347,6 +402,22 @@ static int l3_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 		return -ETIMEDOUT;
 	}
 	cpuclk->rate = rate;
+
+#ifdef CONFIG_SEC_DEBUG_APPS_CLK_LOGGING
+	{
+		cpuclk_log_t *clk = NULL;
+		apps_clk_log_t *log = NULL;
+		uint64_t idx = 0;
+
+		clk = &cpuclk_log[L3];
+		idx = clk->index;
+		log = &clk->log[idx];
+		log->ktime = local_clock();
+		log->qtime = arch_counter_get_cntvct();
+		log->rate = rate;
+		clk->index = (clk->index + 1) % MAX_CLK_LOG_CNT;
+	}
+#endif
 	return 0;
 }
 
@@ -385,6 +456,7 @@ static const struct clk_ops clk_ops_pwrcl_core = {
 };
 
 static const struct clk_ops clk_ops_perfcl_core = {
+
 	.set_rate = clk_cpu_set_rate,
 	.round_rate = clk_cpu_round_rate,
 	.recalc_rate = clk_cpu_recalc_rate,
@@ -712,6 +784,9 @@ osm_cpufreq_target_index(struct cpufreq_policy *policy, unsigned int index)
 	struct clk_osm *c = policy->driver_data;
 
 	osm_set_index(c, index);
+#ifdef CONFIG_SEC_DEBUG_APPS_CLK_LOGGING
+	clk_osm_add_log(policy, index);
+#endif
 	return 0;
 }
 

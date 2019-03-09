@@ -6270,12 +6270,14 @@ int glink_get_ch_lintents_queued(struct channel_ctx *ch_ctx)
 {
 	struct glink_core_rx_intent *intent;
 	int ilrx_count = 0;
+	unsigned long flags;
 
 	if (ch_ctx == NULL)
 		return -EINVAL;
-
+	spin_lock_irqsave(&ch_ctx->local_rx_intent_lst_lock_lhc1, flags);
 	list_for_each_entry(intent, &ch_ctx->local_rx_intent_list, list)
 		ilrx_count++;
+	spin_unlock_irqrestore(&ch_ctx->local_rx_intent_lst_lock_lhc1, flags);
 
 	return ilrx_count;
 }
@@ -6292,12 +6294,15 @@ int glink_get_ch_rintents_queued(struct channel_ctx *ch_ctx)
 {
 	struct glink_core_rx_intent *intent;
 	int irrx_count = 0;
+	unsigned long flags;
 
 	if (ch_ctx == NULL)
 		return -EINVAL;
 
+	spin_lock_irqsave(&ch_ctx->rmt_rx_intent_lst_lock_lhc2, flags);
 	list_for_each_entry(intent, &ch_ctx->rmt_rx_intent_list, list)
 		irrx_count++;
+	spin_unlock_irqrestore(&ch_ctx->rmt_rx_intent_lst_lock_lhc2, flags);
 
 	return irrx_count;
 }

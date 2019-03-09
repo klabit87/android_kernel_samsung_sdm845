@@ -13,11 +13,17 @@
 #include <dt-bindings/gpio/gpio.h>
 #include "sdm845-pmic-overlay.dtsi"
 #include "sdm845-pinctrl-overlay.dtsi"
-#include "sdm845-camera-sensor-mtp.dtsi"
+/*#include "sdm845-camera-sensor-mtp.dtsi"*/
 
 &qupv3_se10_i2c {
 #include "smb1355.dtsi"
 };
+
+/*
+ *	samsung doens't use sdm845-mtp.dts
+ *	That's why importing sdm845-sde-display.dtsi here for display
+*/
+#include "sdm845-sde-display.dtsi"
 
 &vendor {
 	bluetooth: bt_wcn3990 {
@@ -84,10 +90,13 @@
 	};
 };
 
+/*
+ * TODO: ServiceTask#100911
 &labibb {
 	status = "ok";
 	qcom,qpnp-labibb-mode = "lcd";
 };
+*/
 
 &dsi_dual_nt35597_truly_video {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
@@ -155,6 +164,11 @@
 	qcom,platform-reset-gpio = <&tlmm 6 0>;
 };
 
+&dsi_dual_nt35597_truly_cmd_display {
+	/* samsung display team doens't use QC mtp panel */
+	/delete-property/qcom,dsi-display-active;
+};
+
 &dsi_sim_dsc_375_cmd {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
@@ -192,6 +206,8 @@
 	qcom,dsi-display-active;
 };
 
+/*
+ * TODO: Samsung does not use pmi8998
 &pmi8998_wled {
 	status = "okay";
 	qcom,led-strings-list = [01 02];
@@ -202,6 +218,7 @@
 	qcom,lra-auto-mode;
 	status = "okay";
 };
+*/
 
 &mdss_mdp {
 	#cooling-cells = <2>;
@@ -260,6 +277,8 @@
 	status = "ok";
 };
 
+/*
+ * TODO: ServiceTask#100911
 &pmi8998_switch1 {
 	pinctrl-names = "led_enable", "led_disable";
 	pinctrl-0 = <&flash_led3_front_en>;
@@ -302,8 +321,13 @@
 	status = "ok";
 	qcom,disable-ctm;
 };
+*/
 
 &qupv3_se9_2uart {
+	status = "ok";
+};
+
+&qupv3_se12_2uart {
 	status = "ok";
 };
 
@@ -337,14 +361,6 @@
 };
 
 &qupv3_se6_4uart {
-	status = "ok";
-};
-
-&usb1 {
-	extcon = <&extcon_usb1>;
-};
-
-&ext_5v_boost {
 	status = "ok";
 };
 

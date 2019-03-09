@@ -521,6 +521,15 @@ static int __init of_platform_default_populate_init(void)
 			of_platform_device_create(node, NULL, NULL);
 	}
 
+#ifdef CONFIG_PSTORE_PMSG_SSPLOG
+	node = of_find_node_by_path("/reserved-memory");
+	if (node) {
+		node = of_find_compatible_node(node, NULL, "ss_plog");
+		if (node)
+			of_platform_device_create(node, NULL, NULL);
+	}
+#endif
+
 	/* Populate everything else. */
 	of_platform_default_populate(NULL, NULL, NULL);
 

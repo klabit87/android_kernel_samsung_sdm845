@@ -139,6 +139,8 @@
 	status = "ok";
 };
 
+/*
+ * TODO: ServiceTask#100911
 &pmi8998_switch1 {
 	pinctrl-names = "led_enable", "led_disable";
 	pinctrl-0 = <&flash_led3_front_en>;
@@ -148,7 +150,10 @@
 &pmi8998_charger {
 	qcom,batteryless-platform;
 };
+*/
 
+/*
+ * TODO: ServiceTask#100911
 &vendor {
 	extcon_usb1: extcon_usb1 {
 		compatible = "linux,extcon-usb-gpio";
@@ -160,28 +165,33 @@
 			     &usb2_id_det_default>;
 	};
 
+
 	usb1_vbus_vreg: usb1_vbus_vreg {
 		compatible = "regulator-fixed";
 		regulator-name = "usb_vbus_vreg";
 		gpio = <&pmi8998_gpios 2 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 
-		/* Typical EN-to-VBUS turn on time for NX5P1100 */
+		// Typical EN-to-VBUS turn on time for NX5P1100 //
 		regulator-enable-ramp-delay = <630>;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&usb2_vbus_boost_default>;
 	};
 };
+*/
 
 &qupv3_se9_2uart {
 	status = "ok";
 };
 
+/*
+ * TODO: ServiceTask#100911
 &labibb {
 	status = "ok";
 	qcom,qpnp-labibb-mode = "lcd";
 };
+*/
 
 &dsi_dual_nt35597_truly_video {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
@@ -294,10 +304,13 @@
 	qcom,dsi-display-active;
 };
 
+/*
+ * TODO: ServiceTask#100911
 &pmi8998_wled {
 	status = "okay";
 	qcom,led-strings-list = [01 02];
 };
+*/
 
 &pmi8998_haptics {
 	qcom,vmax-mv = <2400>;
@@ -340,8 +353,11 @@
 
 &usb1 {
 	status = "okay";
+	/*
+	 * TODO: ServiceTask#100911
 	extcon = <&extcon_usb1>;
 	vbus_dwc3-supply = <&usb1_vbus_vreg>;
+	*/
 };
 
 &qusb_phy1 {

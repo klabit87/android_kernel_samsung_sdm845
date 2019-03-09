@@ -58,6 +58,7 @@ struct dma_mapping_info {
 	struct sg_table *table;
 	struct dma_buf_attachment *attach;
 	struct dma_buf *buf;
+	uint64_t phys_addr;
 };
 
 struct msm_smem {

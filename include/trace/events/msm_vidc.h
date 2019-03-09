@@ -259,15 +259,18 @@ DEFINE_EVENT(msm_smem_buffer_ion_ops, msm_smem_buffer_ion_op_end,
 DECLARE_EVENT_CLASS(msm_smem_buffer_iommu_ops,
 
 	TP_PROTO(char *buffer_op, int domain_num, int partition_num,
+		uint64_t phys,
 		unsigned long align, unsigned long iova,
 		unsigned long buffer_size),
 
-	TP_ARGS(buffer_op, domain_num, partition_num, align, iova, buffer_size),
+	TP_ARGS(buffer_op, domain_num, partition_num,
+		phys, align, iova, buffer_size),
 
 	TP_STRUCT__entry(
 		__field(char *, buffer_op)
 		__field(int, domain_num)
 		__field(int, partition_num)
+		__field(uint64_t, phys)
 		__field(unsigned long, align)
 		__field(unsigned long, iova)
 		__field(unsigned long, buffer_size)
@@ -277,16 +280,18 @@ DECLARE_EVENT_CLASS(msm_smem_buffer_iommu_ops,
 		__entry->buffer_op = buffer_op;
 		__entry->domain_num = domain_num;
 		__entry->partition_num = partition_num;
+		__entry->phys = phys;
 		__entry->align = align;
 		__entry->iova = iova;
 		__entry->buffer_size = buffer_size;
 	),
 
 	TP_printk(
-		"%s, domain : %d, partition : %d, align : %lx, iova : 0x%lx, buffer_size=%lx",
+		"%s, domain : %d, partition : %d, phys: 0x%llx, align : %lx, iova : 0x%lx, buffer_size=%lx",
 		__entry->buffer_op,
 		__entry->domain_num,
 		__entry->partition_num,
+		__entry->phys,
 		__entry->align,
 		__entry->iova,
 		__entry->buffer_size)
@@ -295,19 +300,23 @@ DECLARE_EVENT_CLASS(msm_smem_buffer_iommu_ops,
 DEFINE_EVENT(msm_smem_buffer_iommu_ops, msm_smem_buffer_iommu_op_start,
 
 	TP_PROTO(char *buffer_op, int domain_num, int partition_num,
+		uint64_t phys,
 		unsigned long align, unsigned long iova,
 		unsigned long buffer_size),
 
-	TP_ARGS(buffer_op, domain_num, partition_num, align, iova, buffer_size)
+	TP_ARGS(buffer_op, domain_num, partition_num,
+		phys, align, iova, buffer_size)
 );
 
 DEFINE_EVENT(msm_smem_buffer_iommu_ops, msm_smem_buffer_iommu_op_end,
 
 	TP_PROTO(char *buffer_op, int domain_num, int partition_num,
+		uint64_t phys,
 		unsigned long align, unsigned long iova,
 		unsigned long buffer_size),
 
-	TP_ARGS(buffer_op, domain_num, partition_num, align, iova, buffer_size)
+	TP_ARGS(buffer_op, domain_num, partition_num,
+		phys, align, iova, buffer_size)
 );
 
 DECLARE_EVENT_CLASS(msm_vidc_perf,

@@ -834,3 +834,17 @@ config MMC_SDHCI_BRCMSTB
 	  Broadcom STB SoCs.
 
 	  If unsure, say Y.
+
+config SEC_NO_SD_DETECT
+	bool "No SDcard detect pin.(T_FLASH_DETECT)"
+	depends on MMC_SDHCI_MSM
+	help
+	  If the target has no SDcard detect pin(T_FLASH_DETECT),
+	  enable this
+
+config SEC_HYBRID_TRAY
+	bool "SD slot tray"
+	depends on MMC_SDHCI_MSM
+	help
+	  If the target has slot tray(including dual tray),
+	  enable this

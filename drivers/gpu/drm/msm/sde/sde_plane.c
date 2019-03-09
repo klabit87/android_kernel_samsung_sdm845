@@ -20,6 +20,7 @@
 
 #include <linux/debugfs.h>
 #include <linux/dma-buf.h>
+#include <linux/iommu.h>
 #include <uapi/drm/sde_drm.h>
 #include <uapi/drm/msm_drm_pp.h>
 
@@ -37,6 +38,18 @@
 #include "sde_plane.h"
 #include "sde_color_processing.h"
 #include "sde_hw_rot.h"
+
+#include "../../../../../drivers/gpu/msm/kgsl_device.h"
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include "sde_encoder.h"
+#include "../samsung/ss_dsi_panel_common.h"
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug_partition.h>
+#endif
+#endif
+
+static bool plane_log_phys = true;
+module_param(plane_log_phys, bool, 0600);
 
 #define SDE_DEBUG_PLANE(pl, fmt, ...) SDE_DEBUG("plane%d " fmt,\
 		(pl) ? (pl)->base.base.id : -1, ##__VA_ARGS__)
@@ -826,6 +839,8 @@ int sde_plane_wait_input_fence(struct drm_plane *plane, uint32_t wait_ms)
 	} else if (!plane->state) {
 		SDE_ERROR_PLANE(to_sde_plane(plane), "invalid state\n");
 	} else {
+		//struct kgsl_device *device = kgsl_get_device(KGSL_DEVICE_3D0);
+
 		psde = to_sde_plane(plane);
 		pstate = to_sde_plane_state(plane->state);
 		input_fence = pstate->input_fence;
@@ -840,6 +855,15 @@ int sde_plane_wait_input_fence(struct drm_plane *plane, uint32_t wait_ms)
 						wait_ms, prefix);
 				psde->is_error = true;
 				sde_kms_timeline_status(plane->dev);
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+				{
+					struct fence *tout_fence = input_fence;
+
+					pr_info("DPCI Logging for fence timeout\n");
+					ss_inc_ftout_debug(tout_fence->ops->get_timeline_name(tout_fence));
+				}
+#endif
+
 				ret = -ETIMEDOUT;
 				break;
 			case -ERESTARTSYS:
@@ -916,6 +940,42 @@ static int _sde_plane_get_aspace(
 	}
 
 	return 0;
+}
+
+static void _sde_plane_log_phys_addr(struct drm_plane *plane,
+		struct sde_hw_fmt_layout *layout)
+{
+	struct iommu_domain *domain;
+	uint64_t phys_addr[SDE_MAX_PLANES] = {0};
+	int i;
+
+	if (!plane || !plane->dev || !plane->dev->dev || !layout)
+		return;
+
+	if (!plane_log_phys)
+		return;
+
+	domain = iommu_get_domain_for_dev(plane->dev->dev);
+	if (!domain)
+		return;
+
+	for (i = 0; i < layout->num_planes; ++i) {
+		phys_addr[i] = (uint64_t)iommu_iova_to_phys(domain,
+				layout->plane_addr[i]);
+	}
+
+	SDE_EVT32(DRMID(plane),
+			plane->state && plane->state->fb ?
+			plane->state->fb->base.id : -1,
+			layout->num_planes,
+			(uint32_t)(phys_addr[0] >> 32),
+			(uint32_t)phys_addr[0], layout->plane_size[0],
+			(uint32_t)(phys_addr[1] >> 32),
+			(uint32_t)phys_addr[1], layout->plane_size[1],
+			(uint32_t)(phys_addr[2] >> 32),
+			(uint32_t)phys_addr[2], layout->plane_size[2],
+			(uint32_t)(phys_addr[3] >> 32),
+			(uint32_t)phys_addr[3], layout->plane_size[3]);
 }
 
 static inline void _sde_plane_set_scanout(struct drm_plane *plane,
@@ -1962,6 +2022,8 @@ static int sde_plane_rot_submit_command(struct drm_plane *plane,
 		}
 		rot_cmd->src_planes = layout.num_planes;
 
+		_sde_plane_log_phys_addr(plane, &layout);
+
 		memset(&layout, 0, sizeof(struct sde_hw_fmt_layout));
 		sde_format_populate_layout(pstate->aspace, rstate->out_fb,
 				&layout);
@@ -2937,6 +2999,9 @@ int sde_plane_validate_multirect_v2(struct sde_multirect_plane_states *plane)
 			const_alpha_enable = false;
 
 	}
+
+	for (i = 0; i < R_MAX; i++)
+		pstate[i]->const_alpha_en = const_alpha_enable;	// case 03324407
 
 	buffer_lines = 2 * max_tile_height;
 

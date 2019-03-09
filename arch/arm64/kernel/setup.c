@@ -67,6 +67,12 @@
 #include <asm/mmu_context.h>
 #include <asm/system_misc.h>
 
+// [ SEC_SELINUX_PORTING_QUALCOMM
+#ifdef CONFIG_PROC_AVC
+#include <linux/proc_avc.h>
+#endif
+// ] SEC_SELINUX_PORTING_QUALCOMM
+
 phys_addr_t __fdt_pointer __initdata;
 
 unsigned int boot_reason;
@@ -329,13 +335,14 @@ void __init setup_arch(char **cmdline_p)
 	conswitchp = &dummy_con;
 #endif
 #endif
+#ifndef CONFIG_RANDOMIZE_BASE
 	if (boot_args[1] || boot_args[2] || boot_args[3]) {
 		pr_err("WARNING: x1-x3 nonzero in violation of boot protocol:\n"
 			"\tx1: %016llx\n\tx2: %016llx\n\tx3: %016llx\n"
 			"This indicates a broken bootloader or old kernel\n",
 			boot_args[1], boot_args[2], boot_args[3]);
 	}
-
+#endif
 	init_random_pool();
 }
 

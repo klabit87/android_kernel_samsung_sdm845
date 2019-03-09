@@ -851,6 +851,10 @@ ssize_t drm_dp_dpcd_read(struct drm_dp_aux *aux, unsigned int offset,
 			 void *buffer, size_t size);
 ssize_t drm_dp_dpcd_write(struct drm_dp_aux *aux, unsigned int offset,
 			  void *buffer, size_t size);
+#ifdef CONFIG_SEC_DISPLAYPORT
+ssize_t drm_dp_i2c_read(struct drm_dp_aux *aux, void *buffer, size_t size);
+ssize_t drm_dp_i2c_write(struct drm_dp_aux *aux, void *buffer, size_t size);
+#endif
 
 /**
  * drm_dp_dpcd_readb() - read a single byte from the DPCD

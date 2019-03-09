@@ -86,9 +86,14 @@
 #include <asm/tlbflush.h>
 
 #include <trace/events/sched.h>
+#include <linux/task_integrity.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
+
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+#endif
 
 /*
  * Minimum number of threads to boot the kernel
@@ -145,6 +150,9 @@ static inline struct task_struct *alloc_task_struct_node(int node)
 
 static inline void free_task_struct(struct task_struct *tsk)
 {
+#ifdef CONFIG_DEBUG_TASK_USAGE
+	tsk->dummy = 0x6B6B6B6B6B6B6B;
+#endif
 	kmem_cache_free(task_struct_cachep, tsk);
 }
 #endif
@@ -490,6 +498,9 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	stack_vm_area = task_stack_vm_area(tsk);
 
 	err = arch_dup_task_struct(tsk, orig);
+#ifdef CONFIG_DEBUG_TASK_USAGE
+	tsk->dummy = TASK_STRUCT_DUMMY_VAL;
+#endif
 
 	/*
 	 * arch_dup_task_struct() clobbers the stack-related fields.  Make
@@ -1456,11 +1467,74 @@ static void posix_cpu_timers_init(struct task_struct *tsk)
 	INIT_LIST_HEAD(&tsk->cpu_timers[2]);
 }
 
+#ifdef CONFIG_RKP_KDP
+void rkp_assign_pgd(struct task_struct *p)
+{
+	u64 pgd;
+	pgd = (u64)(p->mm ? p->mm->pgd :swapper_pg_dir);
+
+	uh_call(UH_APP_RKP,0x43,(u64)p->cred, (u64)pgd,0,0);
+}
+#endif /*CONFIG_RKP_KDP*/
+
 static inline void
 init_task_pid(struct task_struct *task, enum pid_type type, struct pid *pid)
 {
 	 task->pids[type].pid = pid;
 }
+
+#ifdef CONFIG_FIVE
+static int dup_task_integrity(unsigned long clone_flags,
+					struct task_struct *tsk)
+{
+	int ret = 0;
+
+	if (clone_flags & CLONE_VM) {
+		task_integrity_get(current->integrity);
+		tsk->integrity = current->integrity;
+	} else {
+		tsk->integrity = task_integrity_alloc();
+
+		if (!tsk->integrity)
+			ret = -ENOMEM;
+	}
+
+	return ret;
+}
+
+static inline void task_integrity_cleanup(struct task_struct *tsk)
+{
+	task_integrity_put(tsk->integrity);
+}
+
+static inline int task_integrity_apply(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	int ret = 0;
+
+	if (!(clone_flags & CLONE_VM))
+		ret = five_fork(current, tsk);
+
+	return ret;
+}
+#else
+static inline int dup_task_integrity(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+
+static inline void task_integrity_cleanup(struct task_struct *tsk)
+{
+}
+
+static inline int task_integrity_apply(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+
+#endif
 
 /*
  * This creates a new process as a copy of the old one,
@@ -1769,6 +1843,10 @@ static __latent_entropy struct task_struct *copy_process(
 	if (retval)
 		goto bad_fork_free_pid;
 
+	retval = dup_task_integrity(clone_flags, p);
+	if (retval)
+		goto bad_fork_free_pid;
+
 	/*
 	 * Make it visible to the rest of the system, but dont wake it up yet.
 	 * Need tasklist lock for parent etc handling!
@@ -1809,6 +1887,10 @@ static __latent_entropy struct task_struct *copy_process(
 		retval = -ENOMEM;
 		goto bad_fork_cancel_cgroup;
 	}
+
+	retval = task_integrity_apply(clone_flags, p);
+	if (retval)
+		goto bad_fork_cancel_cgroup;
 
 	if (likely(p->pid)) {
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
@@ -1855,13 +1937,17 @@ static __latent_entropy struct task_struct *copy_process(
 
 	trace_task_newtask(p, clone_flags);
 	uprobe_copy_process(p, clone_flags);
-
+#ifdef CONFIG_RKP_KDP
+	if(rkp_cred_enable)
+		rkp_assign_pgd(p);
+#endif/*CONFIG_RKP_KDP*/
 	return p;
 
 bad_fork_cancel_cgroup:
 	spin_unlock(&current->sighand->siglock);
 	write_unlock_irq(&tasklist_lock);
 	cgroup_cancel_fork(p);
+	task_integrity_cleanup(p);
 bad_fork_free_pid:
 	threadgroup_change_end(current);
 	if (pid != &init_struct_pid)
@@ -1906,6 +1992,7 @@ bad_fork_free:
 	put_task_stack(p);
 	free_task(p);
 fork_out:
+	pr_err("copy_process failed with %d\n", retval);
 	return ERR_PTR(retval);
 }
 
@@ -1982,6 +2069,10 @@ long _do_fork(unsigned long clone_flags,
 
 		pid = get_task_pid(p, PIDTYPE_PID);
 		nr = pid_vnr(pid);
+
+#ifdef CONFIG_SECURITY_DEFEX
+		task_defex_zero_creds(p);
+#endif
 
 		if (clone_flags & CLONE_PARENT_SETTID)
 			put_user(nr, parent_tidptr);

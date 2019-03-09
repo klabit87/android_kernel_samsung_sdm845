@@ -1367,6 +1367,8 @@ static int cprh_kbss_calculate_open_loop_voltages(struct cpr3_regulator *vreg)
 			  fuse_volt[i]);
 	}
 
+	cpr3_save_fused_open_loop_voltage(vreg, fuse_volt);
+
 	rc = cpr3_adjust_fused_open_loop_voltages(vreg, fuse_volt);
 	if (rc) {
 		cpr3_err(vreg, "fused open-loop voltage adjustment failed, rc=%d\n",

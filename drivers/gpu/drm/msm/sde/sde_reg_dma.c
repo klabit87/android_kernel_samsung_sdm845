@@ -69,11 +69,15 @@ static int default_last_command(struct sde_hw_ctl *ctl,
 	return 0;
 }
 
+static void default_dump_reg(void)
+{
+}
+
 static struct sde_hw_reg_dma reg_dma = {
 	.ops = {default_check_support, default_setup_payload,
 		default_kick_off, default_reset, default_alloc_reg_dma_buf,
 		default_dealloc_reg_dma, default_buf_reset_reg_dma,
-		default_last_command},
+		default_last_command, default_dump_reg},
 };
 
 int sde_reg_dma_init(void __iomem *addr, struct sde_mdss_cfg *m,
@@ -99,6 +103,9 @@ int sde_reg_dma_init(void __iomem *addr, struct sde_mdss_cfg *m,
 		rc = init_v1(&reg_dma);
 		if (rc)
 			DRM_DEBUG("init v1 dma ops failed\n");
+		else
+			sde_dbg_reg_register_base("reg_dma2", addr, // case 03136540
+					reg_dma.caps->len);
 		break;
 	default:
 		break;
@@ -118,7 +125,7 @@ void sde_reg_dma_deinit(void)
 	.ops = {default_check_support, default_setup_payload,
 		default_kick_off, default_reset, default_alloc_reg_dma_buf,
 		default_dealloc_reg_dma, default_buf_reset_reg_dma,
-		default_last_command},
+		default_last_command, default_dump_reg},
 	};
 
 	if (!reg_dma.drm_dev || !reg_dma.caps)

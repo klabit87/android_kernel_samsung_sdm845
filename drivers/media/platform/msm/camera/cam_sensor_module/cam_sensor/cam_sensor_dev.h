@@ -32,6 +32,9 @@
 #include <cam_subdev.h>
 #include <cam_sensor_io.h>
 #include "cam_debug_util.h"
+#if defined(CONFIG_CAMERA_DYNAMIC_MIPI)
+#include "cam_sensor_mipi.h"
+#endif
 
 #define NUM_MASTERS 2
 #define NUM_QUEUES 2
@@ -52,8 +55,8 @@
 enum cam_sensor_state_t {
 	CAM_SENSOR_INIT,
 	CAM_SENSOR_ACQUIRE,
-	CAM_SENSOR_CONFIG,
-	CAM_SENSOR_START,
+  CAM_SENSOR_CONFIG,
+  CAM_SENSOR_START,
 };
 
 /**
@@ -92,8 +95,6 @@ struct intf_params {
  * @device_name: Sensor device structure
  * @streamon_count: Count to hold the number of times stream on called
  * @streamoff_count: Count to hold the number of times stream off called
- * @bob_reg_index: Hold to BoB regulator index
- * @bob_pwm_switch: Boolean flag to switch into PWM mode for BoB regulator
  */
 struct cam_sensor_ctrl_t {
 	struct platform_device *pdev;
@@ -110,13 +111,17 @@ struct cam_sensor_ctrl_t {
 	uint8_t sensor_probe_addr_type;
 	uint8_t sensor_probe_data_type;
 	struct i2c_data_settings i2c_data;
-	struct  cam_sensor_query_cap sensor_info;
+	struct cam_sensor_query_cap sensor_info;
 	struct intf_params bridge_intf;
 	char device_name[20];
 	uint32_t streamon_count;
 	uint32_t streamoff_count;
-	int bob_reg_index;
-	bool bob_pwm_switch;
+#if defined(CONFIG_CAMERA_DYNAMIC_MIPI)
+	u32	mipi_clock_index_new;
+	u32	mipi_clock_index_cur;
+	const struct cam_mipi_sensor_mode *mipi_info;
+#endif
+
 };
 
 #endif /* _CAM_SENSOR_DEV_H_ */

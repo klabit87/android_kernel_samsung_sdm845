@@ -128,6 +128,14 @@ static void _msm_property_set_dirty_no_lock(
 			&property_state->dirty_list);
 }
 
+/**
+ * msm_property_is_dirty - check whether a property is dirty
+ *	Note: May not work if msm_property_pop_dirty has been used
+ * @info: Pointer to property info container struct
+ * @property_state: Pointer to property state container struct
+ * @property_idx: Property index
+ * Returns: true if dirty, false otherwise
+ */
 bool msm_property_is_dirty(
 		struct msm_property_info *info,
 		struct msm_property_state *property_state,

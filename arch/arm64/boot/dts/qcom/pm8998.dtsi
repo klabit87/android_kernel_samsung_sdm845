@@ -78,6 +78,7 @@
 			reg = <0xc000 0x1a00>;
 			interrupts = <0x0 0xc0 0 IRQ_TYPE_NONE>,
 					<0x0 0xc1 0 IRQ_TYPE_NONE>,
+					<0x0 0xc2 0 IRQ_TYPE_NONE>,
 					<0x0 0xc3 0 IRQ_TYPE_NONE>,
 					<0x0 0xc4 0 IRQ_TYPE_NONE>,
 					<0x0 0xc5 0 IRQ_TYPE_NONE>,
@@ -89,6 +90,7 @@
 					<0x0 0xcb 0 IRQ_TYPE_NONE>,
 					<0x0 0xcc 0 IRQ_TYPE_NONE>,
 					<0x0 0xcd 0 IRQ_TYPE_NONE>,
+					<0x0 0xce 0 IRQ_TYPE_NONE>,
 					<0x0 0xcf 0 IRQ_TYPE_NONE>,
 					<0x0 0xd0 0 IRQ_TYPE_NONE>,
 					<0x0 0xd1 0 IRQ_TYPE_NONE>,
@@ -96,18 +98,20 @@
 					<0x0 0xd4 0 IRQ_TYPE_NONE>,
 					<0x0 0xd6 0 IRQ_TYPE_NONE>;
 			interrupt-names = "pm8998_gpio1", "pm8998_gpio2",
+					"pm8998_gpio3",
 					"pm8998_gpio4", "pm8998_gpio5",
 					"pm8998_gpio6", "pm8998_gpio7",
 					"pm8998_gpio8", "pm8998_gpio9",
 					"pm8998_gpio10", "pm8998_gpio11",
 					"pm8998_gpio12", "pm8998_gpio13",
-					"pm8998_gpio14", "pm8998_gpio16",
+					"pm8998_gpio14",
+					"pm8998_gpio15", "pm8998_gpio16",
 					"pm8998_gpio17", "pm8998_gpio18",
 					"pm8998_gpio19", "pm8998_gpio21",
 					"pm8998_gpio23";
 			gpio-controller;
+			qcom,gpios-disallowed = <20 22 24 25 26>;
 			#gpio-cells = <2>;
-			qcom,gpios-disallowed = <3 15 20 22 24 25 26>;
 		};
 
 		pm8998_coincell: qcom,coincell@2800 {

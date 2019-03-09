@@ -373,13 +373,22 @@ next_pte:
 	/* Secondary CPUs end up here */
 __idmap_kpti_secondary:
 	/* Uninstall swapper before surgery begins */
+#ifdef CONFIG_RKP_CFP_ROPP
+	__idmap_cpu_set_reserved_ttbr1 x18, x16
+#else
 	__idmap_cpu_set_reserved_ttbr1 x18, x17
+#endif
 
 	/* Increment the flag to let the boot CPU we're ready */
 1:	ldxr	w18, [flag_ptr]
 	add	w18, w18, #1
+#ifdef CONFIG_RKP_CFP_ROPP
+	stxr	w16, w18, [flag_ptr]
+	cbnz	w16, 1b
+#else
 	stxr	w17, w18, [flag_ptr]
 	cbnz	w17, 1b
+#endif
 
 	/* Wait for the boot CPU to finish messing around with swapper */
 	sevl

@@ -1563,6 +1563,7 @@ static ssize_t iommu_debug_atos_read(struct file *file, char __user *ubuf,
 		pr_err("kptr_restrict needs to be disabled.\n");
 		return -EPERM;
 	}
+
 	if (!ddev->domain) {
 		pr_err("No domain. Did you already attach?\n");
 		return -EINVAL;

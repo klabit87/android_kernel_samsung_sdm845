@@ -76,6 +76,10 @@ struct dp_panel {
 	/* debug */
 	u32 max_bw_code;
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	u32 dsp_type;
+#endif
+
 	int (*init)(struct dp_panel *dp_panel);
 	int (*deinit)(struct dp_panel *dp_panel);
 	int (*timing_cfg)(struct dp_panel *dp_panel);

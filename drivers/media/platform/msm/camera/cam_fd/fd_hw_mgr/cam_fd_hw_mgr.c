@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,7 +38,7 @@ static int cam_fd_mgr_util_packet_validate(struct cam_packet *packet)
 	if (!packet)
 		return -EINVAL;
 
-	CAM_DBG(CAM_FD, "Packet request=%d, op_code=0x%x, size=%d, flags=%d",
+	CAM_DBG(CAM_FD, "Packet request=%lld, op_code=0x%x, size=%d, flags=%d",
 		packet->header.request_id, packet->header.op_code,
 		packet->header.size, packet->header.flags);
 	CAM_DBG(CAM_FD,
@@ -536,7 +536,7 @@ static int cam_fd_mgr_util_prepare_io_buf_info(int32_t iommu_hdl,
 	int rc = -EINVAL;
 	uint32_t i, j, plane, num_out_buf, num_in_buf;
 	struct cam_buf_io_cfg *io_cfg;
-	dma_addr_t io_addr[CAM_PACKET_MAX_PLANES];
+	uint64_t io_addr[CAM_PACKET_MAX_PLANES];
 	uint64_t cpu_addr[CAM_PACKET_MAX_PLANES];
 	size_t size;
 	bool need_io_map, need_cpu_map;
@@ -611,7 +611,7 @@ static int cam_fd_mgr_util_prepare_io_buf_info(int32_t iommu_hdl,
 				cpu_addr[plane] += io_cfg[i].offsets[plane];
 			}
 
-			CAM_DBG(CAM_FD, "IO Address[%d][%d] : %pK, %pK",
+			CAM_DBG(CAM_FD, "IO Address[%d][%d] : 0x%lldK, 0x%lldK",
 				io_cfg[i].direction, plane, io_addr[plane],
 				cpu_addr[plane]);
 		}
@@ -1277,6 +1277,8 @@ static int cam_fd_mgr_hw_flush_req(void *hw_mgr_priv,
 	struct cam_fd_hw_mgr_ctx *hw_ctx;
 	uint32_t i = 0;
 
+	CAM_INFO(CAM_FD, "E: FD flush req");
+
 	hw_ctx = (struct cam_fd_hw_mgr_ctx *)flush_args->ctxt_to_hw_map;
 
 	if (!hw_ctx || !hw_ctx->ctx_in_use) {
@@ -1364,6 +1366,8 @@ unlock_dev_flush_req:
 			&flush_req);
 	}
 
+	CAM_INFO(CAM_FD, "X: FD flush req with rc: %d", rc);
+
 	return rc;
 }
 
@@ -1377,6 +1381,8 @@ static int cam_fd_mgr_hw_flush_ctx(void *hw_mgr_priv,
 	struct cam_fd_hw_stop_args hw_stop_args;
 	struct cam_fd_hw_mgr_ctx *hw_ctx;
 	uint32_t i = 0;
+
+	CAM_INFO(CAM_FD, "E: FD flush ctx");
 
 	hw_ctx = (struct cam_fd_hw_mgr_ctx *)flush_args->ctxt_to_hw_map;
 
@@ -1444,6 +1450,8 @@ unlock_dev_flush_ctx:
 		cam_fd_mgr_util_put_frame_req(&hw_mgr->frame_free_list,
 			&flush_req);
 	}
+
+	CAM_INFO(CAM_FD, "X: FD flush ctx with rc: %d", rc);
 
 	return rc;
 }
@@ -1671,7 +1679,7 @@ static int cam_fd_mgr_hw_config(void *hw_mgr_priv, void *hw_config_args)
 	frame_req->num_hw_update_entries = config->num_hw_update_entries;
 	for (i = 0; i < config->num_hw_update_entries; i++) {
 		frame_req->hw_update_entries[i] = config->hw_update_entries[i];
-		CAM_DBG(CAM_FD, "PreStart HWEntry[%d] : %d %d %d %d %pK",
+		CAM_DBG(CAM_FD, "PreStart HWEntry[%d] : %d %d %d %lldK",
 			frame_req->hw_update_entries[i].handle,
 			frame_req->hw_update_entries[i].offset,
 			frame_req->hw_update_entries[i].len,
@@ -1860,7 +1868,7 @@ int cam_fd_hw_mgr_init(struct device_node *of_node,
 		g_fd_hw_mgr.cdm_iommu.secure);
 
 	/* Init hw mgr contexts and add to free list */
-	for (i = 0; i < CAM_CTX_MAX; i++) {
+	for (i = 0; i < CAM_FD_CTX_MAX; i++) {
 		hw_mgr_ctx = &g_fd_hw_mgr.ctx_pool[i];
 
 		memset(hw_mgr_ctx, 0x0, sizeof(*hw_mgr_ctx));
@@ -1884,7 +1892,7 @@ int cam_fd_hw_mgr_init(struct device_node *of_node,
 	}
 
 	rc = cam_req_mgr_workq_create("cam_fd_worker", CAM_FD_WORKQ_NUM_TASK,
-		&g_fd_hw_mgr.work, CRM_WORKQ_USAGE_IRQ, 0);
+		&g_fd_hw_mgr.work, CRM_WORKQ_USAGE_IRQ);
 	if (rc) {
 		CAM_ERR(CAM_FD, "Unable to create a worker, rc=%d", rc);
 		goto detach_smmu;

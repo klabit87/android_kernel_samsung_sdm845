@@ -145,6 +145,7 @@ struct msm_ipc_port {
 	unsigned long num_tx_bytes;
 	unsigned long num_rx_bytes;
 	uint32_t last_served_svc_id;
+	struct msm_ipc_port_addr rport_addr;
 	void *priv;
 };
 

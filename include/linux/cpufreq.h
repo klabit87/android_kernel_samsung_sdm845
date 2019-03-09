@@ -197,6 +197,27 @@ static inline unsigned int cpufreq_quick_get_max(unsigned int cpu)
 static inline void disable_cpufreq(void) { }
 #endif
 
+#if defined(CONFIG_CPU_FREQ_LIMIT_USERSPACE)
+enum {
+	DVFS_NO_ID			= 0,
+
+	/* need to update now */
+	DVFS_TOUCH_ID			= 1,
+	DVFS_FINGER_ID			= 2,
+	DVFS_MULTI_TOUCH_ID		= 3,
+	DVFS_ARGOS_ID			= 4,
+
+	DVFS_MAX_ID
+};
+
+#define DVFS_TOUCH_ID_MASK (1 << DVFS_TOUCH_ID)
+#define DVFS_FINGER_ID_MASK (1 << DVFS_FINGER_ID)
+#define DVFS_MULTI_TOUCH_ID_MASK (1 << DVFS_MULTI_TOUCH_ID)
+#define DVFS_ARGOS_ID_MASK (1 << DVFS_ARGOS_ID)
+
+int set_freq_limit(unsigned long id, unsigned int freq);
+#endif
+
 #ifdef CONFIG_CPU_FREQ_STAT
 void cpufreq_stats_create_table(struct cpufreq_policy *policy);
 void cpufreq_stats_free_table(struct cpufreq_policy *policy);
@@ -927,6 +948,8 @@ static inline bool policy_has_boost_freq(struct cpufreq_policy *policy)
 	return false;
 }
 #endif
+/* the following function is for cpufreq core use only */
+struct cpufreq_frequency_table *cpufreq_frequency_get_table(unsigned int cpu);
 
 /* the following are really really optional */
 extern struct freq_attr cpufreq_freq_attr_scaling_available_freqs;

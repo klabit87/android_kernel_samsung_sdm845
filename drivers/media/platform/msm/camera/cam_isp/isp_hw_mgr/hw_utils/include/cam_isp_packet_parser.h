@@ -20,6 +20,8 @@
 #include "cam_hw_intf.h"
 #include "cam_packet_util.h"
 
+#define ADD_IO_BUFS_INFO_MAX_SIZE 100
+
 /*
  * struct cam_isp_generic_blob_info
  *
@@ -109,6 +111,11 @@ int cam_isp_add_command_buffers(
 	struct cam_ife_hw_mgr_res          *res_list_isp_out,
 	uint32_t                            size_isp_out);
 
+int cam_isp_update_axi_bw(
+	struct cam_hw_prepare_update_args       *prepare,
+	struct cam_isp_prepare_hw_update_data   *prepare_hw_data,
+	int32_t                                  index);
+
 /*
  * cam_isp_add_io_buffers()
  *
@@ -158,5 +165,27 @@ int cam_isp_add_reg_update(
 	struct list_head                     *res_list_isp_src,
 	uint32_t                              base_idx,
 	struct cam_kmd_buf_info              *kmd_buf_info);
+
+/*
+ * struct cam_isp_add_io_buffers_info
+ *
+ * @brief 				Structure to hold memory info from
+ *						cam_isp_add_io_buffers operation
+ *
+ * @plane_id			Plane ID
+ * @io_addr				IO address of Plane ID
+ * @mem_hdl				IO buffer memory handle
+ * @mmu_hdl				IO buffer mmu handle
+ * @size				Size of the IO buffer
+ *
+ */
+
+struct cam_isp_add_io_buffers_info {
+	uint32_t plane_id;
+	uint64_t io_addr;
+	int32_t mem_hdl;
+	int mmu_hdl;
+	size_t size;
+};
 
 #endif /*_CAM_ISP_HW_PARSER_H */

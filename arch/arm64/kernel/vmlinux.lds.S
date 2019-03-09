@@ -149,6 +149,37 @@ SECTIONS
 	. = ALIGN(SEGMENT_ALIGN);
 	_etext = .;			/* End of text section */
 
+#ifdef CONFIG_UH_RKP
+	. = ALIGN(PAGE_SIZE);
+	.rkp.bitmap : {
+		rkp_pgt_bitmap = .;
+		*(.rkp.bitmap)
+	}
+	. = ALIGN(PAGE_SIZE);
+	.rkp.dblmap : {
+		rkp_map_bitmap = .;
+		*(.rkp.dblmap)
+	}
+#ifdef CONFIG_RKP_KDP
+	. = ALIGN(PAGE_SIZE);
+	 /* Creating a new section to store task credentials */
+	.rkp.prot.page : {
+		__rkp_start_prot_page = .;
+	}
+	__rkp_end_prot_page = .;
+#endif /* CONFIG_RKP_KDP*/
+
+	. = ALIGN(PAGE_SIZE);
+	bm_pte = .;
+	. += PAGE_SIZE;
+	. = ALIGN(PAGE_SIZE);
+	bm_pmd = .;
+	. += PAGE_SIZE;
+	. = ALIGN(PAGE_SIZE);
+	bm_pud = .;
+	. += PAGE_SIZE;
+#endif
+
 	RO_DATA(PAGE_SIZE)		/* everything from this point to     */
 	EXCEPTION_TABLE(8)		/* __init_begin will be marked RO NX */
 	NOTES
@@ -186,7 +217,9 @@ SECTIONS
 		KEEP(*(.altinstr_replacement))
 	}
 	.rela : ALIGN(8) {
+		__reloc_start = .;
 		*(.rela .rela*)
+		__reloc_end = .;
 	}
 
 	__rela_offset	= ABSOLUTE(ADDR(.rela) - KIMAGE_VADDR);

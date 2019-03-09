@@ -123,6 +123,9 @@
 #define SSC_START		BIT(6)
 #define SSC_START_MUX		BIT(7)
 
+extern void sde_debugdump(void);
+
+
 enum {
 	DSI_PLL_0,
 	DSI_PLL_1,
@@ -686,9 +689,11 @@ static int dsi_pll_10nm_lock_status(struct mdss_pll_resources *pll)
 				       ((status & BIT(0)) > 0),
 				       delay_us,
 				       timeout_us);
-	if (rc)
+	if (rc) {
 		pr_err("DSI PLL(%d) lock failed, status=0x%08x\n",
 			pll->index, status);
+		sde_debugdump( );
+	}
 
 	return rc;
 }

@@ -340,7 +340,6 @@ static int rsc_hw_timer_update(struct sde_rsc_priv *rsc)
 
 	return 0;
 }
-
 static int sde_rsc_mode2_exit(struct sde_rsc_priv *rsc,
 						enum sde_rsc_state state)
 {
@@ -390,9 +389,13 @@ static int sde_rsc_mode2_exit(struct sde_rsc_priv *rsc,
 		if (!test_bit(POWER_CTRL_BIT_12, &power_status)) {
 			reg = dss_reg_r(&rsc->drv_io,
 				SDE_RSCC_SEQ_PROGRAM_COUNTER, rsc->debug_mode);
-			SDE_EVT32_VERBOSE(count, reg, power_status);
+			SDE_EVT32(count, reg, power_status);
 			rc = 0;
 			break;
+		} else {
+			reg = dss_reg_r(&rsc->drv_io,
+				SDE_RSCC_SEQ_PROGRAM_COUNTER, rsc->debug_mode);
+			SDE_EVT32(count, reg, power_status);
 		}
 		usleep_range(10, 100);
 	}
@@ -402,8 +405,16 @@ static int sde_rsc_mode2_exit(struct sde_rsc_priv *rsc,
 	reg &= ~BIT(13);
 	dss_reg_w(&rsc->wrapper_io, SDE_RSCC_SPARE_PWR_EVENT,
 							reg, rsc->debug_mode);
-	if (rc)
+	if (rc) {
+		SDE_EVT32(SDE_EVTLOG_FATAL);
 		pr_err("vdd reg is not enabled yet\n");
+		SDE_DBG_DUMP(SDE_RSC_DRV_DBG_NAME,
+		SDE_RSC_WRAPPER_DBG_NAME,
+		SDE_PDC_DBG_NAME,
+		SDE_PDC_SEQ_DBG_NAME,
+		DISP_CC_DBG_NAME,
+		"panic");
+	}
 
 	dss_reg_w(&rsc->drv_io, SDE_RSC_SOLVER_SOLVER_MODES_ENABLED_DRV0,
 						0x3, rsc->debug_mode);
@@ -565,6 +576,9 @@ static int sde_rsc_state_update(struct sde_rsc_priv *rsc,
 {
 	int rc = 0;
 	int reg;
+
+	// case 03118497
+	SDE_EVT32(rsc->power_collapse, state);
 
 	if (rsc->power_collapse) {
 		rc = sde_rsc_mode2_exit(rsc, state);

@@ -54,6 +54,17 @@ enum {
 	 * a single pageblock.
 	 */
 	MIGRATE_CMA,
+#ifdef CONFIG_RBIN
+	/*
+	 * MIGRATE_RBIN migration type differs from MIGRATE_CMA as
+	 * it is designed to contain specific types of pages only.
+	 * For example, allowing only clean file pages may accelerate
+	 * and increase the success rate of CMA allocations.
+	 * The only page allocations with __GFP_RBIN can take MIGRATE_RBIN
+	 * free pages.
+	 */
+	MIGRATE_RBIN,
+#endif
 #endif
 	MIGRATE_PCPTYPES, /* the number of types on the pcp lists */
 	MIGRATE_HIGHATOMIC = MIGRATE_PCPTYPES,
@@ -65,21 +76,38 @@ enum {
 
 /* In mm/page_alloc.c; keep in sync also with show_migration_types() there */
 extern char * const migratetype_names[MIGRATE_TYPES];
-/*
- * Returns a list which contains the migrate types on to which
- * an allocation falls back when the free list for the migrate
- * type mtype is depleted.
- * The end of the list is delimited by the type MIGRATE_TYPES.
- */
-extern int *get_migratetype_fallbacks(int mtype);
 
 #ifdef CONFIG_CMA
 #  define is_migrate_cma(migratetype) unlikely((migratetype) == MIGRATE_CMA)
-#  define is_migrate_cma_page(_page) (get_pageblock_migratetype(_page) == MIGRATE_CMA)
+#  define is_migrate_cma_page(_page) \
+		(get_pageblock_migratetype(_page) == MIGRATE_CMA)
 #  define get_cma_migrate_type() MIGRATE_CMA
+#ifdef CONFIG_RBIN
+#  define is_migrate_rbin(migratetype) unlikely((migratetype) == MIGRATE_RBIN)
+#  define is_migrate_rbin_nolikely(migratetype) ((migratetype) == MIGRATE_RBIN)
+#  define is_migrate_rbin_page(_page) \
+	    (get_pageblock_migratetype(_page) == MIGRATE_RBIN)
+#  define migratetype_rbin_or_cma(a) (a ? MIGRATE_RBIN : MIGRATE_CMA)
+#  define is_migrate_cma_rbin(migratetype) \
+	((unlikely((migratetype) == MIGRATE_CMA)) || (unlikely((migratetype) == MIGRATE_RBIN)))
+#  define is_migrate_cma_rbin_page(_page) \
+	  ((get_pageblock_migratetype(_page) == MIGRATE_CMA) || (get_pageblock_migratetype(_page) == MIGRATE_RBIN))
+#else
+#  define is_migrate_rbin(migratetype) false
+#  define is_migrate_rbin_nolikely(migratetype) false
+#  define is_migrate_rbin_page(_page) false
+#  define migratetype_rbin_or_cma(a) MIGRATE_CMA
+#  define is_migrate_cma_rbin(migratetype) is_migrate_cma(migratetype)
+#  define is_migrate_cma_rbin_page(_page) is_migrate_cma_page(_page)
+#endif
 #else
 #  define is_migrate_cma(migratetype) false
 #  define is_migrate_cma_page(_page) false
+#  define is_migrate_rbin(migratetype) false
+#  define is_migrate_rbin_nolikely(migratetype) false
+#  define is_migrate_rbin_page(_page) false
+#  define is_migrate_cma_rbin(migratetype) false
+#  define is_migrate_cma_rbin_page(_page) false
 #  define get_cma_migrate_type() MIGRATE_MOVABLE
 #endif
 
@@ -148,6 +176,7 @@ enum zone_stat_item {
 	NUMA_OTHER,		/* allocation from other node */
 #endif
 	NR_FREE_CMA_PAGES,
+	NR_FREE_RBIN_PAGES,
 	NR_VM_ZONE_STAT_ITEMS };
 
 enum node_stat_item {
@@ -377,6 +406,9 @@ struct zone {
 
 #ifdef CONFIG_CMA
 	bool			cma_alloc;
+#ifdef CONFIG_RBIN
+	atomic_t rbin_alloc;
+#endif
 #endif
 
 #ifndef CONFIG_SPARSEMEM

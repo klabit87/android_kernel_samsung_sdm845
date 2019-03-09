@@ -13,6 +13,7 @@
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include "cam_flash_soc.h"
+#include "cam_sensor_util.h"
 #include "cam_res_mgr_api.h"
 
 static int32_t cam_get_source_node_info(
@@ -214,6 +215,27 @@ int cam_flash_get_dt_data(struct cam_flash_ctrl *fctrl,
 			"cam_flash_get_pmic_source_info failed rc %d", rc);
 		goto free_soc_private;
 	}
+
+#if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
+	if (!soc_info->gpio_data) {
+		CAM_INFO(CAM_FLASH, "No GPIO found");
+		rc = 0;
+		return rc;
+	}
+
+	if (!soc_info->gpio_data->cam_gpio_common_tbl_size) {
+		CAM_INFO(CAM_FLASH, "No GPIO found");
+		return -EINVAL;
+	}
+
+	rc = cam_sensor_util_init_gpio_pin_tbl(soc_info,
+		&fctrl->gpio_num_info);
+
+	if ((rc < 0) || (!fctrl->gpio_num_info)) {
+		CAM_ERR(CAM_FLASH, "No/Error CAM_FLASH GPIOs");
+		goto free_soc_private;
+	}
+#endif
 
 	return rc;
 

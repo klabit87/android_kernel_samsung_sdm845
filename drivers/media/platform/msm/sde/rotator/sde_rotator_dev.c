@@ -135,6 +135,10 @@ static void sde_rotator_get_config_from_ctx(struct sde_rotator_ctx *ctx,
 	config->output.comp_ratio.numer = 1;
 	config->output.comp_ratio.denom = 1;
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if(config->input.width * config->input.height >= ((3840-100)*(2160-100)))
+		config->frame_rate = 60;
+#endif
 	/*
 	 * Use compression ratio of the first buffer to estimate
 	 * performance requirement of the session. If core layer does
@@ -434,6 +438,8 @@ static int sde_rotator_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	ctx->abort_pending = 0;
 
+	SDEROT_EVTLOG(ctx->session_id, q->type);
+
 	return 0;
 }
 
@@ -524,6 +530,8 @@ static void sde_rotator_stop_streaming(struct vb2_queue *q)
 			vbinfo->fd = -1;
 		}
 	}
+
+	SDEROT_EVTLOG(ctx->session_id, q->type);
 }
 
 /* Videobuf2 queue callbacks. */
@@ -2397,7 +2405,8 @@ static int sde_rotator_qbuf(struct file *file, void *fh,
 	if (ret < 0)
 		SDEDEV_ERR(ctx->rot_dev->dev, "fail qbuf s:%d t:%d r:%d\n",
 				ctx->session_id, buf->type, ret);
-	SDEROT_EVTLOG(buf->type, buf->bytesused, buf->length, buf->m.fd, ret);
+	SDEROT_EVTLOG(ctx->session_id, buf->index, buf->type, buf->bytesused,
+			buf->length, buf->m.fd, ret);
 
 	return ret;
 }
@@ -2518,6 +2527,8 @@ static int sde_rotator_streamon(struct file *file,
 		SDEDEV_ERR(ctx->rot_dev->dev, "fail stream on s:%d t:%d\n",
 				ctx->session_id, buf_type);
 
+	SDEROT_EVTLOG(ctx->session_id, buf_type, ret);
+
 	return ret;
 }
 
@@ -2540,6 +2551,8 @@ static int sde_rotator_streamoff(struct file *file,
 	if (ret < 0)
 		SDEDEV_ERR(ctx->rot_dev->dev, "fail stream off s:%d t:%d\n",
 				ctx->session_id, buf_type);
+
+	SDEROT_EVTLOG(ctx->session_id, buf_type, ret);
 
 	return ret;
 }
@@ -3134,6 +3147,29 @@ static int sde_rotator_process_buffers(struct sde_rotator_ctx *ctx,
 		vbinfo_out->comp_ratio.numer, vbinfo_out->comp_ratio.denom,
 		vbinfo_cap->comp_ratio.numer, vbinfo_cap->comp_ratio.denom);
 
+	SDEROT_EVTLOG(ctx->session_id, vbinfo_cap->fence_ts,
+			ctx->fh.prio,
+			(ctx->rotate << 0) | (ctx->hflip << 8) |
+				(ctx->hflip << 9) | (ctx->secure << 10),
+			ctx->format_out.fmt.pix.pixelformat,
+			(ctx->format_out.fmt.pix.width << 16) |
+			(ctx->format_out.fmt.pix.height & 0xffff),
+			(ctx->crop_out.left << 16) |
+			(ctx->crop_out.top & 0xffff),
+			(ctx->crop_out.width << 16) |
+			(ctx->crop_out.height & 0xffff),
+			ctx->format_cap.fmt.pix.pixelformat,
+			(ctx->format_cap.fmt.pix.width << 16) |
+			(ctx->format_cap.fmt.pix.height & 0xffff),
+			(ctx->crop_cap.left << 16) |
+			(ctx->crop_cap.top & 0xffff),
+			(ctx->crop_cap.width << 16) |
+			(ctx->crop_cap.height & 0xffff),
+			(vbinfo_out->comp_ratio.numer << 16) |
+			(vbinfo_out->comp_ratio.denom & 0xffff),
+			(vbinfo_cap->comp_ratio.numer << 16) |
+			(vbinfo_cap->comp_ratio.denom & 0xffff));
+
 	/* allocate slot for timestamp */
 	ts = stats->ts[stats->count++ % SDE_ROTATOR_NUM_EVENTS];
 	ts[SDE_ROTATOR_TS_SRCQB] = vbinfo_out->qbuf_ts;
@@ -3314,6 +3350,7 @@ static void sde_rotator_device_run(void *priv)
 
 	rot_dev = ctx->rot_dev;
 	SDEDEV_DBG(rot_dev->dev, "device run s:%d\n", ctx->session_id);
+	SDEROT_EVTLOG(ctx->session_id);
 
 	if (rot_dev->early_submit) {
 		request = list_first_entry_or_null(&ctx->pending_list,
@@ -3455,6 +3492,7 @@ static void sde_rotator_job_abort(void *priv)
 
 	rot_dev = ctx->rot_dev;
 	SDEDEV_DBG(rot_dev->dev, "job abort s:%d\n", ctx->session_id);
+	SDEROT_EVTLOG(ctx->session_id);
 
 	v4l2_m2m_job_finish(rot_dev->m2m_dev, ctx->fh.m2m_ctx);
 }
@@ -3521,6 +3559,8 @@ static int sde_rotator_job_ready(void *priv)
 				ctx->session_id);
 		ret = 1;
 	}
+
+	SDEROT_EVTLOG(ctx->session_id, ret);
 
 	return ret;
 }

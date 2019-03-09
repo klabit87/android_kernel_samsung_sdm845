@@ -832,18 +832,25 @@ static unsigned int glink_pkt_poll(struct file *file, poll_table *wait)
 		GLINK_PKT_ERR("%s: Invalid device handle\n", __func__);
 		return POLLERR;
 	}
-	if (devp->in_reset)
+	if (devp->in_reset) {
+		GLINK_PKT_INFO("%s POLLHUP in reset! glink_pkt_dev id: %d\n",
+			__func__, devp->i);
 		return POLLHUP;
+	}
 
 	devp->poll_mode = 1;
 	poll_wait(file, &devp->ch_read_wait_queue, wait);
 	mutex_lock(&devp->ch_lock);
 	if (!devp->handle) {
 		mutex_unlock(&devp->ch_lock);
+		GLINK_PKT_INFO("%s POLLERR for glink_pkt_dev id: %d\n",
+			__func__, devp->i);
 		return POLLERR;
 	}
 	if (devp->in_reset) {
 		mutex_unlock(&devp->ch_lock);
+		GLINK_PKT_INFO("%s POLLHUP for glink_pkt_dev id: %d\n",
+			__func__, devp->i);
 		return POLLHUP;
 	}
 

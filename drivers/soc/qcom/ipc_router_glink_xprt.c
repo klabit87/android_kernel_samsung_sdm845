@@ -53,7 +53,6 @@ if (ipc_router_glink_xprt_debug_mask) \
 #define LO_RX_INTENT_SIZE 2048
 #define MD_RX_INTENT_SIZE 8192
 #define HI_RX_INTENT_SIZE (17 * 1024)
-
 /**
  * ipc_router_glink_xprt - IPC Router's GLINK XPRT structure
  * @list: IPC router's GLINK XPRT list.

@@ -53,6 +53,8 @@
 #include <linux/mount.h>
 #include <linux/migrate.h>
 #include <linux/pagemap.h>
+#include <linux/swap.h>
+#include <linux/jiffies.h>
 
 #define ZSPAGE_MAGIC	0x58
 
@@ -166,6 +168,12 @@ static struct dentry *zs_stat_root;
 
 #ifdef CONFIG_COMPACTION
 static struct vfsmount *zsmalloc_mnt;
+#endif
+
+#ifdef CONFIG_ZSWAP_MIGRATION_SUPPORT
+static int zs_page_migration_enabled = 1;
+#else
+static int zs_page_migration_enabled;
 #endif
 
 /*
@@ -428,6 +436,11 @@ static void *zs_zpool_map(void *pool, unsigned long handle,
 	case ZPOOL_MM_RO:
 		zs_mm = ZS_MM_RO;
 		break;
+#ifdef CONFIG_ZSWAP_SAME_PAGE_SHARING
+	case ZPOOL_MM_RO_NOWAIT:
+		zs_mm = ZS_MM_RO_NOWAIT;
+		break;
+#endif
 	case ZPOOL_MM_WO:
 		zs_mm = ZS_MM_WO;
 		break;
@@ -1290,7 +1303,7 @@ static int zs_cpu_notifier(struct notifier_block *nb, unsigned long action,
 	int ret, cpu = (long)pcpu;
 	struct mapping_area *area;
 
-	switch (action) {
+	switch (action & ~CPU_TASKS_FROZEN) {
 	case CPU_UP_PREPARE:
 		area = &per_cpu(zs_map_area, cpu);
 		ret = __zs_cpu_up(area);
@@ -1410,7 +1423,15 @@ void *zs_map_object(struct zs_pool *pool, unsigned long handle,
 	BUG_ON(in_interrupt());
 
 	/* From now on, migration cannot move the object */
+#ifdef CONFIG_ZSWAP_SAME_PAGE_SHARING
+	if (mm == ZS_MM_RO_NOWAIT) {
+		if (!trypin_tag(handle))
+			return NULL;
+	} else
+		pin_tag(handle);
+#else
 	pin_tag(handle);
+#endif
 
 	obj = handle_to_obj(handle);
 	obj_to_location(obj, &page, &obj_idx);
@@ -1972,6 +1993,9 @@ bool zs_page_isolate(struct page *page, isolate_mode_t mode)
 	 * Page is locked so zspage couldn't be destroyed. For detail, look at
 	 * lock_zspage in free_zspage.
 	 */
+	if (!zs_page_migration_enabled)
+		return false;
+
 	VM_BUG_ON_PAGE(!PageMovable(page), page);
 	VM_BUG_ON_PAGE(PageIsolated(page), page);
 
@@ -2347,6 +2371,9 @@ static unsigned long zs_shrinker_scan(struct shrinker *shrinker,
 	return pages_freed ? pages_freed : SHRINK_STOP;
 }
 
+#define ZS_SHRINKER_THRESHOLD	1024
+#define ZS_SHRINKER_INTERVAL	10
+
 static unsigned long zs_shrinker_count(struct shrinker *shrinker,
 		struct shrink_control *sc)
 {
@@ -2355,6 +2382,10 @@ static unsigned long zs_shrinker_count(struct shrinker *shrinker,
 	unsigned long pages_to_free = 0;
 	struct zs_pool *pool = container_of(shrinker, struct zs_pool,
 			shrinker);
+	static unsigned long time_stamp;
+
+	if (!current_is_kswapd() || time_is_after_jiffies(time_stamp))
+		return 0;
 
 	for (i = zs_size_classes - 1; i >= 0; i--) {
 		class = pool->size_class[i];
@@ -2365,6 +2396,11 @@ static unsigned long zs_shrinker_count(struct shrinker *shrinker,
 
 		pages_to_free += zs_can_compact(class);
 	}
+
+	if (pages_to_free > ZS_SHRINKER_THRESHOLD)
+		time_stamp = jiffies + (ZS_SHRINKER_INTERVAL * HZ);
+	else
+		pages_to_free = 0;
 
 	return pages_to_free;
 }

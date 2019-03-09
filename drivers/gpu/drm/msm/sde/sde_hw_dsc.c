@@ -84,6 +84,7 @@ static void sde_hw_dsc_config(struct sde_hw_dsc *hw_dsc,
 	data = dsc->pic_width << 16;
 	data |= dsc->pic_height;
 	SDE_REG_WRITE(dsc_c, DSC_PICTURE, data);
+	SDE_EVT32(hw_dsc->idx, SDE_REG_READ(dsc_c, DSC_PICTURE));
 
 	data = dsc->slice_width << 16;
 	data |= dsc->slice_height;
@@ -91,6 +92,7 @@ static void sde_hw_dsc_config(struct sde_hw_dsc *hw_dsc,
 
 	data = dsc->chunk_size << 16;
 	SDE_REG_WRITE(dsc_c, DSC_CHUNK_SIZE, data);
+	SDE_EVT32(hw_dsc->idx, SDE_REG_READ(dsc_c, DSC_CHUNK_SIZE));
 
 	data = dsc->initial_dec_delay << 16;
 	data |= dsc->initial_xmit_delay;
@@ -142,6 +144,7 @@ static void sde_hw_dsc_config_thresh(struct sde_hw_dsc *hw_dsc,
 	struct sde_hw_blk_reg_map *dsc_c = &hw_dsc->hw;
 	u32 off = 0x0;
 
+	SDE_EVT32(0x0909);
 	lp = dsc->buf_thresh;
 	off = DSC_RC_BUF_THRESH;
 	for (i = 0; i < 14; i++) {

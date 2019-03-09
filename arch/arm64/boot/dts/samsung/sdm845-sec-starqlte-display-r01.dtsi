@@ -1,0 +1,372 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "../../../../drivers/gpu/drm/msm/samsung/S6E3HA6_AMB577MQ01/dsi_panel_S6E3HA6_AMB577MQ01_wqhd_octa_cmd.dtsi"
+#include "../../../../drivers/gpu/drm/msm/samsung/S6E3HA8_AMB577PX01/dsi_panel_S6E3HA8_AMB577PX01_wqhd_octa_cmd.dtsi"
+#include "../../../../drivers/gpu/drm/msm/samsung/PBA_BOOTING/dsi_panel_PBA_BOOTING_fhd_video.dtsi"
+
+/{
+	aliases {
+		spi15 = &qupv3_se15_spi;
+	};
+};
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		pmx_sde: pmx_sde {
+			sde_dsi_active: sde_dsi_active {
+				mux {
+					pins = "gpio6";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio6";
+					drive-strength = <8>;   /* 8 mA */
+					bias-disable = <0>;   /* no pull */
+				};
+			};
+			sde_dsi_suspend: sde_dsi_suspend {
+				mux {
+					pins = "gpio6";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio6";
+					drive-strength = <2>;   /* 2 mA */
+					bias-pull-down;         /* PULL DOWN */
+				};
+			};
+		};
+
+		pmx_sde_te {
+			sde_te_active: sde_te_active {
+				mux {
+					pins = "gpio10";
+					function = "mdp_vsync";
+				};
+
+				config {
+					pins = "gpio10";
+					drive-strength = <2>;   /* 2 mA */
+					bias-pull-down;         /* PULL DOWN */
+				};
+			};
+
+			sde_te_suspend: sde_te_suspend {
+				mux {
+					pins = "gpio10";
+					function = "mdp_vsync";
+				};
+
+				config {
+					pins = "gpio10";
+					drive-strength = <2>;   /* 2 mA */
+					bias-pull-down;         /* PULL DOWN */
+				};
+			};
+		};
+		pmx_sde_ub_det {
+			sde_ub_det_active: sde_ub_det_active {
+				mux {
+					pins = "gpio50";
+					function = "ub_detect";
+				};
+
+				config {
+					pins = "gpio50";
+					drive-strength = <2>;   /* 2 mA */
+					bias-disable = <0>;   /* no pull */
+				};
+			};
+
+			sde_ub_det_suspend: sde_ub_det_suspend {
+				mux {
+					pins = "gpio50";
+					function = "ub_detect";
+				};
+
+				config {
+					pins = "gpio50";
+					drive-strength = <2>;   /* 2 mA */
+					bias-disable = <0>;   /* no pull */
+				};
+			};
+		};
+		qupv3_se15_spi_pins: qupv3_se15_spi_pins {
+			qupv3_se15_spi_active: qupv3_se15_spi_active {
+				mux {
+					pins = "gpio81", "gpio82", "gpio83",
+								"gpio84";
+					function = "qup15";
+				};
+
+				config {
+					pins = "gpio81", "gpio82", "gpio83",
+								"gpio84";
+					drive-strength = <6>;
+					bias-pull-down; /* prevent MISO floating */
+				};
+			};
+
+			qupv3_se15_spi_sleep: qupv3_se15_spi_sleep {
+				mux {
+					pins = "gpio81", "gpio82", "gpio83",
+								"gpio84";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio81", "gpio82", "gpio83",
+								"gpio84";
+					drive-strength = <6>;
+					bias-pull-down;
+					input-enable;
+				};
+			};
+		};
+	};
+};
+
+&qupv3_se15_spi {
+	status = "ok";
+
+	pinctrl-0 = <&qupv3_se15_spi_active>;
+	pinctrl-1 = <&qupv3_se15_spi_sleep>;
+
+	ddi_spi:ddi_spi@0  {	// LCD_SPI
+		compatible = "ss,ddi-spi";
+		reg = <0>;
+		spi-max-frequency = <16000000>;
+#if 0
+		spi-max-frequency = <16000000>;
+		read-chunk-size  = <0x2000> ;
+		write-chunk-size = <0x20000> ;
+		qcom,spiop-read = <0x03 3 0 0 0>;
+		qcom,spiop-readseq = <0x03 3 0 0 0>;
+		qcom,spiop-queryid = <0x90 3 0 0 0>;
+		qcom,spiop-pprog = <0x02 2 0 0 0>;
+		qcom,spiop-wenable = <0x06 0 0 0 0>;
+		qcom,spiop-readst = <0x05 0 0 0 0>;
+		qcom,spiop-erase = <0x20 2 0 10 30>;
+		qcom,spi-busy-mask = <0x01>;
+		qcom,spi-page-size = <0x256>;
+		qcom,spi-erase-size = <0x4096>;
+#endif
+	};
+};
+
+&ss_dsi_panel_S6E3HA6_AMB577MQ01_WQHD {
+	samsung,esd-irq-gpio1 = <&pm8998_gpios 5 0>; // DISP_DET
+	samsung,delayed-display-on = <1>;
+};
+
+&ss_dsi_panel_S6E3HA8_AMB577PX01_WQHD {
+	samsung,esd-irq-gpio1 = <&pm8998_gpios 5 0>; // DISP_DET
+	samsung,delayed-display-on = <1>;
+};
+
+&soc {
+	ss_dsi_panel_S6E3HA6_AMB577MQ01_WQHD_display: qcom,dsi-display@13 {
+		compatible = "qcom,dsi-display";
+		label = "ss_dsi_panel_S6E3HA6_AMB577MQ01_WQHD";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl = <&mdss_dsi0>;
+		qcom,dsi-phy = <&mdss_dsi_phy0>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>;
+		clock-names = "src_byte_clk", "src_pixel_clk";
+
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_dsi_active &sde_te_active &sde_ub_det_active>;
+		pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend &sde_ub_det_suspend>;
+		qcom,platform-te-gpio = <&tlmm 10 0>;
+		qcom,platform-reset-gpio = <&tlmm 6 0>;
+
+		qcom,dsi-panel = <&ss_dsi_panel_S6E3HA6_AMB577MQ01_WQHD>;
+
+		vci-supply = <&s2dos05_l4>; /* 3.0V, S2DOS05 LDO4 */
+		vdd3-supply = <&s2dos05_l1>; /* 1.8V, S2DOS05 LDO1 */
+		vddr-supply = <&s2dos05_buck1>; /* 1.6V, S2DOS05 buck */
+	};
+
+	/* TODO: check qcom,dsi-display@number ... */
+	ss_dsi_panel_S6E3HA8_AMB577PX01_WQHD_display: qcom,dsi-display@15 {
+		compatible = "qcom,dsi-display";
+		label = "ss_dsi_panel_S6E3HA8_AMB577PX01_WQHD";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl = <&mdss_dsi0>;
+		qcom,dsi-phy = <&mdss_dsi_phy0>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>;
+		clock-names = "src_byte_clk", "src_pixel_clk";
+
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_dsi_active &sde_te_active &sde_ub_det_active>;
+		pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend &sde_ub_det_suspend>;
+		qcom,platform-te-gpio = <&tlmm 10 0>;
+		qcom,platform-reset-gpio = <&tlmm 6 0>;
+
+		qcom,dsi-panel = <&ss_dsi_panel_S6E3HA8_AMB577PX01_WQHD>;
+
+		vci-supply = <&s2dos05_l4>; /* 3.0V, S2DOS05 LDO4 */
+		vdd3-supply = <&s2dos05_l1>; /* 1.8V, S2DOS05 LDO1 */
+		vddr-supply = <&s2dos05_buck1>; /* 1.6V, S2DOS05 buck */
+	};
+
+	/* PBA */
+	ss_dsi_panel_PBA_BOOTING_FHD_display: qcom,dsi-display@14 {
+		compatible = "qcom,dsi-display";
+		label = "ss_dsi_panel_PBA_BOOTING_FHD";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl = <&mdss_dsi0>;
+		qcom,dsi-phy = <&mdss_dsi_phy0>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>;
+		clock-names = "src_byte_clk", "src_pixel_clk";
+
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_dsi_active &sde_te_active &sde_ub_det_active>;
+		pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend &sde_ub_det_suspend>;
+		qcom,platform-te-gpio = <&tlmm 10 0>;
+
+		qcom,dsi-panel = <&ss_dsi_panel_PBA_BOOTING_FHD>;
+	};
+};
+
+&mdss_mdp {
+	/* display node, like ss_dsi_panel_S6E3HA6_AMS622MR01_WQHD_display,
+	 * will be added by cmdline.
+	 * If your board doesn't use cmdline to select display node,
+	 * add display node like below.
+	 * connectors = <&sde_rscc &sde_wb &sde_dp &ss_dsi_panel_S6E3HA6_AMS622MR01_WQHD_display>;
+	 */
+};
+
+&ss_dsi_panel_S6E3HA6_AMB577MQ01_WQHD {
+	qcom,display-topology = <1 1 1>, <2 2 1>;
+	qcom,default-topology-index = <1>;
+
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	/delete-property/ qcom,panel-mode-gpio;
+
+	samsung,lpm-power-control;
+	samsung,lpm-power-control-supply-name = "vddr";
+	samsung,lpm-power-control-supply-min-voltage = <1500000>;
+	samsung,lpm-power-control-supply-max-voltage = <1500000>;
+
+	qcom,panel-supply-entries {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		qcom,panel-supply-entry@0 {
+		    reg = <0>;
+		    qcom,supply-name = "vdd3";
+		    qcom,supply-min-voltage = <1800000>;
+		    qcom,supply-max-voltage = <1800000>;
+		    qcom,supply-enable-load = <100000>;
+		    qcom,supply-disable-load = <100>;
+		    qcom,supply-pre-on-sleep = <0>; /* unit is ms*/
+		    qcom,supply-post-on-sleep = <0>;
+		};
+
+		qcom,panel-supply-entry@1 {
+		    reg = <1>;
+		    qcom,supply-name = "vddr";
+		    qcom,supply-min-voltage = <1600000>;
+		    qcom,supply-max-voltage = <1600000>;
+		    qcom,supply-enable-load = <100000>;
+		    qcom,supply-disable-load = <100>;
+		    qcom,supply-pre-on-sleep = <0>; /* unit is ms*/
+		    qcom,supply-post-on-sleep = <0>;
+		};
+
+		qcom,panel-supply-entry@2 {
+		    reg = <2>;
+		    qcom,supply-name = "vci";
+		    qcom,supply-min-voltage = <3000000>;
+		    qcom,supply-max-voltage = <3000000>;
+		    qcom,supply-enable-load = <100000>;
+		    qcom,supply-disable-load = <100>;
+		    qcom,supply-pre-on-sleep = <0>; /* unit is ms*/
+		    qcom,supply-post-on-sleep = <0>;
+		};
+	};
+};
+
+&ss_dsi_panel_S6E3HA8_AMB577PX01_WQHD {
+	qcom,display-topology = <1 1 1>, <2 2 1>;
+	qcom,default-topology-index = <1>;
+
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	/delete-property/ qcom,panel-mode-gpio;
+
+	samsung,lpm-power-control;
+	samsung,lpm-power-control-supply-name = "vddr";
+	samsung,lpm-power-control-supply-min-voltage = <1500000>;
+	samsung,lpm-power-control-supply-max-voltage = <1500000>;
+	samsung,lpm-power-control-elvss-name = "s2dos05-elvss";
+	samsung,lpm-power-control-elvss-lpm-voltage = <2000>;
+	samsung,lpm-power-control-elvss-normal-voltage = <8000>;
+
+	qcom,panel-supply-entries {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		qcom,panel-supply-entry@0 {
+		    reg = <0>;
+		    qcom,supply-name = "vdd3";
+		    qcom,supply-min-voltage = <1800000>;
+		    qcom,supply-max-voltage = <1800000>;
+		    qcom,supply-enable-load = <100000>;
+		    qcom,supply-disable-load = <100>;
+		    qcom,supply-pre-on-sleep = <0>; /* unit is ms*/
+		    qcom,supply-post-on-sleep = <0>;
+		};
+
+		qcom,panel-supply-entry@1 {
+		    reg = <1>;
+		    qcom,supply-name = "vddr";
+		    qcom,supply-min-voltage = <1600000>;
+		    qcom,supply-max-voltage = <1600000>;
+		    qcom,supply-enable-load = <100000>;
+		    qcom,supply-disable-load = <100>;
+		    qcom,supply-pre-on-sleep = <0>; /* unit is ms*/
+		    qcom,supply-post-on-sleep = <0>;
+		};
+
+		qcom,panel-supply-entry@2 {
+		    reg = <2>;
+		    qcom,supply-name = "vci";
+		    qcom,supply-min-voltage = <3000000>;
+		    qcom,supply-max-voltage = <3000000>;
+		    qcom,supply-enable-load = <100000>;
+		    qcom,supply-disable-load = <100>;
+		    qcom,supply-pre-on-sleep = <0>; /* unit is ms*/
+		    qcom,supply-post-on-sleep = <0>;
+		};
+	};
+};
+
+&mdss_dsi_phy0 {
+	qcom,platform-lane-config = [00 20 00 00
+					00 20 00 00
+					00 20 00 00
+					00 20 00 00
+					00 20 00 80];
+};

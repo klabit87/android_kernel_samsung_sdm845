@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -50,8 +50,8 @@ enum cam_flash_switch_trigger_ops {
 enum cam_flash_state {
 	CAM_FLASH_STATE_INIT,
 	CAM_FLASH_STATE_ACQUIRE,
-	CAM_FLASH_STATE_CONFIG,
-	CAM_FLASH_STATE_START,
+  CAM_FLASH_STATE_CONFIG,
+  CAM_FLASH_STATE_START,
 };
 
 /**
@@ -78,10 +78,10 @@ struct cam_flash_intf_params {
  * @cmd_type           : Command buffer type
  */
 struct cam_flash_common_attr {
-	bool      is_settings_valid;
-	uint64_t  request_id;
-	uint16_t  count;
-	uint8_t   cmd_type;
+	bool     is_settings_valid;
+	int32_t  request_id;
+	uint16_t count;
+	uint8_t  cmd_type;
 };
 
 /**
@@ -176,6 +176,9 @@ struct cam_flash_ctrl {
 	bool                            is_regulator_enabled;
 	struct led_trigger           *flash_trigger[CAM_FLASH_MAX_LED_TRIGGERS];
 	struct led_trigger           *torch_trigger[CAM_FLASH_MAX_LED_TRIGGERS];
+#if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
+	struct msm_camera_gpio_num_info *gpio_num_info;
+#endif
 };
 
 #endif /*_CAM_FLASH_DEV_H_*/

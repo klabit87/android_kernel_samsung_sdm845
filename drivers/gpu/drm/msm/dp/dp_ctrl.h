@@ -34,6 +34,9 @@ struct dp_ctrl {
 	bool (*handle_sink_request)(struct dp_ctrl *dp_ctrl);
 	void (*process_phy_test_request)(struct dp_ctrl *dp_ctrl);
 	int (*link_maintenance)(struct dp_ctrl *dp_ctrl);
+#ifdef CONFIG_SEC_DISPLAYPORT
+	bool (*get_link_train_status)(struct dp_ctrl *dp_ctrl);
+#endif
 };
 
 struct dp_ctrl_in {

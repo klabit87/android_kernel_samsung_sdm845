@@ -9,6 +9,8 @@
 #define CAM_FLASH_MAX_LED_TRIGGERS 3
 #define MAX_OIS_NAME_SIZE 32
 #define CAM_CSIPHY_SECURE_MODE_ENABLED 1
+#define MAX_APERTURE_NAME_SIZE 32
+
 /**
  * struct cam_sensor_query_cap - capabilities info for sensor
  *
@@ -35,6 +37,7 @@ struct  cam_sensor_query_cap {
 	uint32_t        ois_slot_id;
 	uint32_t        flash_slot_id;
 	uint32_t        csiphy_slot_id;
+	uint32_t        aperture_slot_id;
 } __attribute__((packed));
 
 /**
@@ -64,6 +67,11 @@ struct cam_actuator_query_cap {
 	uint32_t            reserved;
 } __attribute__((packed));
 
+struct cam_aperture_query_cap {
+	uint32_t            slot_info;
+	uint32_t            reserved;
+} __attribute__((packed));
+
 /**
  * struct cam_eeprom_query_cap_t - capabilities info for eeprom
  *
@@ -73,7 +81,7 @@ struct cam_actuator_query_cap {
 struct cam_eeprom_query_cap_t {
 	uint32_t            slot_info;
 	uint16_t            eeprom_kernel_probe;
-	uint16_t            reserved;
+	uint16_t            is_multimodule_node;
 } __attribute__((packed));
 
 /**
@@ -94,9 +102,10 @@ struct cam_ois_query_cap_t {
  * @cmd_type        :    Explains type of command
  */
 struct cam_cmd_i2c_info {
-	uint16_t    slave_addr;
+	uint32_t    slave_addr;
 	uint8_t     i2c_freq_mode;
 	uint8_t     cmd_type;
+	uint16_t    reserved;
 } __attribute__((packed));
 
 /**
@@ -126,7 +135,7 @@ struct cam_ois_opcode {
  * @opcode                :    opcode
  */
 struct cam_cmd_ois_info {
-	uint16_t              slave_addr;
+	uint32_t              slave_addr;
 	uint8_t               i2c_freq_mode;
 	uint8_t               cmd_type;
 	uint8_t               ois_fw_flag;
@@ -186,9 +195,10 @@ struct cam_power_settings {
  * @power_settings  :    Contains power setting info
  */
 struct cam_cmd_power {
-	uint16_t                    count;
+	uint32_t                    count;
 	uint8_t                     reserved;
 	uint8_t                     cmd_type;
+	uint16_t                    more_reserved;
 	struct cam_power_settings   power_settings[1];
 } __attribute__((packed));
 
@@ -203,12 +213,11 @@ struct cam_cmd_power {
  * @ reserved
  */
 struct i2c_rdwr_header {
-	uint16_t    count;
+	uint32_t    count;
 	uint8_t     op_code;
 	uint8_t     cmd_type;
 	uint8_t     data_type;
 	uint8_t     addr_type;
-	uint16_t    reserved;
 } __attribute__((packed));
 
 /**
@@ -294,10 +303,10 @@ struct cam_cmd_i2c_continuous_rd {
 struct cam_cmd_conditional_wait {
 	uint8_t     data_type;
 	uint8_t     addr_type;
+	uint16_t    reserved;
 	uint8_t     op_code;
 	uint8_t     cmd_type;
 	uint16_t    timeout;
-	uint16_t    reserved;
 	uint32_t    reg_addr;
 	uint32_t    reg_data;
 	uint32_t    data_mask;
@@ -311,8 +320,10 @@ struct cam_cmd_conditional_wait {
  */
 struct cam_cmd_unconditional_wait {
 	int16_t     delay;
+	int16_t     reserved;
 	uint8_t     op_code;
 	uint8_t     cmd_type;
+	uint16_t    reserved1;
 } __attribute__((packed));
 
 /**
@@ -370,6 +381,17 @@ struct cam_sensor_acquire_dev {
 } __attribute__((packed));
 
 /**
+ * cam_sensor_release_dev : Updates sensor acuire cmd
+ * @session_handle :    Session handle for acquiring device
+ * @device_handle  :    Updates device handle
+ *
+ */
+struct cam_sensor_release_dev {
+	uint32_t    session_handle;
+	uint32_t    device_handle;
+} __attribute__((packed));
+
+/**
  * cam_sensor_streamon_dev : StreamOn command for the sensor
  * @session_handle :    Session handle for acquiring device
  * @device_handle  :    Updates device handle
@@ -413,11 +435,10 @@ struct cam_flash_init {
  *
  */
 struct cam_flash_set_rer {
-	uint16_t    count;
+	uint32_t    count;
 	uint8_t     opcode;
 	uint8_t     cmd_type;
 	uint16_t    num_iteration;
-	uint16_t    reserved;
 	uint32_t    led_on_delay_ms;
 	uint32_t    led_off_delay_ms;
 	uint32_t    led_current_ma[CAM_FLASH_MAX_LED_TRIGGERS];
@@ -436,10 +457,12 @@ struct cam_flash_set_rer {
  *
  */
 struct cam_flash_set_on_off {
-	uint16_t    count;
+	uint32_t    count;
 	uint8_t     opcode;
 	uint8_t     cmd_type;
+	uint16_t    reserved;
 	uint32_t    led_current_ma[CAM_FLASH_MAX_LED_TRIGGERS];
+	int64_t     irled_data;
 } __attribute__((packed));
 
 /**
@@ -452,10 +475,11 @@ struct cam_flash_set_on_off {
  *
  */
 struct cam_flash_query_curr {
-	uint16_t    reserved;
+	uint32_t    reserved;
 	uint8_t     opcode;
 	uint8_t     cmd_type;
 	uint32_t    query_current_ma;
+	uint16_t    reserved1;
 } __attribute__ ((packed));
 
 /**

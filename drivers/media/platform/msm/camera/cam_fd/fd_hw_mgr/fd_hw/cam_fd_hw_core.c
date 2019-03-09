@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,10 +29,10 @@ static uint32_t cam_fd_cdm_write_reg_val_pair(uint32_t *buffer,
 }
 
 static void cam_fd_hw_util_cdm_callback(uint32_t handle, void *userdata,
-	enum cam_cdm_cb_status status, uint64_t cookie)
+	enum cam_cdm_cb_status status, uint32_t cookie)
 {
 	trace_cam_cdm_cb("FD", status);
-	CAM_DBG(CAM_FD, "CDM hdl=%x, udata=%pK, status=%d, cookie=%llu",
+	CAM_DBG(CAM_FD, "CDM hdl=%x, udata=%pK, status=%d, cookie=%d",
 		handle, userdata, status, cookie);
 }
 
@@ -532,7 +532,7 @@ irqreturn_t cam_fd_hw_irq(int irq_num, void *data)
 
 	if (!fd_hw) {
 		CAM_ERR(CAM_FD, "Invalid data in IRQ callback");
-		return IRQ_NONE;
+		return -EINVAL;
 	}
 
 	fd_core = (struct cam_fd_core *) fd_hw->core_info;
@@ -570,7 +570,7 @@ irqreturn_t cam_fd_hw_irq(int irq_num, void *data)
 		CAM_ERR(CAM_FD,
 			"Invalid number of IRQs, value=0x%x, num_irqs=%d",
 			reg_value, num_irqs);
-		return IRQ_NONE;
+		return -EINVAL;
 	}
 
 	trace_cam_irq_activated("FD", irq_type);

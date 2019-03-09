@@ -2214,6 +2214,10 @@ static void handle_sys_error(enum hal_command_response cmd, void *data)
 	}
 
 	dprintk(VIDC_WARN, "SYS_ERROR received for core %pK\n", core);
+	if (response->status == VIDC_ERR_HW_FATAL_BUGON) {
+		dprintk(VIDC_WARN, "BUG_ON SS");
+			MSM_VIDC_ERROR(true);
+	}
 	msm_vidc_noc_error_info(core);
 	call_hfi_op(hdev, flush_debug_queue, hdev->hfi_device_data);
 	list_for_each_entry(inst, &core->instances, list) {
@@ -3242,8 +3246,10 @@ static int msm_vidc_load_resources(int flipped_state,
 		dprintk(VIDC_ERR, "HW is overloaded, needed: %d max: %d\n",
 			num_mbs_per_sec, max_load_adj);
 		msm_vidc_print_running_insts(core);
+#if 0 /* Samsung skips the overloaded error return  */
 		msm_comm_kill_session(inst);
 		return -EBUSY;
+#endif
 	}
 
 	hdev = core->device;
@@ -5512,7 +5518,9 @@ static int msm_vidc_load_supported(struct msm_vidc_inst *inst)
 				num_mbs_per_sec,
 				max_load_adj);
 			msm_vidc_print_running_insts(inst->core);
+#if 0 /* Samsung skips the overloaded error return  */
 			return -EBUSY;
+#endif
 		}
 	}
 	return 0;

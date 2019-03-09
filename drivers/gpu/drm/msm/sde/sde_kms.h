@@ -93,8 +93,19 @@
 #define SDE_NAME_SIZE  12
 
 /* timeout in frames waiting for frame done */
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+/* case 03134585
+ * sometimes, it is delayed for hundreds miliseconds
+ * to call sde_crtc_frame_event_work(), by scheduling.
+ * Set enough time for frame done timeout.
+ */
+#define SDE_FRAME_DONE_TIMEOUT	500
+#else
 #define SDE_FRAME_DONE_TIMEOUT	60
+#endif
 
+/* ESD status check interval in seconds */
+#define STATUS_CHECK_INTERVAL 5
 /* max active secure client counts allowed */
 #define MAX_ALLOWED_SECURE_CLIENT_CNT	1
 
@@ -230,6 +241,19 @@ struct sde_kms_fbo {
 	struct list_head fb_list;
 };
 
+/**
+ * struct sde_connector_status - structure to maintain ESD check
+ * @event_notifier: notifier structure to register call back function
+ * @check_status_work: delayed work to connector status
+ * @base: object to get back the parent sde_kms structure
+ */
+struct sde_kms_status {
+	struct notifier_block event_notifier;
+	struct workqueue_struct *workq;
+	void *sde_kms;
+	bool panel_dead;
+};
+
 struct sde_kms {
 	struct msm_kms base;
 	struct drm_device *dev;
@@ -288,6 +312,7 @@ struct sde_kms {
 	atomic_t detach_sec_cb;
 	atomic_t detach_all_cb;
 	struct mutex secure_transition_lock;
+	struct sde_kms_status *status_data;
 
 	bool first_kickoff;
 };

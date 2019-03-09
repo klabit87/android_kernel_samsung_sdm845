@@ -29,6 +29,32 @@ config SUSPEND_SKIP_SYNC
 	  of suspend, or they are content with invoking sync() from
 	  user-space before invoking suspend.  Say Y if that's your case.
 
+config WAKELOCK
+	bool "Android's method of preventing suspend"
+	default y
+	---help---
+	  This allows applications to prevent the CPU from suspending while
+	  they need it.
+
+	  Say Y if you are running an android userspace.
+
+config CPU_FREQ_LIMIT_USERSPACE
+	bool "User space cpufreq limit interface"
+	depends on CPU_FREQ_LIMIT
+	default n
+	help
+	  Add sysfs to limit CPU frequency for a userspace program.
+	  /sys/power/cpufreq_min_limit
+	  /sys/power/cpufreq_max_limit
+	  /sys/power/cpufreq_table
+
+config FOTA_LIMIT
+	bool "Fota limit information node"
+	default n
+	help
+	  Add sysfs to notify limit information to recovery module
+	  /sys/power/fota_limit
+
 config HIBERNATE_CALLBACKS
 	bool
 

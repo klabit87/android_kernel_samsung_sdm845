@@ -63,6 +63,8 @@
 
 #include "io-pgtable.h"
 
+#include <linux/sec_debug_user_reset.h>
+
 /* Maximum number of context banks per SMMU */
 #define ARM_SMMU_MAX_CBS		128
 
@@ -341,6 +343,8 @@ struct arm_smmu_impl_def_reg {
 	u32 offset;
 	u32 value;
 };
+
+extern void ext_dcc_disable(void);
 
 /*
  * attach_count
@@ -1463,6 +1467,8 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 	bool non_fatal_fault = !!(smmu_domain->attributes &
 					(1 << DOMAIN_ATTR_NON_FATAL_FAULTS));
 
+	ex_info_smmu_t sec_dbg_smmu;
+
 	static DEFINE_RATELIMIT_STATE(_rs,
 				      DEFAULT_RATELIMIT_INTERVAL,
 				      DEFAULT_RATELIMIT_BURST);
@@ -1483,6 +1489,13 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 	if (fatal_asf && (fsr & FSR_ASF)) {
 		dev_err(smmu->dev,
 			"Took an address size fault.  Refusing to recover.\n");
+
+		snprintf(sec_dbg_smmu.dev_name, sizeof(sec_dbg_smmu.dev_name),
+				"%s", dev_name(smmu->dev));
+		sec_dbg_smmu.fsr = fsr;
+
+		sec_debug_save_smmu_info(&sec_dbg_smmu);
+
 		BUG();
 	}
 
@@ -1549,6 +1562,26 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 		if (!non_fatal_fault) {
 			dev_err(smmu->dev,
 				"Unhandled arm-smmu context fault!\n");
+
+			snprintf(sec_dbg_smmu.dev_name, sizeof(sec_dbg_smmu.dev_name),
+					"%s", dev_name(smmu->dev));
+			sec_dbg_smmu.fsr = fsr;
+			sec_dbg_smmu.fsynr = fsynr;
+			sec_dbg_smmu.iova = iova;
+			/* don't need more */
+#if 0
+			sec_dbg_smmu.far = far;
+			snprintf(sec_dbg_smmu.mas_name, sizeof(sec_dbg_smmu.mas_name),
+					"%s", master ? master->of_node->name : "Unknown SID");
+#endif
+			sec_dbg_smmu.cbndx = cfg->cbndx;
+			sec_dbg_smmu.phys_soft = phys_soft;
+			sec_dbg_smmu.phys_atos = phys_atos;
+			// need to check below
+			sec_dbg_smmu.sid = frsynra;
+
+			sec_debug_save_smmu_info(&sec_dbg_smmu);
+
 			BUG();
 		}
 	}
@@ -4827,6 +4860,7 @@ static int arm_smmu_device_dt_probe(struct platform_device *pdev)
 		bus_set_iommu(&pci_bus_type, &arm_smmu_ops);
 	}
 #endif
+	dev_err(dev, "Using nonsecure pools v1\n");
 	return 0;
 
 out_power_off:
@@ -5091,7 +5125,24 @@ qsmmuv500_errata1_required(struct arm_smmu_domain *smmu_domain,
 }
 
 #define SCM_CONFIG_ERRATA1_CLIENT_ALL 0x2
+#define SCM_CONFIG_ERRATA1_LOG_TBU_ACK 0x3
 #define SCM_CONFIG_ERRATA1 0x3
+static void qsmmuv500_errata1_log_tbu_ack(struct arm_smmu_domain *smmu_domain)
+{
+	int ret;
+	struct scm_desc desc = {
+		.args[0] = SCM_CONFIG_ERRATA1_LOG_TBU_ACK,
+		.args[1] = false,
+		.arginfo = SCM_ARGS(2, SCM_VAL,	SCM_VAL),
+	};
+
+	ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_SMMU_PROGRAM,
+			SCM_CONFIG_ERRATA1),
+			&desc);
+	if (ret)
+		dev_err(smmu_domain->smmu->dev, "logging tbu ack failed\n");
+}
+
 static void __qsmmuv500_errata1_tlbiall(struct arm_smmu_domain *smmu_domain)
 {
 	struct arm_smmu_device *smmu = smmu_domain->smmu;
@@ -5131,6 +5182,8 @@ static void __qsmmuv500_errata1_tlbiall(struct arm_smmu_domain *smmu_domain)
 			      !(val & TLBSTATUS_SACTIVE), 0, 10000)) {
 		dev_err(smmu->dev, "ERRATA1 TLBSYNC timeout - IOMMU hardware in bad state");
 		trace_tlbsync_timeout(dev, 0);
+		ext_dcc_disable();
+		qsmmuv500_errata1_log_tbu_ack(smmu_domain);
 		BUG();
 	}
 

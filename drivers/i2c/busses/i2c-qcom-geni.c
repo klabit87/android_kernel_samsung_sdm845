@@ -57,7 +57,7 @@
 #define SLV_ADDR_SHFT		(9)
 
 #define I2C_PACK_EN		(BIT(0) | BIT(1))
-#define I2C_CORE2X_VOTE		(960)
+#define I2C_CORE2X_VOTE		(5000)
 #define GP_IRQ0			0
 #define GP_IRQ1			1
 #define GP_IRQ2			2
@@ -74,6 +74,7 @@
 #define I2C_ARB_LOST		GP_IRQ4
 #define DM_I2C_CB_ERR		((BIT(GP_IRQ1) | BIT(GP_IRQ3) | BIT(GP_IRQ4)) \
 									<< 5)
+#define I2C_AUTO_SUSPEND_DELAY	250
 
 #define I2C_AUTO_SUSPEND_DELAY	250
 
@@ -966,17 +967,9 @@ static int geni_i2c_runtime_resume(struct device *dev)
 		return ret;
 
 	if (gi2c->se_mode == UNINITIALIZED) {
-		int proto = get_se_proto(gi2c->base);
-		u32 se_mode;
-
-		if (unlikely(proto != I2C)) {
-			dev_err(gi2c->dev, "Invalid proto %d\n", proto);
-			se_geni_resources_off(&gi2c->i2c_rsc);
-			return -ENXIO;
-		}
-
-		se_mode = readl_relaxed(gi2c->base +
+		u32 se_mode = readl_relaxed(gi2c->base +
 					GENI_IF_FIFO_DISABLE_RO);
+
 		if (se_mode) {
 			gi2c->se_mode = GSI_ONLY;
 			geni_se_select_mode(gi2c->base, GSI_DMA);

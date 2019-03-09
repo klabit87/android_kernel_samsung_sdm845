@@ -31,6 +31,10 @@
 #include "sde_trace.h"
 #include "sde_dbg.h"
 
+#define DISP_CC_MDSS_COUNT 2
+#define DISP_CC_MDSS_MDP_CMD_RCGR 0x2088
+#define DISP_CC_MDSS_MDP_CFG_RCGR 0x208C
+
 static const char *data_bus_name[SDE_POWER_HANDLE_DBUS_ID_MAX] = {
 	[SDE_POWER_HANDLE_DBUS_ID_MNOC] = "qcom,sde-data-bus",
 	[SDE_POWER_HANDLE_DBUS_ID_LLCC] = "qcom,sde-llcc-bus",
@@ -914,6 +918,10 @@ int sde_power_resource_enable(struct sde_power_handle *phandle,
 	u32 max_usecase_ndx = VOTE_INDEX_DISABLE, prev_usecase_ndx;
 	struct sde_power_client *client;
 	struct dss_module_power *mp;
+	u32 disp_cc_rcgr_offset[DISP_CC_MDSS_COUNT] =
+					{DISP_CC_MDSS_MDP_CMD_RCGR,
+						DISP_CC_MDSS_MDP_CFG_RCGR};
+	u32 disp_cc_rcgr_value[DISP_CC_MDSS_COUNT] = {0, 0};
 
 	if (!phandle || !pclient) {
 		pr_err("invalid input argument\n");
@@ -1003,10 +1011,24 @@ int sde_power_resource_enable(struct sde_power_handle *phandle,
 			goto rsc_err;
 		}
 
-		SDE_EVT32_VERBOSE(enable, SDE_EVTLOG_FUNC_CASE1);
+		sde_read_disp_cc_mdp_rcgr(SDE_RSC_INDEX,
+						disp_cc_rcgr_offset,
+						DISP_CC_MDSS_COUNT,
+						disp_cc_rcgr_value);
+		SDE_EVT32(enable, SDE_EVTLOG_FUNC_CASE1,
+				disp_cc_rcgr_offset[0], disp_cc_rcgr_value[0],
+				disp_cc_rcgr_offset[1], disp_cc_rcgr_value[1]);
+
+		rc = msm_dss_clk_set_rate(mp->clk_config, mp->num_clk); 
+		if (rc) {
+			pr_err("clock set rate failed rc:%d\n", rc);
+			goto clk_err;
+		}
+ 
 		rc = msm_dss_enable_clk(mp->clk_config, mp->num_clk, enable);
 		if (rc) {
 			pr_err("clock enable failed rc:%d\n", rc);
+			SDE_DBG_DUMP("all", "panic");
 			goto clk_err;
 		}
 
@@ -1017,7 +1039,14 @@ int sde_power_resource_enable(struct sde_power_handle *phandle,
 		sde_power_event_trigger_locked(phandle,
 				SDE_POWER_EVENT_PRE_DISABLE);
 
-		SDE_EVT32_VERBOSE(enable, SDE_EVTLOG_FUNC_CASE2);
+		sde_read_disp_cc_mdp_rcgr(SDE_RSC_INDEX,
+						disp_cc_rcgr_offset,
+						DISP_CC_MDSS_COUNT,
+						disp_cc_rcgr_value);
+		SDE_EVT32(enable, SDE_EVTLOG_FUNC_CASE2,
+				disp_cc_rcgr_offset[0], disp_cc_rcgr_value[0],
+				disp_cc_rcgr_offset[1], disp_cc_rcgr_value[1]);
+
 		msm_dss_enable_clk(mp->clk_config, mp->num_clk, enable);
 
 		sde_power_rsc_update(phandle, false);
@@ -1073,6 +1102,10 @@ int sde_power_clk_set_rate(struct sde_power_handle *phandle, char *clock_name,
 {
 	int i, rc = -EINVAL;
 	struct dss_module_power *mp;
+	u32 disp_cc_rcgr_offset[DISP_CC_MDSS_COUNT] =
+					{DISP_CC_MDSS_MDP_CMD_RCGR,
+						DISP_CC_MDSS_MDP_CFG_RCGR};
+	u32 disp_cc_rcgr_value[DISP_CC_MDSS_COUNT] = {0, 0};
 
 	if (!phandle) {
 		pr_err("invalid input power handle\n");
@@ -1087,11 +1120,33 @@ int sde_power_clk_set_rate(struct sde_power_handle *phandle, char *clock_name,
 				rate = mp->clk_config[i].max_rate;
 
 			mp->clk_config[i].rate = rate;
+
+			/* log disp_cc before clk_set_rate */
+			sde_read_disp_cc_mdp_rcgr(SDE_RSC_INDEX,
+						disp_cc_rcgr_offset,
+						DISP_CC_MDSS_COUNT,
+						disp_cc_rcgr_value);
+			SDE_EVT32(mp->clk_config[i].clk_name,
+				rate, mp->clk_config[i].rate,
+				disp_cc_rcgr_offset[0], disp_cc_rcgr_value[0],
+				disp_cc_rcgr_offset[1], disp_cc_rcgr_value[1],
+				0x11);
+
 			rc = msm_dss_clk_set_rate(mp->clk_config, mp->num_clk);
+
+			/* log disp_cc after clk_set_rate */
+			sde_read_disp_cc_mdp_rcgr(SDE_RSC_INDEX,
+						disp_cc_rcgr_offset,
+						DISP_CC_MDSS_COUNT,
+						disp_cc_rcgr_value);
+			SDE_EVT32(mp->clk_config[i].clk_name,
+				rate, mp->clk_config[i].rate,
+				disp_cc_rcgr_offset[0], disp_cc_rcgr_value[0],
+				disp_cc_rcgr_offset[1], disp_cc_rcgr_value[1],
+				0x22);
 			break;
 		}
 	}
-
 	return rc;
 }
 

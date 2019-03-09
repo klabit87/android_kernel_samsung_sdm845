@@ -24,6 +24,10 @@
 
 #include "sde_hdcp.h"
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include "secdp.h"
+#endif
+
 #define DP_INTR_STATUS2				(0x00000024)
 #define DP_INTR_STATUS3				(0x00000028)
 
@@ -324,6 +328,8 @@ static void dp_hdcp2p2_min_level_change(void *client_ctx,
 	struct dp_hdcp2p2_ctrl *ctrl = (struct dp_hdcp2p2_ctrl *)client_ctx;
 	struct hdcp_lib_wakeup_data cdata = {
 		HDCP_LIB_WKUP_CMD_QUERY_STREAM_TYPE};
+
+	pr_debug("+++, min_enc_level(%d)\n", min_enc_level);
 
 	if (!ctrl) {
 		pr_err("invalid input\n");
@@ -897,6 +903,9 @@ static bool dp_hdcp2p2_supported(struct dp_hdcp2p2_ctrl *ctrl)
 	u32 const rxcaps_dpcd_offset = 0x6921d;
 	ssize_t bytes_read = 0;
 	u8 buf[DP_HDCP_RXCAPS_LENGTH];
+#ifdef CONFIG_SEC_DISPLAYPORT
+	u32 i;
+#endif
 
 	bytes_read = drm_dp_dpcd_read(ctrl->init_data.drm_aux,
 			rxcaps_dpcd_offset, &buf, DP_HDCP_RXCAPS_LENGTH);
@@ -904,6 +913,11 @@ static bool dp_hdcp2p2_supported(struct dp_hdcp2p2_ctrl *ctrl)
 		pr_err("RxCaps read failed\n");
 		goto error;
 	}
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	for (i = 0; i < DP_HDCP_RXCAPS_LENGTH; i++)
+		pr_debug("rxcaps[%d] 0x%x\n", i, buf[i]);
+#endif
 
 	pr_debug("HDCP_CAPABLE=%lu\n", (buf[2] & BIT(1)) >> 1);
 	pr_debug("VERSION=%d\n", buf[0]);

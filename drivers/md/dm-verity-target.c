@@ -21,6 +21,8 @@
 #include <linux/reboot.h>
 #include <linux/vmalloc.h>
 
+#include <linux/ctype.h>
+
 #define DM_MSG_PREFIX			"verity"
 
 #define DM_VERITY_ENV_LENGTH		42
@@ -37,9 +39,29 @@
 
 #define DM_VERITY_OPTS_MAX		(2 + DM_VERITY_OPTS_FEC)
 
+#define SEC_HEX_DEBUG
+
 static unsigned dm_verity_prefetch_cluster = DM_VERITY_DEFAULT_PREFETCH_SIZE;
 
+#ifdef SEC_HEX_DEBUG
+static void print_block_data(unsigned long long blocknr, unsigned char *data_to_dump
+		, int start, int len);
+#endif
 module_param_named(prefetch_cluster, dm_verity_prefetch_cluster, uint, S_IRUGO | S_IWUSR);
+
+#ifdef DMV_ALTA
+/* Verity bitmap. Each bit represents one block and will be set when integrity
+ * on that block is verified.
+ *
+ * Entire bitmap has to be cleared when:
+ * - Target device is remounted.
+ * - Intruding syscalls are called for target device.
+ * - Sideband attack detected.
+ */
+#ifdef DMV_ALTA_PROF
+static sector_t total_blks, skipped_blks, prev_total_blks;
+#endif
+#endif
 
 struct dm_verity_prefetch_work {
 	struct work_struct work;
@@ -193,6 +215,89 @@ static void verity_hash_at_level(struct dm_verity *v, sector_t block, int level,
 /*
  * Handle verification errors.
  */
+#ifdef SEC_HEX_DEBUG
+static int verity_handle_err(struct dm_verity *v, enum verity_block_type type,
+			     unsigned long long block, struct dm_verity_io *io, struct bvec_iter *iter)
+{
+	char verity_env[DM_VERITY_ENV_LENGTH];
+	char *envp[] = { verity_env, NULL };
+	const char *type_str = "";
+	struct dm_buffer *buf;
+	struct mapped_device *md = dm_table_get_md(v->ti->table);
+	struct bio *bio = dm_bio_from_per_bio_data(io, v->ti->per_io_data_size);
+	struct bio_vec bv;
+	u8 *data;
+	u8 *page;
+
+	int i;
+	char hex_str[65] = {0, };
+	/* Corruption should be visible in device status in all modes */
+	v->hash_failed = 1;
+
+	if (block == 0) {
+		DMERR("%s: block 0 is superblock. Skipping %s", v->data_dev->name, __func__);
+		return 0;
+	}
+
+	if (v->corrupted_errs >= DM_VERITY_MAX_CORRUPTED_ERRS)
+		goto out;
+
+	v->corrupted_errs++;
+
+	switch (type) {
+	case DM_VERITY_BLOCK_TYPE_DATA:
+		type_str = "data";
+		break;
+	case DM_VERITY_BLOCK_TYPE_METADATA:
+		type_str = "metadata";
+		break;
+	default:
+		BUG();
+	}
+
+	DMERR("%s: %s block %llu is corrupted", v->data_dev->name, type_str, block);
+	
+	for(i=0 ; i < v->salt_size; i++){
+		sprintf(hex_str + (i * 2), "%02x", *(v->salt + i)); 	
+	}
+	DMERR("dm-verity salt: %s", hex_str);
+
+	if (!(strcmp(type_str, "metadata"))) {
+		data = dm_bufio_read(v->bufio, block, &buf);
+		print_block_data(0, (unsigned char *)(verity_io_real_digest(v, io)), 0, v->digest_size);
+		print_block_data(0, (unsigned char *)(verity_io_want_digest(v, io)), 0, v->digest_size);
+		print_block_data((unsigned long long)block, (unsigned char *)data, 0, PAGE_SIZE);
+	} else if (!(strcmp(type_str, "data"))) {
+		bv = bio_iter_iovec(bio, *iter);
+		page = kmap_atomic(bv.bv_page);
+		print_block_data(0, (unsigned char *)(verity_io_real_digest(v, io)), 0, v->digest_size);
+		print_block_data(0, (unsigned char *)(verity_io_want_digest(v, io)), 0, v->digest_size);
+		print_block_data((unsigned long long)block, (unsigned char *)page, 0, PAGE_SIZE);
+		kunmap_atomic(page);
+	} else {
+		DMERR("%s: %s block : Unknown block type", v->data_dev->name, type_str);
+	}
+	
+	if (io->io_retry == IO_RETRY_MAX) panic("dmv corrupt");
+
+	if (v->corrupted_errs == DM_VERITY_MAX_CORRUPTED_ERRS)
+		DMERR("%s: reached maximum errors", v->data_dev->name);
+
+	snprintf(verity_env, DM_VERITY_ENV_LENGTH, "%s=%d,%llu",
+		DM_VERITY_ENV_VAR_NAME, type, block);
+
+	kobject_uevent_env(&disk_to_dev(dm_disk(md))->kobj, KOBJ_CHANGE, envp);
+
+out:
+	if (v->mode == DM_VERITY_MODE_LOGGING)
+		return 0;
+
+	if (v->mode == DM_VERITY_MODE_RESTART)
+		kernel_restart("dm-verity device corrupted");
+
+	return 1;
+}
+#else
 static int verity_handle_err(struct dm_verity *v, enum verity_block_type type,
 			     unsigned long long block)
 {
@@ -203,6 +308,11 @@ static int verity_handle_err(struct dm_verity *v, enum verity_block_type type,
 
 	/* Corruption should be visible in device status in all modes */
 	v->hash_failed = 1;
+
+	if (block == 0) {
+		DMERR("%s: block 0 is superblock. Skipping %s", v->data_dev->name, __func__);
+		return 0;
+	}
 
 	if (v->corrupted_errs >= DM_VERITY_MAX_CORRUPTED_ERRS)
 		goto out;
@@ -240,6 +350,7 @@ out:
 
 	return 1;
 }
+#endif
 
 /*
  * Verify hash of a metadata block pertaining to the specified data block
@@ -290,9 +401,15 @@ static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
 					   hash_block, data, NULL) == 0)
 			aux->hash_verified = 1;
+#ifdef SEC_HEX_DEBUG
+		else if (verity_handle_err(v,
+					   DM_VERITY_BLOCK_TYPE_METADATA,
+					   hash_block, io, NULL)) {
+#else
 		else if (verity_handle_err(v,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
 					   hash_block)) {
+#endif
 			r = -EIO;
 			goto release_ret_r;
 		}
@@ -306,6 +423,52 @@ release_ret_r:
 	dm_bufio_release(buf);
 	return r;
 }
+
+#ifdef SEC_HEX_DEBUG
+static void print_block_data(unsigned long long blocknr, unsigned char *data_to_dump
+			, int start, int len)
+{
+	int i, j;
+	int bh_offset = (start / 16) * 16;
+	char row_data[17] = { 0, };
+	char row_hex[50] = { 0, };
+	char ch;
+
+	if (blocknr == 0) {
+		pr_err("printing Hash dump %dbyte, hash_to_dump 0x%p\n", len, (void *)data_to_dump);
+	} else {
+		pr_err("dm-verity corrupted, printing data in hex\n");
+		pr_err(" dump block# : %llu, start offset(byte) : %d\n"
+				, blocknr, start);
+		pr_err(" length(byte) : %d, data_to_dump 0x%p\n"
+				, len, (void *)data_to_dump);
+		pr_err("-------------------------------------------------\n");
+	}
+	for (i = 0; i < (len + 15) / 16; i++) {
+		for (j = 0; j < 16; j++) {
+			ch = *(data_to_dump + bh_offset + j);
+			if (start <= bh_offset + j
+				&& start + len > bh_offset + j) {
+
+				if (isascii(ch) && isprint(ch))
+					sprintf(row_data + j, "%c", ch);
+				else
+					sprintf(row_data + j, ".");
+
+				sprintf(row_hex + (j * 3), "%2.2x ", ch);
+			} else {
+				sprintf(row_data + j, " ");
+				sprintf(row_hex + (j * 3), "-- ");
+			}
+		}
+
+		pr_err("0x%4.4x : %s | %s\n"
+				, bh_offset, row_hex, row_data);
+		bh_offset += 16;
+	}
+	pr_err("---------------------------------------------------\n");
+}
+#endif
 
 /*
  * Find a hash for a given block, write it to digest and verify the integrity
@@ -463,6 +626,9 @@ static int verity_verify_io(struct dm_verity_io *io)
 
 		if (likely(memcmp(verity_io_real_digest(v, io),
 				  verity_io_want_digest(v, io), v->digest_size) == 0)) {
+#ifdef DMV_ALTA
+			set_bit(io->block + b, (volatile unsigned long *)io->v->verity_bitmap);
+#endif
 			if (v->validated_blocks)
 				set_bit(cur_block, v->validated_blocks);
 			continue;
@@ -470,8 +636,13 @@ static int verity_verify_io(struct dm_verity_io *io)
 		else if (verity_fec_decode(v, io, DM_VERITY_BLOCK_TYPE_DATA,
 					   cur_block, NULL, &start) == 0)
 			continue;
+#ifdef SEC_HEX_DEBUG
+		else if (verity_handle_err(v, DM_VERITY_BLOCK_TYPE_DATA,
+					   cur_block, io, &start))
+#else
 		else if (verity_handle_err(v, DM_VERITY_BLOCK_TYPE_DATA,
 					   cur_block))
+#endif
 			return -EIO;
 	}
 
@@ -586,24 +757,58 @@ int verity_map(struct dm_target *ti, struct bio *bio)
 {
 	struct dm_verity *v = ti->private;
 	struct dm_verity_io *io;
-
+#ifdef DMV_ALTA
+	bool skip = true;
+	sector_t bitpos, nblks;
+#endif
 	bio->bi_bdev = v->data_dev->bdev;
 	bio->bi_iter.bi_sector = verity_map_sector(v, bio->bi_iter.bi_sector);
 
 	if (((unsigned)bio->bi_iter.bi_sector | bio_sectors(bio)) &
-	    ((1 << (v->data_dev_block_bits - SECTOR_SHIFT)) - 1)) {
+			((1 << (v->data_dev_block_bits - SECTOR_SHIFT)) - 1)) {
 		DMERR_LIMIT("unaligned io");
 		return -EIO;
 	}
 
 	if (bio_end_sector(bio) >>
-	    (v->data_dev_block_bits - SECTOR_SHIFT) > v->data_blocks) {
+			(v->data_dev_block_bits - SECTOR_SHIFT) > v->data_blocks) {
 		DMERR_LIMIT("io out of range");
 		return -EIO;
 	}
 
 	if (bio_data_dir(bio) == WRITE)
 		return -EIO;
+
+#ifdef DMV_ALTA
+	bitpos = bio->bi_iter.bi_sector >> (v->data_dev_block_bits - SECTOR_SHIFT);
+	nblks = bio->bi_iter.bi_size >> v->data_dev_block_bits;
+
+	while (nblks) {
+    if (bitpos >= v->data_blocks)
+			break;
+		if (!test_bit(bitpos, (const volatile unsigned long *)v->verity_bitmap)) {
+			skip = false;
+			break;
+		}
+		bitpos++;
+		nblks--;
+	}
+
+#ifdef DMV_ALTA_PROF
+	total_blks += (bio->bi_iter.bi_size >> v->data_dev_block_bits);
+	if ((total_blks - prev_total_blks) > 0x1000) {
+		prev_total_blks = total_blks;
+		DMERR_LIMIT("total_blks=%lu skipped_blks=%lu delta=%lu", total_blks, skipped_blks, total_blks-skipped_blks);
+	}
+#endif
+
+	if (skip == true) {
+#ifdef DMV_ALTA_PROF
+		skipped_blks += (bio->bi_iter.bi_size >> v->data_dev_block_bits);
+#endif
+		goto skip_verity;
+	}
+#endif
 
 	io = dm_per_bio_data(bio, ti->per_io_data_size);
 	io->v = v;
@@ -618,7 +823,9 @@ int verity_map(struct dm_target *ti, struct bio *bio)
 	verity_fec_init_io(io);
 
 	verity_submit_prefetch(v, io);
-
+#ifdef DMV_ALTA
+skip_verity:
+#endif
 	generic_make_request(bio);
 
 	return DM_MAPIO_SUBMITTED;
@@ -733,7 +940,11 @@ EXPORT_SYMBOL_GPL(verity_io_hints);
 void verity_dtr(struct dm_target *ti)
 {
 	struct dm_verity *v = ti->private;
-
+#ifdef DMV_ALTA
+	if (v->verity_bitmap) {
+		kfree(v->verity_bitmap);
+	}
+#endif
 	if (v->verify_wq)
 		destroy_workqueue(v->verify_wq);
 
@@ -1120,8 +1331,16 @@ int verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		goto bad;
 
 	ti->per_io_data_size = roundup(ti->per_io_data_size,
-				       __alignof__(struct dm_verity_io));
-
+			__alignof__(struct dm_verity_io));
+#ifdef DMV_ALTA
+	v->verity_bitmap = kmalloc(round_up(v->data_blocks, 8) >> 3, GFP_KERNEL);
+	if (v->verity_bitmap == NULL) {
+		ti->error = "Cannot allocate verity_bitmap";
+		r = -ENOMEM;
+		goto bad;
+	}
+	memset(v->verity_bitmap, 0, round_up(v->data_blocks, 8) >> 3);
+#endif
 	return 0;
 
 bad:

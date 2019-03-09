@@ -23,13 +23,17 @@
 
 #include "sde_dbg.h"
 #include "sde/sde_hw_catalog.h"
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include "ss_dsi_panel_common.h"
+#endif
+#include "dsi-staging/dsi_ctrl.h"
 
 #define SDE_DBG_BASE_MAX		10
 
 #define DEFAULT_PANIC		1
-#define DEFAULT_REGDUMP		SDE_DBG_DUMP_IN_MEM
-#define DEFAULT_DBGBUS_SDE	SDE_DBG_DUMP_IN_MEM
-#define DEFAULT_DBGBUS_VBIFRT	SDE_DBG_DUMP_IN_MEM
+#define DEFAULT_REGDUMP		SDE_DBG_DUMP_IN_LOG
+#define DEFAULT_DBGBUS_SDE	SDE_DBG_DUMP_IN_LOG
+#define DEFAULT_DBGBUS_VBIFRT	SDE_DBG_DUMP_IN_LOG
 #define DEFAULT_BASE_REG_CNT	0x100
 #define GROUP_BYTES		4
 #define ROW_BYTES		16
@@ -73,6 +77,18 @@
 #define DBG_CTRL_PANIC_UNDERRUN	BIT(1)
 #define DBG_CTRL_RESET_HW_PANIC	BIT(2)
 #define DBG_CTRL_MAX			BIT(3)
+#ifdef CONFIG_DISPLAY_SAMSUNG
+/**
+ * To print in kernel log
+ */
+#undef DEFAULT_REGDUMP
+#undef DEFAULT_DBGBUS_SDE
+#undef DEFAULT_DBGBUS_VBIFRT
+
+#define DEFAULT_REGDUMP		SDE_DBG_DUMP_IN_LOG
+#define DEFAULT_DBGBUS_SDE	SDE_DBG_DUMP_IN_LOG
+#define DEFAULT_DBGBUS_VBIFRT	SDE_DBG_DUMP_IN_LOG
+#endif
 
 /**
  * struct sde_dbg_reg_offset - tracking for start and end of region
@@ -2128,7 +2144,7 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 		return;
 
 	if (in_log)
-		dev_info(sde_dbg_base.dev, "%s: start_offset 0x%lx len 0x%zx\n",
+		dev_err(sde_dbg_base.dev, "%s: start_offset 0x%lx len 0x%zx\n",
 				dump_name, (unsigned long)(addr - base_addr),
 					len_bytes);
 
@@ -2172,7 +2188,7 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 		xc = (addr + 0xc < end_addr) ? readl_relaxed(addr + 0xc) : 0;
 
 		if (in_log)
-			dev_info(sde_dbg_base.dev,
+			dev_err(sde_dbg_base.dev,
 					"0x%lx : %08x %08x %08x %08x\n",
 					(unsigned long)(addr - base_addr),
 					x0, x4, x8, xc);
@@ -2244,7 +2260,7 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 		return;
 	}
 
-	dev_info(sde_dbg_base.dev, "%s:=========%s DUMP=========\n", __func__,
+	dev_err(sde_dbg_base.dev, "%s:=========%s DUMP=========\n", __func__,
 			dbg->name);
 	if (dbg->cb) {
 		dbg->cb(dbg->cb_ptr);
@@ -2263,18 +2279,18 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 
 			_sde_dump_reg(range_node->range_name, reg_dump_flag,
 					dbg->base, addr, len,
-					&range_node->reg_dump, false);
+					&range_node->reg_dump, true);
 		}
 	} else {
 		/* If there is no list to dump ranges, dump all registers */
 		dev_info(sde_dbg_base.dev,
 				"Ranges not found, will dump full registers\n");
-		dev_info(sde_dbg_base.dev, "base:0x%pK len:0x%zx\n", dbg->base,
+		dev_err(sde_dbg_base.dev, "base:0x%pK len:0x%zx\n", dbg->base,
 				dbg->max_offset);
 		addr = dbg->base;
 		len = dbg->max_offset;
 		_sde_dump_reg(dbg->name, reg_dump_flag, dbg->base, addr, len,
-				&dbg->reg_dump, false);
+				&dbg->reg_dump, true);
 	}
 }
 
@@ -2312,7 +2328,7 @@ static void _sde_dump_reg_all(void)
 		return;
 
 	list_for_each_entry(blk_base, &dbg_base->reg_base_list, reg_base_head)
-		if (strlen(blk_base->name))
+		if (strlen(blk_base->name)) // case 03136540
 			_sde_dump_reg_by_blk(blk_base->name);
 }
 
@@ -2373,7 +2389,7 @@ static void _sde_dbg_dump_sde_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 	if (!in_log && !in_mem)
 		return;
 
-	dev_info(sde_dbg_base.dev, "======== start %s dump =========\n",
+	dev_err(sde_dbg_base.dev, "======== start %s dump =========\n",
 			bus->cmn.name);
 
 	if (in_mem) {
@@ -2416,7 +2432,7 @@ static void _sde_dbg_dump_sde_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 		status = readl_relaxed(mem_base + offset);
 
 		if (in_log)
-			dev_info(sde_dbg_base.dev,
+			dev_err(sde_dbg_base.dev,
 					"waddr=0x%x blk=%d tst=%d val=0x%x\n",
 					head->wr_addr, head->block_id,
 					head->test_id, status);
@@ -2439,7 +2455,7 @@ static void _sde_dbg_dump_sde_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 	}
 	_sde_dbg_enable_power(false);
 
-	dev_info(sde_dbg_base.dev, "======== end %s dump =========\n",
+	dev_err(sde_dbg_base.dev, "======== end %s dump =========\n",
 			bus->cmn.name);
 }
 
@@ -2650,6 +2666,11 @@ static void _sde_dump_array(struct sde_dbg_reg_base *blk_arr[],
 		dsi_ctrl_debug_dump(sde_dbg_base.dbgbus_dsi.entries,
 				    sde_dbg_base.dbgbus_dsi.size);
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (do_panic && sde_dbg_base.panic_on_err)
+		ss_store_xlog_panic_dbg();
+#endif
+
 	if (do_panic && sde_dbg_base.panic_on_err)
 		panic(name);
 
@@ -2717,8 +2738,10 @@ void sde_dbg_dump(bool queue_work, const char *name, ...)
 			}
 		}
 
-		if (!strcmp(blk_name, "all"))
+		if (!strcmp(blk_name, "all")) {
 			dump_all = true;
+			sde_dbg_base.dump_all = true; // case 03136540
+		}
 
 		if (!strcmp(blk_name, "dbg_bus"))
 			dump_dbgbus_sde = true;
@@ -3336,7 +3359,11 @@ int sde_dbg_debugfs_register(struct dentry *debugfs_root)
 
 	debugfs_create_file("dbg_ctrl", 0600, debugfs_root, NULL,
 			&sde_dbg_ctrl_fops);
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	debugfs_create_file("dump", 0644, debugfs_root, NULL,
+#else
 	debugfs_create_file("dump", 0600, debugfs_root, NULL,
+#endif
 			&sde_evtlog_fops);
 	debugfs_create_u32("enable", 0600, debugfs_root,
 			&(sde_dbg_base.evtlog->enable));

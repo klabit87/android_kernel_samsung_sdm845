@@ -104,6 +104,8 @@
 	status = "ok";
 };
 
+/*
+ * TODO: ServiceTask#100911
 &pmi8998_fg {
 	qcom,battery-data = <&qrd_batterydata>;
 	qcom,fg-bmd-en-delay-ms = <300>;
@@ -116,6 +118,7 @@
 &smb1355_charger_1 {
 	status = "ok";
 };
+*/
 
 &mdss_mdp {
 	#cooling-cells = <2>;
@@ -165,6 +168,8 @@
 	status = "ok";
 };
 
+/*
+ * TODO: ServiceTask#100911
 &labibb {
 	status = "ok";
 	qcom,qpnp-labibb-mode = "lcd";
@@ -174,6 +179,7 @@
 	status = "okay";
 	qcom,led-strings-list = [01 02];
 };
+*/
 
 &pmi8998_haptics {
 	qcom,vmax-mv = <1800>;

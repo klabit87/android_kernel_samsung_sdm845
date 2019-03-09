@@ -463,11 +463,13 @@ struct rpmh_msg *__get_rpmh_msg_async(struct rpmh_client *rc,
  * are considered active only (i.e, will not be cached in wake set, unless
  * all of them have their corresponding sleep requests).
  */
+ktime_t start_write_async;
 int rpmh_write_async(struct rpmh_client *rc, enum rpmh_state state,
 			struct tcs_cmd *cmd, int n)
 {
 	struct rpmh_msg *rpm_msg;
 	int ret;
+	start_write_async = ktime_get();
 
 	if (rpmh_standalone)
 		return 0;

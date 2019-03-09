@@ -147,8 +147,9 @@ static void syncobj_timer(unsigned long data)
 				i, event->context->id, event->timestamp);
 			break;
 		case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
-			dev_err(device->dev, "       [%d] FENCE %s\n",
-					i, event->fence_name);
+			dev_err(device->dev, " [%d][%pK] FENCE %s\n", i,
+					(event->handle->fence ? event->handle->fence : NULL),
+					(event->handle->fence ? event->fence_name : "NULL"));
 			break;
 		}
 	}

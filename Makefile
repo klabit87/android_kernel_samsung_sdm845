@@ -1,4 +1,5 @@
 VERSION = 4
+
 PATCHLEVEL = 9
 SUBLEVEL = 112
 EXTRAVERSION =
@@ -724,6 +725,14 @@ KBUILD_CFLAGS += $(call cc-ifversion, -lt, 0409, \
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
 
+ifdef CONFIG_RKP_CFP_JOPP
+REAL_CC		= $(srctree)/tools/prebuilts/gcc-cfp-jopp-only/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+endif
+ifdef CONFIG_RKP_CFP_ROPP
+REAL_CC		= $(srctree)/tools/prebuilts/gcc-cfp-single/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+endif
 # check for 'asm goto'
 ifeq ($(shell $(CONFIG_SHELL) $(srctree)/scripts/gcc-goto.sh $(CC) $(KBUILD_CFLAGS)), y)
 	KBUILD_CFLAGS += -DCC_HAVE_ASM_GOTO
@@ -829,6 +838,17 @@ ifdef CONFIG_DEBUG_INFO_DWARF4
 KBUILD_CFLAGS	+= $(call cc-option, -gdwarf-4,)
 endif
 
+ifdef CONFIG_RKP_CFP_JOPP
+# Don't use jump tables for switch statements, since this generates indirect jump (br)
+# instructions, which are very dangerous for kernel control flow integrity.
+KBUILD_CFLAGS	+= -fno-jump-tables
+endif
+
+ifdef CONFIG_RKP_CFP_ROPP
+# Don't let gcc allocate these registers, they are reserved for use by static binary instrumentation.
+KBUILD_CFLAGS	+= -ffixed-x16 -ffixed-x17
+endif
+
 ifdef CONFIG_DEBUG_INFO_REDUCED
 KBUILD_CFLAGS 	+= $(call cc-option, -femit-struct-debug-baseonly) \
 		   $(call cc-option,-fno-var-tracking)
@@ -922,6 +942,14 @@ endif
 
 ifeq ($(CONFIG_STRIP_ASM_SYMS),y)
 LDFLAGS_vmlinux	+= $(call ld-option, -X,)
+endif
+
+ifneq ($(SEC_BUILD_CONF_USE_FINGERPRINT_TZ),false)
+  ifeq ($(CONFIG_SENSORS_FINGERPRINT),y)
+    ifneq ($(CONFIG_SEC_FACTORY),y)
+      export KBUILD_FP_SENSOR_CFLAGS := -DENABLE_SENSORS_FPRINT_SECURE
+    endif
+  endif
 endif
 
 # Default kernel image to build when no specific target is given.

@@ -571,6 +571,7 @@ static const struct freq_tbl ftbl_gcc_qupv3_wrap0_s0_clk_src_sdm845_v2[] = {
 	F(19200000, P_BI_TCXO, 1, 0, 0),
 	F(29491200, P_GPLL0_OUT_EVEN, 1, 1536, 15625),
 	F(32000000, P_GPLL0_OUT_EVEN, 1, 8, 75),
+	F(38400000, P_GPLL0_OUT_EVEN, 1, 16, 125),
 	F(48000000, P_GPLL0_OUT_EVEN, 1, 4, 25),
 	F(64000000, P_GPLL0_OUT_EVEN, 1, 16, 75),
 	F(80000000, P_GPLL0_OUT_EVEN, 1, 4, 15),
@@ -972,6 +973,19 @@ static const struct freq_tbl ftbl_gcc_sdcc2_apps_clk_src[] = {
 	F(25000000, P_GPLL0_OUT_EVEN, 12, 0, 0),
 	F(50000000, P_GPLL0_OUT_EVEN, 6, 0, 0),
 	F(100000000, P_GPLL0_OUT_MAIN, 6, 0, 0),
+	F(200000000, P_GPLL0_OUT_MAIN, 3, 0, 0),
+	F(201500000, P_GPLL4_OUT_MAIN, 4, 0, 0),
+	{ }
+};
+
+static const struct freq_tbl ftbl_gcc_sdcc2_apps_clk_src_sdm845_v2[] = {
+	F(400000, P_BI_TCXO, 12, 1, 4),
+	F(9600000, P_BI_TCXO, 2, 0, 0),
+	F(19200000, P_BI_TCXO, 1, 0, 0),
+	F(25000000, P_GPLL0_OUT_EVEN, 12, 0, 0),
+	F(50000000, P_GPLL0_OUT_EVEN, 6, 0, 0),
+	F(100000000, P_GPLL0_OUT_MAIN, 6, 0, 0),
+	F(200000000, P_GPLL0_OUT_MAIN, 3, 0, 0),
 	F(201500000, P_GPLL4_OUT_MAIN, 4, 0, 0),
 	{ }
 };
@@ -4182,6 +4196,9 @@ static void gcc_sdm845_fixup_sdm845v2(void)
 		50000000;
 	gcc_qupv3_wrap1_s7_clk_src.clkr.hw.init->rate_max[VDD_CX_NOMINAL] =
 		128000000;
+	gcc_sdcc2_apps_clk_src.freq_tbl = ftbl_gcc_sdcc2_apps_clk_src_sdm845_v2;
+	gcc_sdcc2_apps_clk_src.clkr.hw.init->rate_max[VDD_CX_LOW_L1] =
+		201500000;
 	gcc_ufs_card_axi_clk_src.freq_tbl =
 		ftbl_gcc_ufs_card_axi_clk_src_sdm845_v2;
 	gcc_ufs_card_axi_clk_src.clkr.hw.init->rate_max[VDD_CX_HIGH] =

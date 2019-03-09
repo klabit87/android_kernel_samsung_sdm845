@@ -19,6 +19,12 @@
 #include <linux/delay.h>
 
 #include "dp_ctrl.h"
+#ifdef CONFIG_SEC_DISPLAYPORT
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+#include <linux/displayport_bigdata.h>
+#endif
+#include "secdp.h"
+#endif
 
 #define DP_KHZ_TO_HZ 1000
 
@@ -66,6 +72,9 @@ struct dp_ctrl_private {
 	struct dp_power *power;
 	struct dp_parser *parser;
 	struct dp_catalog_ctrl *catalog;
+#ifdef CONFIG_SEC_DISPLAYPORT
+	bool link_train_status;
+#endif
 
 	struct completion idle_comp;
 	struct completion video_comp;
@@ -135,6 +144,8 @@ static void dp_ctrl_push_idle(struct dp_ctrl *dp_ctrl)
 		return;
 	}
 
+	pr_debug("+++\n");
+
 	reinit_completion(&ctrl->idle_comp);
 	dp_ctrl_state_ctrl(ctrl, ST_PUSH_IDLE);
 
@@ -149,6 +160,8 @@ static void dp_ctrl_config_ctrl(struct dp_ctrl_private *ctrl)
 {
 	u32 config = 0, tbd;
 	u8 *dpcd = ctrl->panel->dpcd;
+
+	pr_debug("+++\n");
 
 	config |= (2 << 13); /* Default-> LSCLK DIV: 1/4 LCLK  */
 	config |= (0 << 11); /* RGB */
@@ -674,6 +687,9 @@ static void dp_ctrl_calc_tu_parameters(struct dp_ctrl_private *ctrl,
 	if (h_blank < (u32)min_hblank) {
 		pr_debug(" WARNING: run_idx=%d Programmed h_blank %d is smaller than the min_hblank %d supported.\n",
 					run_idx, h_blank, min_hblank);
+#ifdef CONFIG_SEC_DISPLAYPORT
+		ctrl->link_train_status = false;
+#endif
 	}
 
 	if (fifo_empty)	{
@@ -917,6 +933,10 @@ static int dp_ctrl_link_rate_down_shift(struct dp_ctrl_private *ctrl)
 
 	pr_debug("new bw code=0x%x\n", ctrl->link->link_params.bw_code);
 
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	secdp_bigdata_save_item(BD_CUR_LINK_RATE, ctrl->link->link_params.bw_code);
+#endif
+
 	return ret;
 }
 
@@ -967,8 +987,9 @@ static int dp_ctrl_link_training_2(struct dp_ctrl_private *ctrl)
 			break;
 
 		if (drm_dp_channel_eq_ok(link_status,
-			ctrl->link->link_params.lane_count))
+			ctrl->link->link_params.lane_count)) {
 			break;
+		}
 
 		if (tries > maximum_retries) {
 			ret = -ETIMEDOUT;
@@ -998,6 +1019,17 @@ static int dp_ctrl_link_train(struct dp_ctrl_private *ctrl)
 	int ret = 0;
 	u8 encoding = 0x1;
 	struct drm_dp_link link_info = {0};
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (!secdp_get_cable_status()) {
+		pr_info("cable is out\n");
+		return -EIO;
+	}
+
+	pr_debug("+++\n");
+
+	ctrl->link_train_status = false;
+#endif
 
 	ctrl->link->phy_params.p_level = 0;
 	ctrl->link->phy_params.v_level = 0;
@@ -1044,6 +1076,10 @@ end:
 	wmb();
 
 	dp_ctrl_clear_training_pattern(ctrl);
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (!ret)
+		ctrl->link_train_status = true;
+#endif
 	return ret;
 }
 
@@ -1051,6 +1087,8 @@ static int dp_ctrl_setup_main_link(struct dp_ctrl_private *ctrl, bool train)
 {
 	bool mainlink_ready = false;
 	int ret = 0;
+
+	pr_debug("+++\n");
 
 	ctrl->catalog->mainlink_ctrl(ctrl->catalog, true);
 
@@ -1068,8 +1106,23 @@ static int dp_ctrl_setup_main_link(struct dp_ctrl_private *ctrl, bool train)
 	ctrl->catalog->reset(ctrl->catalog);
 
 	ret = dp_ctrl_link_train(ctrl);
-	if (ret)
+	if (ret) {
+#ifdef CONFIG_SEC_DISPLAYPORT
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+		secdp_bigdata_inc_error_cnt(ERR_LINK_TRAIN);
+#endif
+		if (!secdp_get_cable_status()) {
+			ret = 0;
+			goto send_video;
+		}
+
+		if (ctrl->link->link_params.bw_code == DP_LINK_BW_1_62) {
+			ret = 0;
+			goto send_video;
+		}
+#endif
 		goto end;
+	}
 
 send_video:
 	/*
@@ -1083,6 +1136,7 @@ send_video:
 	mainlink_ready = ctrl->catalog->mainlink_ready(ctrl->catalog);
 	pr_debug("mainlink %s\n", mainlink_ready ? "READY" : "NOT READY");
 end:
+	pr_debug("---\n");
 	return ret;
 }
 
@@ -1135,6 +1189,8 @@ static int dp_ctrl_host_init(struct dp_ctrl *dp_ctrl, bool flip, bool reset)
 	struct dp_ctrl_private *ctrl;
 	struct dp_catalog_ctrl *catalog;
 
+	pr_debug("+++\n");
+
 	if (!dp_ctrl) {
 		pr_err("Invalid input data\n");
 		return -EINVAL;
@@ -1164,6 +1220,8 @@ static int dp_ctrl_host_init(struct dp_ctrl *dp_ctrl, bool flip, bool reset)
 static void dp_ctrl_host_deinit(struct dp_ctrl *dp_ctrl)
 {
 	struct dp_ctrl_private *ctrl;
+
+	pr_debug("+++\n");
 
 	if (!dp_ctrl) {
 		pr_err("Invalid input data\n");
@@ -1195,10 +1253,29 @@ static bool dp_ctrl_use_fixed_nvid(struct dp_ctrl_private *ctrl)
 	return false;
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+static bool dp_ctrl_get_link_train_status(struct dp_ctrl *dp_ctrl)
+{
+	struct dp_ctrl_private *ctrl;
+
+	if (!dp_ctrl) {
+		pr_err("Invalid input data\n");
+		return -EINVAL;
+	}
+
+	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
+	pr_info("link_train_status: %s\n", ctrl->link_train_status ? "success": "failure");
+	return ctrl->link_train_status;
+}
+#endif
+
 static int dp_ctrl_link_maintenance(struct dp_ctrl *dp_ctrl)
 {
 	int ret = 0;
 	struct dp_ctrl_private *ctrl;
+#ifdef CONFIG_SEC_DISPLAYPORT
+	bool clk_on = false;
+#endif
 
 	if (!dp_ctrl) {
 		pr_err("Invalid input data\n");
@@ -1222,6 +1299,16 @@ static int dp_ctrl_link_maintenance(struct dp_ctrl *dp_ctrl)
 	ctrl->pixel_rate = ctrl->panel->pinfo.pixel_clk_khz;
 
 	do {
+#ifdef CONFIG_SEC_DISPLAYPORT
+		if (!secdp_get_cable_status()) {
+			pr_info("cable is out\n");
+			if (clk_on)
+				dp_ctrl_disable_mainlink_clocks(ctrl);
+			ret = -EIO;
+			break;
+		}
+#endif
+
 		if (ret == -EAGAIN) {
 			/* try with lower link rate */
 			dp_ctrl_link_rate_down_shift(ctrl);
@@ -1238,10 +1325,16 @@ static int dp_ctrl_link_maintenance(struct dp_ctrl *dp_ctrl)
 		 * link maintenance.
 		 */
 		dp_ctrl_disable_mainlink_clocks(ctrl);
+#ifdef CONFIG_SEC_DISPLAYPORT
+		clk_on = false;
+#endif
 
 		ret = dp_ctrl_enable_mainlink_clocks(ctrl);
 		if (ret)
 			continue;
+#ifdef CONFIG_SEC_DISPLAYPORT
+		clk_on = true;
+#endif
 
 		dp_ctrl_configure_source_params(ctrl);
 
@@ -1366,6 +1459,31 @@ static void dp_ctrl_reset(struct dp_ctrl *dp_ctrl)
 	ctrl->catalog->reset(ctrl->catalog);
 }
 
+#ifdef SECDP_OPTIMAL_LINK_RATE
+static u32 secdp_dp_gen_link_clk(struct dp_panel *dp_panel)
+{
+	u32 calc_link_rate;
+	u32 min_link_rate = dp_panel->get_min_req_link_rate(dp_panel);
+
+	pr_debug("+++, min_link_rate <%u>\n", min_link_rate);
+
+	if (min_link_rate <= 162000)
+		calc_link_rate = 162000;
+	else if (min_link_rate <= 270000)
+		calc_link_rate = 270000;
+	else if (min_link_rate <= 540000)
+		calc_link_rate = 540000;
+	else {
+		/* Cap the link rate to the max supported rate */
+		pr_debug("min_link_rate is not supported, setting 5.4G\n");
+		calc_link_rate = 540000;
+	}
+
+	pr_debug("---, calc_link_rate <%u>\n", calc_link_rate);
+	return calc_link_rate;
+}
+#endif
+
 static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 {
 	int rc = 0;
@@ -1391,8 +1509,13 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 		if (!ctrl->panel->pinfo.pixel_clk_khz)
 			ctrl->pixel_rate = phy_cts_pixel_clk_khz;
 	} else {
+#ifndef SECDP_OPTIMAL_LINK_RATE
 		ctrl->link->link_params.bw_code =
 			drm_dp_link_rate_to_bw_code(rate);
+#else
+		ctrl->link->link_params.bw_code =
+			drm_dp_link_rate_to_bw_code(secdp_dp_gen_link_clk(ctrl->panel));
+#endif
 		ctrl->link->link_params.lane_count =
 			ctrl->panel->link_info.num_lanes;
 		ctrl->pixel_rate = ctrl->panel->pinfo.pixel_clk_khz;
@@ -1423,12 +1546,27 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 		if (!rc)
 			break;
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+		if (/*!secdp_get_hpd_status() ||*/ !secdp_get_cable_status()) {
+			pr_info("hpd_low or cable lost\n");
+			link_train_max_retries = 2;
+		}
+#endif
+
 		/* try with lower link rate */
 		dp_ctrl_link_rate_down_shift(ctrl);
 
 		ctrl->catalog->mainlink_ctrl(ctrl->catalog, false);
 
 		dp_ctrl_disable_mainlink_clocks(ctrl);
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+		if (/*!secdp_get_hpd_status() ||*/ !secdp_get_cable_status()) {
+			pr_info("hpd_low or cable lost, skip to enable clk\n");
+			link_train_max_retries = 2;
+		}
+#endif
+
 		/* hw recommended delay before re-enabling clocks */
 		msleep(20);
 
@@ -1528,6 +1666,9 @@ struct dp_ctrl *dp_ctrl_get(struct dp_ctrl_in *in)
 	dp_ctrl->reset	   = dp_ctrl_reset;
 	dp_ctrl->link_maintenance = dp_ctrl_link_maintenance;
 	dp_ctrl->process_phy_test_request = dp_ctrl_process_phy_test_request;
+#ifdef CONFIG_SEC_DISPLAYPORT
+	dp_ctrl->get_link_train_status = dp_ctrl_get_link_train_status;
+#endif
 
 	return dp_ctrl;
 error:

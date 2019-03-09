@@ -284,6 +284,8 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 		goto setup_fifo_params_exit;
 	}
 
+	clk_sel = 0;
+	m_clk_cfg = 0;
 	clk_sel |= (idx & CLK_SEL_MSK);
 	m_clk_cfg |= ((div << CLK_DIV_SHFT) | SER_CLK_EN);
 	spi_setup_word_len(mas, spi_slv->mode, spi_slv->bits_per_word);
@@ -466,24 +468,31 @@ static void spi_gsi_rx_callback(void *cb)
 	struct msm_gpi_dma_async_tx_cb_param *cb_param =
 			(struct msm_gpi_dma_async_tx_cb_param *)cb;
 	struct gsi_desc_cb *desc_cb = (struct gsi_desc_cb *)cb_param->userdata;
-	struct spi_master *spi = desc_cb->spi;
-	struct spi_transfer *xfer = desc_cb->xfer;
-	struct spi_geni_master *mas = spi_master_get_devdata(spi);
 
-	if (xfer->rx_buf) {
-		if (cb_param->status == MSM_GPI_TCE_UNEXP_ERR) {
-			GENI_SE_ERR(mas->ipc, true, mas->dev,
-			"%s: Unexpected GSI CB error\n", __func__);
-			return;
-		}
-		if (cb_param->length == xfer->len) {
-			GENI_SE_DBG(mas->ipc, false, mas->dev,
-			"%s\n", __func__);
-			complete(&mas->rx_cb);
-		} else {
-			GENI_SE_ERR(mas->ipc, true, mas->dev,
-			"%s: Length mismatch. Expected %d Callback %d\n",
-			__func__, xfer->len, cb_param->length);
+	if ( desc_cb == NULL ) {
+		GENI_SE_ERR(false, true, false,
+		"%s: Freed or Corrupted cb_param data. \n", __func__);
+		return;
+	} else {
+		struct spi_master *spi = desc_cb->spi;
+		struct spi_transfer *xfer = desc_cb->xfer;
+		struct spi_geni_master *mas = spi_master_get_devdata(spi);
+
+		if (xfer->rx_buf) {
+			if (cb_param->status == MSM_GPI_TCE_UNEXP_ERR) {
+				GENI_SE_ERR(mas->ipc, true, mas->dev,
+				"%s: Unexpected GSI CB error\n", __func__);
+				return;
+			}
+			if (cb_param->length == xfer->len) {
+				GENI_SE_DBG(mas->ipc, false, mas->dev,
+				"%s\n", __func__);
+				complete(&mas->rx_cb);
+			} else {
+				GENI_SE_ERR(mas->ipc, true, mas->dev,
+				"%s: Length mismatch. Expected %d Callback %d\n",
+				__func__, xfer->len, cb_param->length);
+			}
 		}
 	}
 }
@@ -492,24 +501,31 @@ static void spi_gsi_tx_callback(void *cb)
 {
 	struct msm_gpi_dma_async_tx_cb_param *cb_param = cb;
 	struct gsi_desc_cb *desc_cb = (struct gsi_desc_cb *)cb_param->userdata;
-	struct spi_master *spi = desc_cb->spi;
-	struct spi_transfer *xfer = desc_cb->xfer;
-	struct spi_geni_master *mas = spi_master_get_devdata(spi);
 
-	if (xfer->tx_buf) {
-		if (cb_param->status == MSM_GPI_TCE_UNEXP_ERR) {
-			GENI_SE_ERR(mas->ipc, true, mas->dev,
-			"%s: Unexpected GSI CB error\n", __func__);
-			return;
-		}
-		if (cb_param->length == xfer->len) {
-			GENI_SE_DBG(mas->ipc, false, mas->dev,
-			"%s\n", __func__);
-			complete(&mas->tx_cb);
-		} else {
-			GENI_SE_ERR(mas->ipc, true, mas->dev,
-			"%s: Length mismatch. Expected %d Callback %d\n",
-			__func__, xfer->len, cb_param->length);
+	if ( desc_cb == NULL ) {
+		GENI_SE_ERR(false, true, false,
+		"%s: Freed or Corrupted cb_param data. \n", __func__);
+		return;
+	} else {
+		struct spi_master *spi = desc_cb->spi;
+		struct spi_transfer *xfer = desc_cb->xfer;
+		struct spi_geni_master *mas = spi_master_get_devdata(spi);
+
+		if (xfer->tx_buf) {
+			if (cb_param->status == MSM_GPI_TCE_UNEXP_ERR) {
+				GENI_SE_ERR(mas->ipc, true, mas->dev,
+				"%s: Unexpected GSI CB error\n", __func__);
+				return;
+			}
+			if (cb_param->length == xfer->len) {
+				GENI_SE_DBG(mas->ipc, false, mas->dev,
+				"%s\n", __func__);
+				complete(&mas->tx_cb);
+			} else {
+				GENI_SE_ERR(mas->ipc, true, mas->dev,
+				"%s: Length mismatch. Expected %d Callback %d\n",
+				__func__, xfer->len, cb_param->length);
+			}
 		}
 	}
 }
@@ -935,6 +951,8 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 			return;
 		}
 		mas->cur_speed_hz = xfer->speed_hz;
+		clk_sel = 0;
+		m_clk_cfg = 0;
 		clk_sel |= (idx & CLK_SEL_MSK);
 		m_clk_cfg |= ((div << CLK_DIV_SHFT) | SER_CLK_EN);
 		geni_write_reg(clk_sel, mas->base, SE_GENI_CLK_SEL);
@@ -1114,7 +1132,7 @@ static int spi_geni_transfer_one(struct spi_master *spi,
 				wait_for_completion_timeout(
 					&mas->tx_cb,
 					msecs_to_jiffies(SPI_XFER_TIMEOUT_MS));
-				if (timeout <= 0) {
+				if (!timeout) {
 					GENI_SE_ERR(mas->ipc, true, mas->dev,
 					"Tx[%d] timeout%lu\n", i, timeout);
 					ret = -ETIMEDOUT;
@@ -1126,7 +1144,7 @@ static int spi_geni_transfer_one(struct spi_master *spi,
 				wait_for_completion_timeout(
 					&mas->rx_cb,
 					msecs_to_jiffies(SPI_XFER_TIMEOUT_MS));
-				if (timeout <= 0) {
+				if (!timeout) {
 					GENI_SE_ERR(mas->ipc, true, mas->dev,
 					 "Rx[%d] timeout%lu\n", i, timeout);
 					ret = -ETIMEDOUT;

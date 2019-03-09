@@ -193,7 +193,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *match;
 	const struct hc_driver	*driver;
-	struct device		*sysdev, *phydev;
+	struct device		*sysdev;
 	struct xhci_hcd		*xhci;
 	struct resource         *res;
 	struct usb_hcd		*hcd;
@@ -220,18 +220,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	 * 3. xhci_plat is grandchild of a pci device (dwc3-pci)
 	 */
 	sysdev = &pdev->dev;
-	phydev = &pdev->dev;
 	if (sysdev->parent && !sysdev->of_node && sysdev->parent->of_node)
-		phydev = sysdev->parent;
-	/*
-	 * If sysdev->parent->parent is available and part of IOMMU group
-	 * (indicating possible usage of SMMU enablement), then use
-	 * sysdev->parent->parent as sysdev.
-	 */
-	if (sysdev->parent && !sysdev->of_node && sysdev->parent->of_node &&
-		sysdev->parent->parent && sysdev->parent->parent->iommu_group)
-		sysdev = sysdev->parent->parent;
-	else if (sysdev->parent && !sysdev->of_node && sysdev->parent->of_node)
 		sysdev = sysdev->parent;
 #ifdef CONFIG_PCI
 	else if (sysdev->parent && sysdev->parent->parent &&
@@ -320,6 +309,9 @@ static int xhci_plat_probe(struct platform_device *pdev)
 
 	if (device_property_read_bool(&pdev->dev, "usb3-lpm-capable"))
 		xhci->quirks |= XHCI_LPM_SUPPORT;
+#ifdef CONFIG_USB_HOST_L1_SUPPORT
+	xhci->quirks |= XHCI_LPM_L1_SUPPORT;
+#endif
 
 	if (device_property_read_bool(&pdev->dev, "quirk-broken-port-ped"))
 		xhci->quirks |= XHCI_BROKEN_PORT_PED;
@@ -327,20 +319,22 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	if (device_property_read_u32(&pdev->dev, "xhci-imod-value", &imod))
 		imod = 0;
 
-	if (device_property_read_u32(&pdev->dev, "usb-core-id", &xhci->core_id))
+	if (device_property_read_u32(sysdev, "usb-core-id", &xhci->core_id))
 		xhci->core_id = -EINVAL;
 
-	hcd->usb_phy = devm_usb_get_phy_by_phandle(phydev, "usb-phy", 0);
+	hcd->usb_phy = devm_usb_get_phy_by_phandle(sysdev, "usb-phy", 0);
 	if (IS_ERR(hcd->usb_phy)) {
 		ret = PTR_ERR(hcd->usb_phy);
 		if (ret == -EPROBE_DEFER)
 			goto put_usb3_hcd;
 		hcd->usb_phy = NULL;
-	} else {
-		ret = usb_phy_init(hcd->usb_phy);
-		if (ret)
-			goto put_usb3_hcd;
 	}
+	/* don't need to notify situation to usb phy at sdm845 */
+	// else {
+	//	ret = usb_phy_init(hcd->usb_phy);
+	//	if (ret)
+	//		goto put_usb3_hcd;
+	// }
 
 	ret = usb_add_hcd(hcd, irq, IRQF_SHARED);
 	if (ret)
@@ -405,12 +399,25 @@ static int xhci_plat_remove(struct platform_device *dev)
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 	struct clk *clk = xhci->clk;
 
+#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
+	/* In order to prevent kernel panic */
+	if (!pm_runtime_suspended(&xhci->shared_hcd->self.root_hub->dev)) {
+		pr_info("%s, shared_hcd pm_runtime_forbid\n", __func__);
+		pm_runtime_forbid(&xhci->shared_hcd->self.root_hub->dev);
+	}
+	if (!pm_runtime_suspended(&xhci->main_hcd->self.root_hub->dev)) {
+		pr_info("%s, main_hcd pm_runtime_forbid\n", __func__);
+		pm_runtime_forbid(&xhci->main_hcd->self.root_hub->dev);
+	}
+#endif
+
 	pm_runtime_disable(&dev->dev);
 	xhci->xhc_state |= XHCI_STATE_REMOVING;
 
 	device_remove_file(&dev->dev, &dev_attr_config_imod);
 	usb_remove_hcd(xhci->shared_hcd);
-	usb_phy_shutdown(hcd->usb_phy);
+	/* don't need to notify situation to usb phy at sdm845 */
+	// usb_phy_shutdown(hcd->usb_phy);
 
 	usb_remove_hcd(hcd);
 	usb_put_hcd(xhci->shared_hcd);

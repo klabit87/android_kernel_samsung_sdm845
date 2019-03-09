@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -64,8 +64,12 @@ struct cam_sensor_spi_client {
 	struct cam_camera_spi_inst_tbl cmd_tbl;
 	uint8_t device_id0;
 	uint8_t device_id1;
+	uint8_t device_id2;
+	uint8_t device_id3;
 	uint8_t mfr_id0;
 	uint8_t mfr_id1;
+	uint8_t mfr_id2;
+	uint8_t mfr_id3;
 	uint8_t retry_delay;
 	uint8_t retries;
 	uint8_t busy_mask;
@@ -102,8 +106,7 @@ int cam_spi_write_table(struct camera_io_master *client,
 	struct cam_sensor_i2c_reg_setting *write_setting);
 
 int cam_spi_erase(struct camera_io_master *client,
-	uint32_t addr, enum camera_sensor_i2c_type addr_type,
-	uint32_t size);
+	uint32_t addr, enum camera_sensor_i2c_type addr_type, uint32_t size);
 
 int32_t cam_spi_write_seq(struct camera_io_master *client,
 	uint32_t addr, uint8_t *data,

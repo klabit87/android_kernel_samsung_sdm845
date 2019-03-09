@@ -28,6 +28,7 @@
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
+#include <linux/bitops.h>
 #include "stm.h"
 
 #include <uapi/linux/stm.h>
@@ -177,7 +178,7 @@ static int stp_master_alloc(struct stm_device *stm, unsigned int idx)
 	size_t size;
 	unsigned long align = sizeof(unsigned long);
 
-	size = ALIGN(stm->data->sw_nchannels, align) / align;
+	size = BITS_TO_LONGS(stm->data->sw_nchannels) * align;
 	size += sizeof(struct stp_master);
 	master = kzalloc(size, GFP_ATOMIC);
 	if (!master)

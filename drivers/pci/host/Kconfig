@@ -301,4 +301,12 @@ config VMD
 	  To compile this driver as a module, choose M here: the
 	  module will be called vmd.
 
+config SEC_BSP_PCIE_DEV
+	depends on PCI_MSM
+	bool "PCI_MSM dev feature"
+
+config SEC_PANIC_PCIE_ERR
+	depends on PCI_MSM
+	bool "PANIC on PCIe Error"
+
 endmenu

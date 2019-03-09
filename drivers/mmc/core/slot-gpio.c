@@ -26,6 +26,7 @@ struct mmc_gpio {
 	struct gpio_desc *cd_gpio;
 	bool override_ro_active_level;
 	bool override_cd_active_level;
+	bool status;
 	irqreturn_t (*cd_gpio_isr)(int irq, void *dev_id);
 	char *ro_label;
 	char cd_label[0];
@@ -35,13 +36,25 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 {
 	/* Schedule a card detection after a debounce timeout */
 	struct mmc_host *host = dev_id;
-	int present = host->ops->get_cd(host);
+	struct mmc_gpio *ctx = host->slot.handler_priv;
+	bool status;
 
-	pr_debug("%s: cd gpio irq, gpio state %d (CARD_%s)\n",
-		mmc_hostname(host), present, present?"INSERT":"REMOVAL");
+	status = mmc_gpio_get_cd(host) ? true : false;
 
-	host->trigger_card_event = true;
-	mmc_detect_change(host, msecs_to_jiffies(200));
+	if (status ^ ctx->status) {
+		pr_err("%s: slot status change detected (%d -> %d), GPIO_ACTIVE_%s\n",
+				mmc_hostname(host), ctx->status, status,
+				(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH) ?
+				"HIGH" : "LOW");
+		ctx->status = status;
+
+		host->trigger_card_event = true;
+
+		if (host->card_detect_cnt < 0x7FFFFFFF)
+			host->card_detect_cnt++;
+
+		mmc_detect_change(host, msecs_to_jiffies(200));
+	}
 
 	return IRQ_HANDLED;
 }
@@ -81,7 +94,7 @@ EXPORT_SYMBOL(mmc_gpio_get_ro);
 int mmc_gpio_get_cd(struct mmc_host *host)
 {
 	struct mmc_gpio *ctx = host->slot.handler_priv;
-	int ret;
+	int ret = 0;
 
 	if (host->extcon) {
 		ret =  extcon_get_state(host->extcon, EXTCON_MECHANICAL);
@@ -89,16 +102,16 @@ int mmc_gpio_get_cd(struct mmc_host *host)
 			dev_err(mmc_dev(host), "%s: Extcon failed to check card state, ret=%d\n",
 					__func__, ret);
 		return ret;
+	} else if (ctx && ctx->cd_gpio) {
+		if (ctx->override_cd_active_level)
+			return !gpiod_get_raw_value_cansleep(ctx->cd_gpio) ^
+				!!(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH);
+
+		return gpiod_get_value_cansleep(ctx->cd_gpio);
+	} else if (!ctx || !ctx->cd_gpio) {
+		return -EPERM;
 	}
-
-	if (!ctx || !ctx->cd_gpio)
-		return -ENOSYS;
-
-	if (ctx->override_cd_active_level)
-		return !gpiod_get_raw_value_cansleep(ctx->cd_gpio) ^
-			!!(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH);
-
-	return gpiod_get_value_cansleep(ctx->cd_gpio);
+	return ret;
 }
 EXPORT_SYMBOL(mmc_gpio_get_cd);
 
@@ -150,6 +163,13 @@ void mmc_gpiod_request_cd_irq(struct mmc_host *host)
 	if (irq >= 0 && host->caps & MMC_CAP_NEEDS_POLL)
 		irq = -EINVAL;
 
+	ret = mmc_gpio_get_cd(host);
+	if (ret < 0) {
+		pr_err("%s: getting card detection gpio is failed.\n", mmc_hostname(host));
+		return;
+	}
+	ctx->status = ret ? true : false;
+
 	if (irq >= 0) {
 		if (!ctx->cd_gpio_isr)
 			ctx->cd_gpio_isr = mmc_gpio_cd_irqt;
@@ -168,21 +188,58 @@ void mmc_gpiod_request_cd_irq(struct mmc_host *host)
 }
 EXPORT_SYMBOL(mmc_gpiod_request_cd_irq);
 
+/**
+ * mmc_gpiod_update_status - update ctx->status to current status
+ * @host: mmc_host
+ * @present: current status from get_cd()
+ *
+ * It is to update card detection status.
+ */
+void mmc_gpiod_update_status(struct mmc_host *host, int present)
+{
+	struct mmc_gpio *ctx = host->slot.handler_priv;
+	bool ctx_status;
+
+	if (present < 0)
+		return;
+
+	ctx_status = !!present;
+	if (ctx && (ctx->status ^ ctx_status))
+		ctx->status = ctx_status;
+}
+EXPORT_SYMBOL(mmc_gpiod_update_status);
+
 static int mmc_card_detect_notifier(struct notifier_block *nb,
 				       unsigned long event, void *ptr)
 {
 	struct mmc_host *host = container_of(nb, struct mmc_host,
 					     card_detect_nb);
+	struct mmc_gpio *ctx = host->slot.handler_priv;
+	bool status;
 
-	host->trigger_card_event = true;
-	mmc_detect_change(host, 0);
+	status = event ? true : false;
 
+	if (status ^ ctx->status) {
+		pr_err("%s: slot status change detected (%d -> %d), GPIO_ACTIVE_%s\n",
+				mmc_hostname(host), ctx->status, status,
+				(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH) ?
+				"HIGH" : "LOW");
+		ctx->status = status;
+
+		host->trigger_card_event = true;
+
+		if (host->card_detect_cnt < 0x7FFFFFFF)
+			host->card_detect_cnt++;
+
+		mmc_detect_change(host, msecs_to_jiffies(200));
+	}
 	return NOTIFY_DONE;
 }
 
 void mmc_register_extcon(struct mmc_host *host)
 {
 	struct extcon_dev *extcon = host->extcon;
+	struct mmc_gpio *ctx = host->slot.handler_priv;
 	int err;
 
 	if (!extcon)
@@ -195,6 +252,15 @@ void mmc_register_extcon(struct mmc_host *host)
 		dev_err(mmc_dev(host), "%s: extcon_register_notifier() failed ret=%d\n",
 			__func__, err);
 		host->caps |= MMC_CAP_NEEDS_POLL;
+	} else {
+		int ret = 0;
+
+		ret = mmc_gpio_get_cd(host);
+		if (ret < 0) {
+			pr_err("%s: getting card detection gpio is failed.\n", mmc_hostname(host));
+			return;
+		}
+		ctx->status = ret ? true : false;
 	}
 }
 EXPORT_SYMBOL(mmc_register_extcon);

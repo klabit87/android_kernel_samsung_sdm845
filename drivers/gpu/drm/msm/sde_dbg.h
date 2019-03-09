@@ -60,7 +60,7 @@ enum sde_dbg_dump_flag {
  * sysfs node or panic. This prevents kernel log from evtlog message
  * flood.
  */
-#define SDE_EVTLOG_PRINT_ENTRY	256
+#define SDE_EVTLOG_PRINT_ENTRY	2048
 
 /*
  * evtlog keeps this number of entries in memory for debug purpose. This
@@ -71,6 +71,23 @@ enum sde_dbg_dump_flag {
 #define SDE_EVTLOG_MAX_DATA 15
 #define SDE_EVTLOG_BUF_MAX 512
 #define SDE_EVTLOG_BUF_ALIGN 32
+
+#ifdef CONFIG_DISPLAY_SAMSUNG
+/**
+ * To save more SDE_EVTLOG
+ */
+#undef SDE_EVTLOG_DEFAULT_ENABLE
+#define SDE_EVTLOG_DEFAULT_ENABLE (SDE_EVTLOG_CRITICAL | SDE_EVTLOG_IRQ | SDE_EVTLOG_VERBOSE)
+
+/**
+ * To pulling out 256 * 4 eventlog line
+ */
+#undef SDE_EVTLOG_PRINT_ENTRY
+#define SDE_EVTLOG_PRINT_ENTRY	(256 * 4)
+
+#undef SDE_EVTLOG_ENTRY
+#define SDE_EVTLOG_ENTRY	(SDE_EVTLOG_PRINT_ENTRY * 2)
+#endif
 
 struct sde_dbg_power_ctrl {
 	void *handle;

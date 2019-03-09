@@ -18,6 +18,9 @@
 #include <linux/of_platform.h>
 
 #include "dp_parser.h"
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include "secdp.h"
+#endif
 
 static void dp_parser_unmap_io_resources(struct dp_parser *parser)
 {
@@ -250,6 +253,13 @@ static int dp_parser_gpio(struct dp_parser *parser)
 		mp->gpio_config[i].value = 0;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	for (i = 0; i < ARRAY_SIZE(dp_gpios); i++) {
+		pr_info("name(%s) gpio(%u) value(%u)\n", mp->gpio_config[i].gpio_name,
+			mp->gpio_config[i].gpio, mp->gpio_config[i].value);
+	}
+#endif
+
 	return 0;
 }
 
@@ -388,6 +398,40 @@ static void dp_parser_put_vreg_data(struct device *dev,
 	mp->num_vreg = 0;
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+
+struct regulator *aux_pullup_vreg;
+struct regulator *usb1_ss_core_vreg;
+
+static struct regulator *secdp_get_aux_pullup_vreg(struct device *dev)
+{
+	struct regulator *vreg = NULL;
+
+	vreg = devm_regulator_get(dev, "aux-pullup");
+	if (IS_ERR(vreg)) {
+		pr_err("unable to get aux_pullup vdd supply\n");
+		return NULL;
+	}
+
+	pr_info("get aux_pullup vdd success\n");
+	return vreg;
+}
+
+static struct regulator *secdp_get_usb1_ss_core_vreg(struct device *dev)
+{
+	struct regulator *vreg = NULL;
+
+	vreg = devm_regulator_get(dev, "vdda-usb1-ss-core");
+	if (IS_ERR(vreg)) {
+		pr_err("unable to get usb1_ss_core vdd supply\n");
+		return NULL;
+	}
+
+	pr_info("get usb1_ss_core vdd success\n");
+	return vreg;
+}
+#endif
+
 static int dp_parser_regulator(struct dp_parser *parser)
 {
 	int i, rc = 0;
@@ -406,6 +450,11 @@ static int dp_parser_regulator(struct dp_parser *parser)
 			break;
 		}
 	}
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	aux_pullup_vreg = secdp_get_aux_pullup_vreg(&pdev->dev);
+	usb1_ss_core_vreg = secdp_get_usb1_ss_core_vreg(&pdev->dev);
+#endif
 
 	return rc;
 }
@@ -580,6 +629,8 @@ exit:
 static int dp_parser_parse(struct dp_parser *parser)
 {
 	int rc = 0;
+
+	pr_debug("+++\n");
 
 	if (!parser) {
 		pr_err("invalid input\n");

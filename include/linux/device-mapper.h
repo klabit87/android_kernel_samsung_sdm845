@@ -90,6 +90,8 @@ typedef int (*dm_message_fn) (struct dm_target *ti, unsigned argc, char **argv);
 
 typedef int (*dm_prepare_ioctl_fn) (struct dm_target *ti,
 			    struct block_device **bdev, fmode_t *mode);
+typedef int (*dm_ioctl_fn) (struct dm_target *ti, unsigned int cmd,
+			    unsigned long arg);
 
 /*
  * These iteration functions are typically used to check (and combine)
@@ -180,6 +182,7 @@ struct target_type {
 	dm_iterate_devices_fn iterate_devices;
 	dm_io_hints_fn io_hints;
 	dm_direct_access_fn direct_access;
+	dm_ioctl_fn ioctl;
 
 	/* For internal device-mapper use. */
 	struct list_head list;
@@ -657,5 +660,6 @@ static inline unsigned long to_bytes(sector_t n)
 void dm_dispatch_request(struct request *rq);
 void dm_kill_unmapped_request(struct request *rq, int error);
 void dm_end_request(struct request *clone, int error);
+
 
 #endif	/* _LINUX_DEVICE_MAPPER_H */

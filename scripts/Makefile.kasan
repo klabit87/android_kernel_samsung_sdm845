@@ -5,11 +5,16 @@ else
 	call_threshold := 0
 endif
 
+CC = $(srctree)/scripts/gcc-wrapper.py $(srctree)/../prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.2.1/bin/aarch64-linux-gnu-gcc
+
 KASAN_SHADOW_OFFSET ?= $(CONFIG_KASAN_SHADOW_OFFSET)
 
 CFLAGS_KASAN_MINIMAL := -fsanitize=kernel-address
 
 cc-param = $(call cc-option, -mllvm -$(1), $(call cc-option, --param $(1)))
+
+KBUILD_CFLAGS += $(call cc-option, -D__ANDROID__ -w -Wno-error)
+KBUILD_CFLAGS += $(call cc-disable-warning,frame-address,)
 
 ifeq ($(call cc-option, $(CFLAGS_KASAN_MINIMAL) -Werror),)
    ifneq ($(CONFIG_COMPILE_TEST),y)

@@ -275,6 +275,10 @@ extern int sysctl_tcp_invalid_ratelimit;
 extern int sysctl_tcp_pacing_ss_ratio;
 extern int sysctl_tcp_pacing_ca_ratio;
 extern int sysctl_tcp_default_init_rwnd;
+#ifdef CONFIG_NETPM
+extern int sysctl_tcp_netpm[4];
+extern struct net_device *ip6_dev_find(struct net *net, const struct in6_addr *addr);
+#endif
 
 extern atomic_long_t tcp_memory_allocated;
 
@@ -1278,6 +1282,16 @@ static inline void tcp_slow_start_after_idle_check(struct sock *sk)
 void tcp_select_initial_window(int __space, __u32 mss, __u32 *rcv_wnd,
 			       __u32 *window_clamp, int wscale_ok,
 			       __u8 *rcv_wscale, __u32 init_rcv_wnd);
+
+#ifdef CONFIG_NETPM
+static inline int tcp_space_from_win(int win)
+{
+	return sysctl_tcp_adv_win_scale <= 0 ?
+			(win<<(-sysctl_tcp_adv_win_scale)) :
+			(win<<sysctl_tcp_adv_win_scale)/
+				((1<<sysctl_tcp_adv_win_scale)-1);
+}
+#endif
 
 static inline int tcp_win_from_space(int space)
 {

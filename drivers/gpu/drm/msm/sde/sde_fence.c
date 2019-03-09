@@ -55,6 +55,7 @@ signed long sde_sync_wait(void *fnc, long timeout_ms)
 			fence->seqno, timeline_str,
 			fence->ops->signaled ?
 				fence->ops->signaled(fence) : 0xffffffff);
+
 	}
 
 	return rc;
@@ -274,6 +275,7 @@ void sde_fence_prepare(struct sde_fence_context *ctx)
 	} else {
 		spin_lock_irqsave(&ctx->lock, flags);
 		++ctx->commit_count;
+		ctx->fence_timeline_update = true;
 		spin_unlock_irqrestore(&ctx->lock, flags);
 	}
 }
@@ -292,20 +294,24 @@ static void _sde_fence_trigger(struct sde_fence_context *ctx,
 	if (list_empty(&ctx->fence_list_head)) {
 		SDE_DEBUG("nothing to trigger!\n");
 		spin_unlock(&ctx->list_lock);
+		SDE_EVT32(ctx->drm_id, SDE_EVTLOG_FUNC_CASE2);
 		return;
 	}
 
+	SDE_EVT32(ctx->drm_id, SDE_EVTLOG_FUNC_CASE3);
 	list_for_each_entry_safe(fc, next, &ctx->fence_list_head, fence_list)
 		list_move(&fc->fence_list, &local_list_head);
 	spin_unlock(&ctx->list_lock);
 
+	SDE_EVT32(ctx->drm_id, SDE_EVTLOG_FUNC_CASE4);
 	list_for_each_entry_safe(fc, next, &local_list_head, fence_list) {
+		SDE_EVT32(ctx->drm_id, 0x1234);
 		spin_lock_irqsave(&ctx->lock, flags);
 		fc->base.error = error ? -EBUSY : 0;
 		fc->base.timestamp = ts;
 		is_signaled = fence_is_signaled_locked(&fc->base);
 		spin_unlock_irqrestore(&ctx->lock, flags);
-
+		SDE_EVT32(ctx->drm_id, is_signaled, 0x12345);
 		if (is_signaled) {
 			list_del_init(&fc->fence_list);
 			fence_put(&fc->base);
@@ -315,6 +321,7 @@ static void _sde_fence_trigger(struct sde_fence_context *ctx,
 			list_move(&fc->fence_list, &ctx->fence_list_head);
 			spin_unlock(&ctx->list_lock);
 		}
+		SDE_EVT32(ctx->drm_id, 0x123456);
 	}
 }
 
@@ -339,17 +346,23 @@ int sde_fence_create(struct sde_fence_context *ctx, uint64_t *val,
 	 * after an additional delay of one commit, rather than at the
 	 * end of the current one.
 	 */
+	SDE_EVT32(ctx->drm_id, SDE_EVTLOG_FUNC_ENTRY);
 	spin_lock_irqsave(&ctx->lock, flags);
 	trigger_value = ctx->commit_count + offset;
-
+	if (!ctx->fence_timeline_update) {
+		*val = ctx->fd;
+		rc = 0;
+		goto end;
+	}
 	spin_unlock_irqrestore(&ctx->lock, flags);
+
 
 	fd = _sde_fence_create_fd(ctx, trigger_value);
 	*val = fd;
 	SDE_DEBUG("fence_create::fd:%d trigger:%d commit:%d offset:%d\n",
 				fd, trigger_value, ctx->commit_count, offset);
 
-	SDE_EVT32(ctx->drm_id, trigger_value, fd);
+	SDE_EVT32(ctx->drm_id, ctx->done_count, ctx->commit_count, trigger_value);
 
 	if (fd >= 0) {
 		rc = 0;
@@ -357,6 +370,12 @@ int sde_fence_create(struct sde_fence_context *ctx, uint64_t *val,
 	} else {
 		rc = fd;
 	}
+
+	spin_lock_irqsave(&ctx->lock, flags);
+	ctx->fd = fd;
+	ctx->fence_timeline_update = false;
+end:
+	spin_unlock_irqrestore(&ctx->lock, flags);
 
 	return rc;
 }
@@ -368,9 +387,11 @@ void sde_fence_signal(struct sde_fence_context *ctx, ktime_t ts,
 
 	if (!ctx) {
 		SDE_ERROR("invalid ctx, %pK\n", ctx);
+		SDE_EVT32(SDE_EVTLOG_FATAL);
 		return;
 	}
 
+	SDE_EVT32(ctx->drm_id, SDE_EVTLOG_FUNC_ENTRY);
 	spin_lock_irqsave(&ctx->lock, flags);
 	if (fence_event == SDE_FENCE_RESET_TIMELINE) {
 		if ((int)(ctx->done_count - ctx->commit_count) < 0) {
@@ -403,6 +424,7 @@ void sde_fence_signal(struct sde_fence_context *ctx, ktime_t ts,
 			ktime_to_us(ts));
 
 	_sde_fence_trigger(ctx, ts, (fence_event == SDE_FENCE_SIGNAL_ERROR));
+	SDE_EVT32(ctx->drm_id, SDE_EVTLOG_FUNC_EXIT);
 }
 
 void sde_fence_timeline_status(struct sde_fence_context *ctx,

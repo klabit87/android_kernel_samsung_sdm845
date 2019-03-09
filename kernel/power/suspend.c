@@ -31,6 +31,8 @@
 #include <linux/compiler.h>
 #include <linux/moduleparam.h>
 #include <linux/wakeup_reason.h>
+#include <linux/irqchip/arm-gic-v3.h>
+#include <linux/sec_bsp.h>
 
 #include "power.h"
 
@@ -289,6 +291,21 @@ static int suspend_prepare(suspend_state_t state)
 		goto Finish;
 	}
 
+	sec_suspend_resume_add("Syncing FS+");
+#ifndef CONFIG_SUSPEND_SKIP_SYNC
+	trace_suspend_resume(TPS("sync_filesystems"), 0, true);
+	pr_info("PM: Syncing filesystems ... ");
+	if (intr_sync(NULL)) {
+		printk("canceled.\n");
+		trace_suspend_resume(TPS("sync_filesystems"), 0, false);
+		error = -EBUSY;
+		goto Finish;
+	}
+	pr_cont("done.\n");
+	trace_suspend_resume(TPS("sync_filesystems"), 0, false);
+#endif
+	sec_suspend_resume_add("Syncing FS-");
+
 	trace_suspend_resume(TPS("freeze_processes"), 0, true);
 	error = suspend_freeze_processes();
 	trace_suspend_resume(TPS("freeze_processes"), 0, false);
@@ -399,6 +416,10 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 			error = -EBUSY;
 		}
 		syscore_resume();
+		if (msm_show_resume_irq_mask) {
+			gic_show_pending_irqs();
+			pr_err("ICC_HPPIR1_EL1: %d\n", get_gic_highpri_irq());
+		}
 	}
 
 	arch_suspend_enable_irqs();
@@ -512,14 +533,6 @@ static int enter_state(suspend_state_t state)
 
 	if (state == PM_SUSPEND_FREEZE)
 		freeze_begin();
-
-#ifndef CONFIG_SUSPEND_SKIP_SYNC
-	trace_suspend_resume(TPS("sync_filesystems"), 0, true);
-	pr_info("PM: Syncing filesystems ... ");
-	sys_sync();
-	pr_cont("done.\n");
-	trace_suspend_resume(TPS("sync_filesystems"), 0, false);
-#endif
 
 	pr_debug("PM: Preparing system for sleep (%s)\n", pm_states[state]);
 	pm_suspend_clear_flags();

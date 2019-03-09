@@ -868,6 +868,8 @@ bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 	if (req_op(rq) == REQ_OP_WRITE_SAME &&
 	    !blk_write_same_mergeable(rq->bio, bio))
 		return false;
+	if (bio->bi_sec_flags & SEC_BYPASS && !(rq->cmd_flags & REQ_BYPASS))
+		return false;
 
 	if (crypto_not_mergeable(rq->bio, bio))
 		return false;

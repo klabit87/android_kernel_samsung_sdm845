@@ -164,6 +164,10 @@ struct msm_pinctrl_soc_data {
 	unsigned ngpios;
 	const struct msm_dir_conn *dir_conn;
 	unsigned int n_dir_conns;
+	const u32 *tile_offsets;
+	unsigned int n_tile_offsets;
+	u32 *pin_base;
+	unsigned int reg_size;
 	unsigned int dir_conn_irq_base;
 	struct msm_pdc_mux_output *pdc_mux_out;
 	unsigned int n_pdc_mux_out;

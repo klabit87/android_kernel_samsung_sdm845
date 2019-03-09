@@ -39,8 +39,8 @@ static enum vidc_status hfi_map_err_status(u32 hfi_err)
 	case HFI_ERR_SYS_FATAL:
 		vidc_err = VIDC_ERR_HW_FATAL;
 		break;
-	case HFI_ERR_SYS_NOC_ERROR:
-		vidc_err = VIDC_ERR_NOC_ERROR;
+	case HFI_ERR_SYS_FATAL_BUGON:
+		vidc_err = VIDC_ERR_HW_FATAL_BUGON;
 		break;
 	case HFI_ERR_SYS_VERSION_MISMATCH:
 	case HFI_ERR_SYS_INVALID_PARAMETER:

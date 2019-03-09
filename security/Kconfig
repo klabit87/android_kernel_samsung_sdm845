@@ -187,6 +187,12 @@ config HARDENED_USERCOPY_PAGESPAN
 	  been removed. This config is intended to be used only while
 	  trying to find such users.
 
+config NO_SDP_BASE
+	bool "disable SDP base"
+	default n
+	help
+	  This will disable SDP Base code.
+
 config FORTIFY_SOURCE
 	bool "Harden common str/mem functions against buffer overflows"
 	depends on ARCH_HAS_FORTIFY_SOURCE
@@ -200,8 +206,12 @@ source security/tomoyo/Kconfig
 source security/apparmor/Kconfig
 source security/loadpin/Kconfig
 source security/yama/Kconfig
+source security/mstdrv/Kconfig
 
 source security/integrity/Kconfig
+source security/tz_iccc/Kconfig
+source security/defex_lsm/Kconfig
+source security/dsms/Kconfig
 
 choice
 	prompt "Default security module"
@@ -239,6 +249,13 @@ config DEFAULT_SECURITY
 	default "tomoyo" if DEFAULT_SECURITY_TOMOYO
 	default "apparmor" if DEFAULT_SECURITY_APPARMOR
 	default "" if DEFAULT_SECURITY_DAC
+
+config TIMA_UEVENT
+	bool "Uevent message propagation for TIMA"
+	depends on TIMA
+	default y
+	help
+		Uevent messages for TIMA PKM/LKMAuth
 
 endmenu
 

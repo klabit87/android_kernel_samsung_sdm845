@@ -959,6 +959,11 @@ void msm_clock_data_reset(struct msm_vidc_inst *inst)
 		return;
 	}
 
+	if (!inst->clk_data.entry) {
+		dprintk(VIDC_ERR, "%s clock not initialized \n", __func__);
+		return;
+	}
+
 	core = inst->core;
 	dcvs = &inst->clk_data;
 	load = msm_comm_get_inst_load_per_core(inst, LOAD_CALC_NO_QUIRKS);

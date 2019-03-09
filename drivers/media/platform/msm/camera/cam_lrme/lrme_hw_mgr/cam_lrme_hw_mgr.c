@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,17 @@
 #include "cam_lrme_hw_mgr.h"
 
 static struct cam_lrme_hw_mgr g_lrme_hw_mgr;
+
+//Buffer that maintains info regarding prior patched addr's
+static struct cam_patch_info cam_patch_info_buf[CAM_MAX_PATCH_INFO];
+
+//pointer to current location of logging buffer
+static atomic64_t buffer_head;
+
+//macro to find current free idx in logging buffer
+#define INC_BUFFER_HEAD(head) \
+	(atomic64_add_return(1, head) % \
+	CAM_MAX_PATCH_INFO)
 
 static int cam_lrme_mgr_util_reserve_device(struct cam_lrme_hw_mgr *hw_mgr,
 	struct cam_lrme_acquire_args *lrme_acquire_args)
@@ -93,7 +104,7 @@ static int cam_lrme_mgr_util_packet_validate(struct cam_packet *packet)
 		return -EINVAL;
 	}
 
-	CAM_DBG(CAM_LRME, "Packet request=%d, op_code=0x%x, size=%d, flags=%d",
+	CAM_DBG(CAM_LRME, "Packet request=%lld, op_code=0x%x, size=%d, flags=%d",
 		packet->header.request_id, packet->header.op_code,
 		packet->header.size, packet->header.flags);
 	CAM_DBG(CAM_LRME,
@@ -150,8 +161,9 @@ static int cam_lrme_mgr_util_prepare_io_buffer(int32_t iommu_hdl,
 	int rc = -EINVAL;
 	uint32_t num_in_buf, num_out_buf, i, j, plane;
 	struct cam_buf_io_cfg *io_cfg;
-	dma_addr_t io_addr[CAM_PACKET_MAX_PLANES];
+	uint64_t io_addr[CAM_PACKET_MAX_PLANES];
 	size_t size;
+	uint64_t iterator = 0;
 
 	num_in_buf = 0;
 	num_out_buf = 0;
@@ -193,6 +205,11 @@ static int cam_lrme_mgr_util_prepare_io_buffer(int32_t iommu_hdl,
 					plane, rc);
 				return -ENOMEM;
 			}
+
+			iterator = INC_BUFFER_HEAD(&buffer_head);
+			cam_patch_info_buf[iterator].src_buf_hdl= io_cfg[i].mem_handle[plane];
+			cam_patch_info_buf[iterator].src_buf_iova = (uint32_t *)io_addr[plane];
+			cam_patch_info_buf[iterator].src_buf_size = size;
 
 			CAM_DBG(CAM_LRME, "IO Address[%d][%d] : %llu",
 				io_cfg[i].direction, plane, io_addr[plane]);
@@ -391,14 +408,13 @@ static int cam_lrme_mgr_util_submit_req(void *priv, void *data)
 	work_data = (struct cam_lrme_mgr_work_data *)data;
 	hw_device = work_data->hw_device;
 
-	rc = cam_lrme_mgr_util_get_frame_req(
-		&hw_device->frame_pending_list_high, &frame_req,
-		&hw_device->high_req_lock);
+	rc = cam_lrme_mgr_util_get_frame_req(&hw_device->
+		frame_pending_list_high, &frame_req, &hw_device->high_req_lock);
 
 	if (!frame_req) {
-		rc = cam_lrme_mgr_util_get_frame_req(
-			&hw_device->frame_pending_list_normal, &frame_req,
-			&hw_device->normal_req_lock);
+		rc = cam_lrme_mgr_util_get_frame_req(&hw_device->
+				frame_pending_list_normal, &frame_req,
+				&hw_device->normal_req_lock);
 		if (frame_req)
 			req_prio = 1;
 	}
@@ -660,6 +676,8 @@ static int cam_lrme_mgr_hw_flush(void *hw_mgr_priv, void *hw_flush_args)
 	struct cam_lrme_hw_flush_args lrme_flush_args;
 	uint32_t priority;
 
+	CAM_INFO(CAM_LRME, "E: LRME flush");
+
 	if (!hw_mgr_priv || !hw_flush_args) {
 		CAM_ERR(CAM_LRME, "Invalid args %pK %pK",
 			hw_mgr_priv, hw_flush_args);
@@ -725,6 +743,7 @@ static int cam_lrme_mgr_hw_flush(void *hw_mgr_priv, void *hw_flush_args)
 	}
 
 end:
+	CAM_INFO(CAM_LRME, "X: LRME flush with rc: %d", rc);
 	return rc;
 }
 
@@ -879,7 +898,6 @@ static int cam_lrme_mgr_hw_prepare_update(void *hw_mgr_priv,
 	if (args->num_in_map_entries == 0 || args->num_out_map_entries == 0) {
 		CAM_ERR(CAM_LRME, "Error in port number in %d, out %d",
 			args->num_in_map_entries, args->num_out_map_entries);
-		rc = -EINVAL;
 		goto error;
 	}
 
@@ -989,8 +1007,7 @@ int cam_lrme_mgr_register_device(
 	CAM_DBG(CAM_LRME, "Create submit workq for %s", buf);
 	rc = cam_req_mgr_workq_create(buf,
 		CAM_LRME_WORKQ_NUM_TASK,
-		&hw_device->work, CRM_WORKQ_USAGE_NON_IRQ,
-		0);
+		&hw_device->work, CRM_WORKQ_USAGE_NON_IRQ);
 	if (rc) {
 		CAM_ERR(CAM_LRME,
 			"Unable to create a worker, rc=%d", rc);

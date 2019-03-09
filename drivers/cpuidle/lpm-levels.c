@@ -39,6 +39,7 @@
 #include <soc/qcom/event_timer.h>
 #include <soc/qcom/lpm_levels.h>
 #include <soc/qcom/lpm-stats.h>
+#include <soc/qcom/socinfo.h>
 #include <soc/qcom/minidump.h>
 #include <asm/arch_timer.h>
 #include <asm/suspend.h>
@@ -52,6 +53,25 @@
 #endif /* CONFIG_COMMON_CLK */
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
+
+#ifdef CONFIG_SEC_PM_DEBUG
+#include <linux/sec-pinmux.h>
+#ifdef CONFIG_SEC_GPIO_DVS
+#include <linux/secgpio_dvs.h>
+#endif
+#endif
+
+#ifdef CONFIG_SEC_DEBUG_SUMMARY
+#include <linux/sec_debug.h>
+#include <linux/sec_debug_summary.h>
+#endif
+
+#ifdef CONFIG_SEC_PM
+#include <linux/regulator/consumer.h>
+#include <linux/qpnp/pin.h>
+#endif
+
+#include "../kernel/time/tick-internal.h"
 
 #define SCLK_HZ (32768)
 #define PSCI_POWER_STATE(reset) (reset << 30)
@@ -115,12 +135,34 @@ static struct lpm_debug *lpm_debug;
 static phys_addr_t lpm_debug_phys;
 static const int num_dbg_elements = 0x100;
 
+static void __iomem *app_gic;
+static void __iomem *gicd_ierr;
+static void __iomem *isenabler;
+static void __iomem *ispend;
+static void __iomem *iactive;
+static void __iomem *pdc_rsc;
+static void __iomem *qtimer_base;
+u32 gicd_debug_ierr[25];
+
 static void cluster_unprepare(struct lpm_cluster *cluster,
 		const struct cpumask *cpu, int child_idx, bool from_idle,
 		int64_t time);
 static void cluster_prepare(struct lpm_cluster *cluster,
 		const struct cpumask *cpu, int child_idx, bool from_idle,
 		int64_t time);
+
+#ifdef CONFIG_SEC_PM_DEBUG
+extern void sec_gpio_debug_print(void);
+static int msm_pm_sleep_sec_debug;
+module_param_named(secdebug, msm_pm_sleep_sec_debug, int, 0664);
+#endif
+
+static bool menu_select;
+module_param_named(menu_select, menu_select, bool, 0664);
+
+static int msm_pm_sleep_time_override;
+module_param_named(sleep_time_override,
+	msm_pm_sleep_time_override, int, 0664);
 
 static bool print_parsed_dt;
 module_param_named(print_parsed_dt, print_parsed_dt, bool, 0664);
@@ -596,11 +638,12 @@ static inline bool is_cpu_biased(int cpu)
 {
 	u64 now = sched_clock();
 	u64 last = sched_get_cpu_last_busy_time(cpu);
+	int hyst_bias = pm_qos_request(PM_QOS_HIST_BIAS);
 
 	if (!last)
 		return false;
 
-	return (now - last) < BIAS_HYST;
+	return (now - last) < max(BIAS_HYST, hyst_bias*NSEC_PER_MSEC);
 }
 
 static int cpu_power_select(struct cpuidle_device *dev,
@@ -1040,6 +1083,10 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 	}
 
 	if (idx != cluster->default_level) {
+		sec_debug_cluster_lpm_log(cluster->cluster_name, idx,
+			cluster->num_children_in_sync.bits[0],
+			cluster->child_cpus.bits[0], from_idle, 1);
+
 		update_debug_pc_event(CLUSTER_ENTER, idx,
 			cluster->num_children_in_sync.bits[0],
 			cluster->child_cpus.bits[0], from_idle);
@@ -1220,13 +1267,37 @@ static void cluster_unprepare(struct lpm_cluster *cluster,
 			cluster->num_children_in_sync.bits[0],
 			cluster->child_cpus.bits[0], from_idle);
 
+	sec_debug_cluster_lpm_log(cluster->cluster_name, cluster->last_level,
+			cluster->num_children_in_sync.bits[0],
+			cluster->child_cpus.bits[0], from_idle, 0);
+
 	last_level = cluster->last_level;
 	cluster->last_level = cluster->default_level;
 
 	cluster_notify(cluster, &cluster->levels[last_level], false);
 
-	if (from_idle)
+	if (from_idle) {
+		u32 i;
+
+		if (!check_tick_irq_enabled(app_gic)) {
+			for (i = 1; i < 25 ; i++) {
+				gicd_debug_ierr[i] = readl_relaxed_no_log(gicd_ierr);
+				gicd_ierr = gicd_ierr + 0x4;
+			}
+
+			pr_err("APSS_QTMR0_F0V1_QTMR_V1_CNTV_TVAL = 0x%x, "
+				"APSS_QTMR0_F0V1_QTMR_V1_CNTV_CTL = 0x%x, "
+				"APSS_GICD_IROUTERn(38) = 0x%x, APSS_GICD_IENABLERn(38) = 0x%x, "
+				"APSS_GICD_ISPENDRn(38) = 0x%x, APSS_GICD_IACTIVEn(38) = 0x%x, "
+				"PDC_value1 = 0x%x, PDC_value2 = 0x%x\n",
+				readl(qtimer_base+0x38), readl(qtimer_base+0x3C),
+				readl(app_gic+0x6130), readl(isenabler), readl(ispend),
+				readl(iactive), readl(pdc_rsc+0x38), readl(pdc_rsc+0x40));
+			printk("Current Qtime = 0x%llx \n",arch_counter_get_cntvct());
+			BUG();
+		}
 		update_cluster_history(&cluster->history, last_level);
+	}
 
 	cluster_unprepare(cluster->parent, &cluster->child_cpus,
 			last_level, from_idle, end_time);
@@ -1417,7 +1488,14 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	if (need_resched())
 		goto exit;
 
+#if 0 /* FIXME : remove secdbg logging for reducing cpu hang issues */
+	sec_debug_cpu_lpm_log(dev->cpu, idx, 0, 1);
+	secdbg_sched_msg("+Idle(%s)", cpu->levels[idx].name);
 	success = psci_enter_sleep(cpu, idx, true);
+	secdbg_sched_msg("-Idle(%s)", cpu->levels[idx].name);
+#else
+	success = psci_enter_sleep(cpu, idx, true);
+#endif
 
 exit:
 	end_time = ktime_to_ns(ktime_get());
@@ -1428,6 +1506,10 @@ exit:
 	dev->last_residency = ktime_us_delta(ktime_get(), start);
 	update_history(dev, idx);
 	trace_cpu_idle_exit(idx, success);
+
+/* FIXME : remove secdbg logging for reducing cpu hang issues */
+//	sec_debug_cpu_lpm_log(dev->cpu, idx, success, 0);
+
 	if (lpm_prediction && cpu->lpm_prediction) {
 		histtimer_cancel();
 		clusttimer_cancel();
@@ -1653,6 +1735,37 @@ static void register_cluster_lpm_stats(struct lpm_cluster *cl,
 static int lpm_suspend_prepare(void)
 {
 	suspend_in_progress = true;
+
+#ifdef CONFIG_SEC_GPIO_DVS
+	/************************ Caution !!! ****************************
+	 * This functiongit a must be located in appropriate
+	 * SLEEP position in accordance with the specification
+	 * of each BB vendor.
+	 ************************ Caution !!! ****************************/
+	gpio_dvs_check_sleepgpio();
+#ifdef SECGPIO_SLEEP_DEBUGGING
+	/************************ Caution !!! ****************************/
+	/* This func. must be located in an appropriate position for
+	 * GPIO SLEEP debugging in accordance with the specification
+	 * of each BB vendor, and the func. must be called after calling
+	 * the function "gpio_dvs_check_sleepgpio"
+	 ************************ Caution !!! ****************************/
+	gpio_dvs_set_sleepgpio();
+#endif
+#endif
+
+#ifdef CONFIG_SEC_PM
+	regulator_showall_enabled();
+	debug_rpmstats_show("entry");
+#endif
+
+#ifdef CONFIG_SEC_PM_DEBUG
+	if (msm_pm_sleep_sec_debug) {
+		msm_gpio_print_enabled();
+		sec_gpio_debug_print();
+	}
+#endif
+
 	lpm_stats_suspend_enter();
 
 	return 0;
@@ -1662,6 +1775,10 @@ static void lpm_suspend_wake(void)
 {
 	suspend_in_progress = false;
 	lpm_stats_suspend_exit();
+
+#ifdef CONFIG_SEC_PM
+	debug_rpmstats_show("exit");
+#endif
 }
 
 static int lpm_suspend_enter(suspend_state_t state)
@@ -1683,7 +1800,13 @@ static int lpm_suspend_enter(suspend_state_t state)
 	cpu_prepare(lpm_cpu, idx, false);
 	cluster_prepare(cluster, cpumask, idx, false, 0);
 
+	if (idx > 0)
+		secdbg_sched_msg("+Suspend(s:%d)", state);
+
 	psci_enter_sleep(lpm_cpu, idx, false);
+
+	if (idx > 0)
+		secdbg_sched_msg("-Suspend(s:%d)", state);
 
 	cluster_unprepare(cluster, cpumask, idx, false, 0);
 	cpu_unprepare(lpm_cpu, idx, false);
@@ -1713,6 +1836,13 @@ static int lpm_probe(struct platform_device *pdev)
 
 	get_online_cpus();
 	lpm_root_node = lpm_of_parse_cluster(pdev);
+	app_gic = ioremap_nocache(0x17A00000, 0x7000);
+	gicd_ierr = ioremap_nocache(0x17A0E104, 0x200);
+	qtimer_base = ioremap_nocache(0x17CA0000, 0x100);
+	isenabler = ioremap_nocache(0x17A00104, 0x4);
+	ispend = ioremap_nocache(0x17A00204, 0x4);
+	iactive = ioremap_nocache(0x17A00304, 0x4);
+	pdc_rsc = ioremap_nocache(0x179E0000, 0x100);
 
 	if (IS_ERR_OR_NULL(lpm_root_node)) {
 		pr_err("Failed to probe low power modes\n");
@@ -1771,6 +1901,7 @@ static int lpm_probe(struct platform_device *pdev)
 		goto failed;
 	}
 
+	summary_set_lpm_info_cci(virt_to_phys((void *)&lpm_root_node->last_level));
 	/* Add lpm_debug to Minidump*/
 	strlcpy(md_entry.name, "KLPMDEBUG", sizeof(md_entry.name));
 	md_entry.virt_addr = (uintptr_t)lpm_debug;
@@ -1818,10 +1949,19 @@ static int __init lpm_levels_module_init(void)
 #endif
 
 	rc = platform_driver_register(&lpm_driver);
-	if (rc)
+	if (rc) {
 		pr_info("Error registering %s rc=%d\n", lpm_driver.driver.name,
 									rc);
-
+		goto fail;
+	}
+/* ++ FIXME This code will be removed if V1 sample is not used any more. */
+#define SOC_VERSION_HW1 0x10000
+	if (socinfo_get_version() == SOC_VERSION_HW1) {
+		pr_err("Disable LPM for V1 HW\n");
+		cpu_idle_poll_ctrl(true);
+	}
+/* -- */
+fail:
 	return rc;
 }
 late_initcall(lpm_levels_module_init);

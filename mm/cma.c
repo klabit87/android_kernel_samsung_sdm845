@@ -44,6 +44,7 @@
 struct cma cma_areas[MAX_CMA_AREAS];
 unsigned cma_area_count;
 static DEFINE_MUTEX(cma_mutex);
+static DEFINE_MUTEX(rbin_mutex);
 
 phys_addr_t cma_get_base(const struct cma *cma)
 {
@@ -127,6 +128,11 @@ static int __init cma_activate_area(struct cma *cma)
 	unsigned long base_pfn = cma->base_pfn, pfn = base_pfn;
 	unsigned i = cma->count >> pageblock_order;
 	struct zone *zone;
+#ifdef CONFIG_RBIN
+	bool is_rbin = cma->is_rbin;
+#else
+	bool is_rbin = false;
+#endif
 
 	cma->bitmap = kzalloc(bitmap_size, GFP_KERNEL);
 
@@ -151,7 +157,7 @@ static int __init cma_activate_area(struct cma *cma)
 			if (page_zone(pfn_to_page(pfn)) != zone)
 				goto err;
 		}
-		init_cma_reserved_pageblock(pfn_to_page(base_pfn));
+		init_cma_reserved_pageblock(pfn_to_page(base_pfn), is_rbin);
 	} while (--i);
 
 	mutex_init(&cma->lock);
@@ -248,6 +254,13 @@ int __init cma_init_reserved_mem(phys_addr_t base, phys_addr_t size,
 
 	return 0;
 }
+
+#ifdef CONFIG_RBIN
+void cma_set_rbin(struct cma *cma)
+{
+	cma->is_rbin = true;
+}
+#endif
 
 /**
  * cma_declare_contiguous() - reserve custom contiguous area
@@ -394,7 +407,6 @@ err:
 	return ret;
 }
 
-#ifdef CONFIG_CMA_DEBUG
 static void cma_debug_show_areas(struct cma *cma)
 {
 	unsigned long next_zero_bit, next_set_bit;
@@ -416,9 +428,6 @@ static void cma_debug_show_areas(struct cma *cma)
 	pr_cont("=> %u free of %lu total pages\n", nr_total, cma->count);
 	mutex_unlock(&cma->lock);
 }
-#else
-static inline void cma_debug_show_areas(struct cma *cma) { }
-#endif
 
 /**
  * cma_alloc() - allocate pages from contiguous area
@@ -436,6 +445,12 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 	unsigned long start = 0;
 	unsigned long bitmap_maxno, bitmap_no, bitmap_count;
 	struct page *page = NULL;
+#ifdef CONFIG_RBIN
+	bool is_rbin = cma ? cma->is_rbin : false;
+	bool need_mutex = (align < (MAX_ORDER - 1)) ? true : false;
+#else
+	bool is_rbin = false;
+#endif
 	int retry_after_sleep = 0;
 	int ret = -ENOMEM;
 	int max_retries = 2;
@@ -466,7 +481,7 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 				bitmap_maxno, start, bitmap_count, mask,
 				offset);
 		if (bitmap_no >= bitmap_maxno) {
-			if ((retry_after_sleep < max_retries) &&
+			if (!is_rbin && (retry_after_sleep < max_retries) &&
 						(ret == -EBUSY)) {
 				start = 0;
 				/*
@@ -504,9 +519,21 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 		mutex_unlock(&cma->lock);
 
 		pfn = cma->base_pfn + (bitmap_no << cma->order_per_bit);
-		mutex_lock(&cma_mutex);
-		ret = alloc_contig_range(pfn, pfn + count, MIGRATE_CMA);
-		mutex_unlock(&cma_mutex);
+		if (!is_rbin) {
+			mutex_lock(&cma_mutex);
+			ret = alloc_contig_range(pfn, pfn + count, MIGRATE_CMA);
+			mutex_unlock(&cma_mutex);
+		}
+#ifdef CONFIG_RBIN
+		else {
+			if (need_mutex)
+				mutex_lock(&rbin_mutex);
+			ret = alloc_contig_range(pfn, pfn + count,
+							MIGRATE_RBIN);
+			if (need_mutex)
+				mutex_unlock(&rbin_mutex);
+		}
+#endif
 		if (ret == 0) {
 			page = pfn_to_page(pfn);
 			break;
@@ -526,7 +553,7 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 
 	trace_cma_alloc(pfn, page, count, align);
 
-	if (ret) {
+	if (ret && !is_rbin) {
 		pr_info("%s: alloc failed, req-size: %zu pages, ret: %d\n",
 			__func__, count, ret);
 		cma_debug_show_areas(cma);

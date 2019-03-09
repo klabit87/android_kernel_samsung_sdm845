@@ -959,6 +959,9 @@ int cpr3_adjust_target_quotients(struct cpr3_regulator *vreg,
 int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
 			int fuse_count);
 
+int cpr3_save_fused_open_loop_voltage(struct cpr3_regulator *vreg,
+			int *fuse_volt);
+
 #else
 
 static inline int cpr3_regulator_register(struct platform_device *pdev,
@@ -1138,6 +1141,12 @@ static inline void cprh_adjust_voltages_for_mem_acc(struct cpr3_regulator *vreg)
 
 static inline int cpr3_adjust_target_quotients(struct cpr3_regulator *vreg,
 			int *fuse_volt_adjust)
+{
+	return 0;
+}
+
+static int cpr3_save_fused_open_loop_voltage(struct cpr3_regulator *vreg,
+			int *fuse_volt)
 {
 	return 0;
 }

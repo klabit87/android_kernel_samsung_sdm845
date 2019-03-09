@@ -57,6 +57,26 @@
 #define MSM_VERSION_MINOR	2
 #define MSM_VERSION_PATCHLEVEL	0
 
+static BLOCKING_NOTIFIER_HEAD(msm_drm_notifier_list);
+
+int msm_drm_register_notifier_client(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&msm_drm_notifier_list, nb);
+}
+EXPORT_SYMBOL(msm_drm_register_notifier_client);
+
+int msm_drm_unregister_notifier_client(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&msm_drm_notifier_list, nb);
+}
+EXPORT_SYMBOL(msm_drm_unregister_notifier_client);
+
+int __msm_drm_notifier_call_chain(unsigned long event, void *data)
+{
+	return blocking_notifier_call_chain(&msm_drm_notifier_list,
+					event, data);
+}
+
 static void msm_fb_output_poll_changed(struct drm_device *dev)
 {
 	struct msm_drm_private *priv = NULL;
@@ -211,8 +231,7 @@ static void vblank_ctrl_worker(struct kthread_work *work)
 {
 	struct msm_vblank_ctrl *vbl_ctrl = container_of(work,
 						struct msm_vblank_ctrl, work);
-	struct msm_drm_private *priv = container_of(vbl_ctrl,
-					struct msm_drm_private, vblank_ctrl);
+	struct msm_drm_private *priv = vbl_ctrl->priv;
 	struct msm_kms *kms = priv->kms;
 	struct vblank_event *vbl_ev, *tmp;
 	unsigned long flags;
@@ -240,16 +259,22 @@ static void vblank_ctrl_worker(struct kthread_work *work)
 static int vblank_ctrl_queue_work(struct msm_drm_private *priv,
 					int crtc_id, bool enable)
 {
-	struct msm_vblank_ctrl *vbl_ctrl = &priv->vblank_ctrl;
+	struct msm_vblank_ctrl *vbl_ctrl;
 	struct vblank_event *vbl_ev;
 	unsigned long flags;
 
 	vbl_ev = kzalloc(sizeof(*vbl_ev), GFP_ATOMIC);
-	if (!vbl_ev)
+	if (!vbl_ev || !priv)
 		return -ENOMEM;
+
+	if (crtc_id > MAX_CRTCS - 1)
+		return -EINVAL;
 
 	vbl_ev->crtc_id = crtc_id;
 	vbl_ev->enable = enable;
+
+	vbl_ctrl = &priv->vblank_ctrl[crtc_id];
+	vbl_ctrl->priv = priv;
 
 	spin_lock_irqsave(&vbl_ctrl->lock, flags);
 	list_add_tail(&vbl_ev->node, &vbl_ctrl->event_list);
@@ -268,7 +293,7 @@ static int msm_drm_uninit(struct device *dev)
 	struct msm_drm_private *priv = ddev->dev_private;
 	struct msm_kms *kms = priv->kms;
 	struct msm_gpu *gpu = priv->gpu;
-	struct msm_vblank_ctrl *vbl_ctrl = &priv->vblank_ctrl;
+	struct msm_vblank_ctrl *vbl_ctrl;
 	struct vblank_event *vbl_ev, *tmp;
 	int i;
 
@@ -276,10 +301,14 @@ static int msm_drm_uninit(struct device *dev)
 	 * work before drm_irq_uninstall() to avoid work re-enabling an
 	 * irq after uninstall has disabled it.
 	 */
-	kthread_flush_work(&vbl_ctrl->work);
-	list_for_each_entry_safe(vbl_ev, tmp, &vbl_ctrl->event_list, node) {
-		list_del(&vbl_ev->node);
-		kfree(vbl_ev);
+	for (i = 0; i < priv->num_crtcs; i++) {
+		vbl_ctrl = &priv->vblank_ctrl[i];
+		kthread_flush_work(&vbl_ctrl->work);
+		list_for_each_entry_safe(vbl_ev, tmp,
+			&vbl_ctrl->event_list, node) {
+			list_del(&vbl_ev->node);
+			kfree(vbl_ev);
+		}
 	}
 
 	/* clean up display commit/event worker threads */
@@ -522,9 +551,6 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 
 	INIT_LIST_HEAD(&priv->client_event_list);
 	INIT_LIST_HEAD(&priv->inactive_list);
-	INIT_LIST_HEAD(&priv->vblank_ctrl.event_list);
-	kthread_init_work(&priv->vblank_ctrl.work, vblank_ctrl_worker);
-	spin_lock_init(&priv->vblank_ctrl.lock);
 
 	ret = sde_power_resource_init(pdev, &priv->phandle);
 	if (ret) {
@@ -595,6 +621,14 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 		}
 	}
 	ddev->mode_config.funcs = &mode_config_funcs;
+
+	/* Create vblank ctrl for each display */
+	for (i = 0; i < priv->num_crtcs; i++) {
+		kthread_init_work(&priv->vblank_ctrl[i].work,
+			vblank_ctrl_worker);
+		INIT_LIST_HEAD(&priv->vblank_ctrl[i].event_list);
+		spin_lock_init(&priv->vblank_ctrl[i].lock);
+	}
 
 	/**
 	 * this priority was found during empiric testing to have appropriate

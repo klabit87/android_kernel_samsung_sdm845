@@ -3612,7 +3612,7 @@ static ssize_t tpdm_show_cmb_read_interface_state(struct device *dev,
 
 	return scnprintf(buf, PAGE_SIZE, "%lx\n", val);
 }
-static DEVICE_ATTR(cmb_read_interface_state, 0444,
+static DEVICE_ATTR(cmb_read_interface_state, 0400,
 		   tpdm_show_cmb_read_interface_state, NULL);
 
 static ssize_t tpdm_show_cmb_read_ctl_reg(struct device *dev,
@@ -3672,7 +3672,7 @@ static ssize_t tpdm_store_cmb_read_ctl_reg(struct device *dev,
 
 	return size;
 }
-static DEVICE_ATTR(cmb_read_ctl_reg, 0644,
+static DEVICE_ATTR(cmb_read_ctl_reg, 0600,
 		   tpdm_show_cmb_read_ctl_reg, tpdm_store_cmb_read_ctl_reg);
 
 static ssize_t tpdm_show_mcmb_trig_lane(struct device *dev,

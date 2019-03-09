@@ -39,6 +39,23 @@
 /* Request to switch the fps */
 #define MSM_MODE_FLAG_SEAMLESS_VRR			(1<<3)
 
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+enum mdss_intf_events {
+	SS_EVENT_FRAME_UPDATE_POST = 0,
+	SS_EVENT_FRAME_UPDATE_PRE,
+	SS_EVENT_FB_EVENT_CALLBACK,
+	SS_EVENT_PANEL_ON,
+	SS_EVENT_PANEL_OFF,
+	SS_EVENT_PANEL_RECOVERY,
+	SS_EVENT_PANEL_ESD_RECOVERY,
+	SS_EVENT_CHECK_TE,
+	SS_EVENT_SDE_HW_CATALOG_INIT,
+	SS_EVENT_MAX,
+};
+#endif
+
+
 /* As there are different display controller blocks depending on the
  * snapdragon version, the kms support is split out and the appropriate
  * implementation is loaded at runtime.  The kms module is responsible
@@ -108,6 +125,10 @@ struct msm_kms_funcs {
 	int (*cont_splash_config)(struct msm_kms *kms);
 	/* check for continuous splash status */
 	bool (*check_for_splash)(struct msm_kms *kms);
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	int (*ss_callback)(struct drm_device *dev,
+			enum mdss_intf_events event, void *arg);
+#endif
 };
 
 struct msm_kms {

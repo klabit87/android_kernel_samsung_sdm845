@@ -132,6 +132,7 @@ enum EV_PRIORITY {
 /* verbose and register logging are disabled if !debug */
 #define GPII_REG(gpii, ch, fmt, ...)
 #define GPII_VERB(gpii, ch, fmt, ...)
+#define CMD_TIMEOUT_MS (50)
 #endif
 
 #define GPI_LABEL_SIZE (256)
@@ -454,6 +455,66 @@ struct gpi_dev {
 	struct dentry *dentry;
 };
 
+struct reg_info {
+	char *name;
+	u32 offset;
+	u32 val;
+};
+
+static const struct reg_info ev_cntxt[] = {
+	{ "CONFIG", CNTXT_0_CONFIG },
+	{ "R_LENGTH", CNTXT_1_R_LENGTH },
+	{ "BASE_LSB", CNTXT_2_RING_BASE_LSB },
+	{ "BASE_MSB", CNTXT_3_RING_BASE_MSB },
+	{ "RP_LSB", CNTXT_4_RING_RP_LSB },
+	{ "RP_MSB", CNTXT_5_RING_RP_MSB },
+	{ "WP_LSB", CNTXT_6_RING_WP_LSB },
+	{ "WP_MSB", CNTXT_7_RING_WP_MSB },
+	{ "INT_MOD", CNTXT_8_RING_INT_MOD },
+	{ "INTVEC", CNTXT_9_RING_INTVEC },
+	{ "MSI_LSB", CNTXT_10_RING_MSI_LSB },
+	{ "MSI_MSB", CNTXT_11_RING_MSI_MSB },
+	{ "RP_UPDATE_LSB", CNTXT_12_RING_RP_UPDATE_LSB },
+	{ "RP_UPDATE_MSB", CNTXT_13_RING_RP_UPDATE_MSB },
+	{ NULL },
+};
+
+static const struct reg_info ch_cntxt[] = {
+	{ "CONFIG", CNTXT_0_CONFIG },
+	{ "R_LENGTH", CNTXT_1_R_LENGTH },
+	{ "BASE_LSB", CNTXT_2_RING_BASE_LSB },
+	{ "BASE_MSB", CNTXT_3_RING_BASE_MSB },
+	{ "RP_LSB", CNTXT_4_RING_RP_LSB },
+	{ "RP_MSB", CNTXT_5_RING_RP_MSB },
+	{ "WP_LSB", CNTXT_6_RING_WP_LSB },
+	{ "WP_MSB", CNTXT_7_RING_WP_MSB },
+	{ NULL },
+};
+
+static const struct reg_info debug_regs[] = {
+	{ "DEBUG_PC", GPI_DEBUG_PC_FOR_DEBUG },
+	{ "SW_RF_10", GPI_DEBUG_SW_RF_n_READ(10) },
+	{ "SW_RF_11", GPI_DEBUG_SW_RF_n_READ(11) },
+	{ "SW_RF_12", GPI_DEBUG_SW_RF_n_READ(12) },
+	{ "SW_RF_21", GPI_DEBUG_SW_RF_n_READ(21) },
+	{ NULL },
+};
+
+struct gpi_reg_table {
+	u64 timestamp;
+	struct reg_info *ev_cntxt_info;
+	struct reg_info *chan[MAX_CHANNELS_PER_GPII];
+	struct reg_info *debug_regs;
+	struct reg_info *gpii_cntxt;
+	u32 ev_scratch_0;
+	u32 ch_scratch_0[MAX_CHANNELS_PER_GPII];
+	void *ev_ring;
+	u32 ev_ring_len;
+	void *ch_ring[MAX_CHANNELS_PER_GPII];
+	u32 ch_ring_len[MAX_CHANNELS_PER_GPII];
+	u32 error_log;
+};
+
 struct gpii_chan {
 	struct virt_dma_chan vc;
 	u32 chid;
@@ -508,6 +569,7 @@ struct gpii {
 	atomic_t dbg_index;
 	char label[GPI_LABEL_SIZE];
 	struct dentry *dentry;
+	struct gpi_reg_table reg_table;
 };
 
 struct gpi_desc {
@@ -617,6 +679,123 @@ static inline void gpi_write_reg_field(struct gpii *gpii,
 	tmp &= ~mask;
 	val = tmp | ((val << shift) & mask);
 	gpi_write_reg(gpii, addr, val);
+}
+
+static void gpi_dump_debug_reg(struct gpii *gpii)
+{
+	struct gpi_reg_table *reg_table = &gpii->reg_table;
+	struct reg_info *reg_info;
+	int chan;
+	const struct reg_info gpii_cntxt[] = {
+		{ "TYPE_IRQ", GPI_GPII_n_CNTXT_TYPE_IRQ_OFFS(gpii->gpii_id) },
+		{ "TYPE_IRQ_MSK", GPI_GPII_n_CNTXT_TYPE_IRQ_MSK_OFFS(gpii->gpii_id) },
+		{ "CH_IRQ", GPI_GPII_n_CNTXT_SRC_GPII_CH_IRQ_OFFS(gpii->gpii_id) },
+		{ "EV_IRQ", GPI_GPII_n_CNTXT_SRC_EV_CH_IRQ_OFFS(gpii->gpii_id) },
+		{ "CH_IRQ_MSK", GPI_GPII_n_CNTXT_SRC_CH_IRQ_MSK_OFFS(gpii->gpii_id) },
+		{ "EV_IRQ_MSK", GPI_GPII_n_CNTXT_SRC_EV_CH_IRQ_MSK_OFFS(gpii->gpii_id) },
+		{ "IEOB_IRQ", GPI_GPII_n_CNTXT_SRC_IEOB_IRQ_OFFS(gpii->gpii_id) },
+		{ "IEOB_IRQ_MSK", GPI_GPII_n_CNTXT_SRC_IEOB_IRQ_MSK_OFFS(gpii->gpii_id) },
+		{ "GLOB_IRQ", GPI_GPII_n_CNTXT_GLOB_IRQ_STTS_OFFS(gpii->gpii_id) },
+		{ NULL },
+	};
+
+	GPII_INFO(gpii, GPI_DBG_COMMON, "Enter\n");
+
+	reg_table->timestamp = sched_clock();
+
+	if (!reg_table->gpii_cntxt) {
+		reg_table->gpii_cntxt = vmalloc(sizeof(gpii_cntxt));
+		if (!reg_table->gpii_cntxt)
+			return;
+		memcpy((void *)reg_table->gpii_cntxt, (void *)gpii_cntxt,
+				sizeof(gpii_cntxt));
+	}
+
+	/* log gpii cntxt */
+	reg_info = reg_table->gpii_cntxt;
+	for (; reg_info->name; reg_info++)
+		reg_info->val = readl_relaxed(gpii->regs + reg_info->offset);
+
+	if (!reg_table->ev_cntxt_info) {
+		reg_table->ev_cntxt_info = vmalloc(sizeof(ev_cntxt));
+		if (!reg_table->ev_cntxt_info)
+			return;
+		memcpy((void *)reg_table->ev_cntxt_info, (void *)ev_cntxt,
+				sizeof(ev_cntxt));
+	}
+
+	/* log ev cntxt */
+	reg_info = reg_table->ev_cntxt_info;
+	for (; reg_info->name; reg_info++)
+		reg_info->val = readl_relaxed(gpii->ev_cntxt_base_reg +
+									reg_info->offset);
+
+	/* dump channel cntxt registers */
+	for (chan = 0; chan < MAX_CHANNELS_PER_GPII; chan++) {
+		if (!reg_table->chan[chan]) {
+			reg_table->chan[chan] = vmalloc(sizeof(ch_cntxt));
+			if (!reg_table->chan[chan])
+				return;
+			memcpy((void *)reg_table->chan[chan], (void *)ch_cntxt,
+					sizeof(ch_cntxt));
+		}
+		reg_info = reg_table->chan[chan];
+		for (; reg_info->name; reg_info++)
+			reg_info->val = readl_relaxed(gpii->gpii_chan[chan].
+										ch_cntxt_base_reg + reg_info->offset);
+	}
+
+	if (!reg_table->debug_regs) {
+		reg_table->debug_regs = vmalloc(sizeof(debug_regs));
+		if (!reg_table->debug_regs)
+			return;
+		memcpy((void *)reg_table->debug_regs, (void *)debug_regs,
+				sizeof(debug_regs));
+	}
+
+	/* log debug register */
+	reg_info = reg_table->debug_regs;
+	for (; reg_info->name; reg_info++)
+		reg_info->val = readl_relaxed(gpii->regs + reg_info->offset);
+
+	/* dump scratch registers */
+	reg_table->ev_scratch_0 = readl_relaxed(gpii->regs +
+							GPI_GPII_n_CNTXT_SCRATCH_0_OFFS(gpii->gpii_id));
+	for (chan = 0; chan < MAX_CHANNELS_PER_GPII; chan++)
+		reg_table->ch_scratch_0[chan] = readl_relaxed(gpii->regs +
+								GPI_GPII_n_CH_k_SCRATCH_0_OFFS(gpii->gpii_id,
+								gpii->gpii_chan[chan].chid));
+
+	/* Copy the ev ring */
+	if (!reg_table->ev_ring) {
+		reg_table->ev_ring_len = gpii->ev_ring.len;
+		reg_table->ev_ring = vmalloc(reg_table->ev_ring_len);
+		if (!reg_table->ev_ring)
+			return;
+	}
+	memcpy(reg_table->ev_ring, gpii->ev_ring.base, reg_table->ev_ring_len);
+
+	/* Copy Transfer rings */
+	for (chan = 0; chan < MAX_CHANNELS_PER_GPII; chan++) {
+		struct gpii_chan *gpii_chan = &gpii->gpii_chan[chan];
+
+		if (!reg_table->ch_ring[chan]) {
+			reg_table->ch_ring_len[chan] = gpii_chan->ch_ring.len;
+			reg_table->ch_ring[chan] = vmalloc(reg_table->
+												ch_ring_len[chan]);
+			if (!reg_table->ch_ring[chan])
+				return;
+		}
+
+		memcpy(reg_table->ch_ring[chan], gpii_chan->ch_ring.base,
+				reg_table->ch_ring_len[chan]);
+	}
+
+
+	reg_table->error_log = readl_relaxed(gpii->regs +
+									GPI_GPII_n_ERROR_LOG_OFFS(gpii->gpii_id));
+
+	GPII_INFO(gpii, GPI_DBG_COMMON, "Exit\n");
 }
 
 static void gpi_disable_interrupts(struct gpii *gpii)
@@ -878,6 +1057,7 @@ static int gpi_send_cmd(struct gpii *gpii,
 	if (!timeout) {
 		GPII_ERR(gpii, chid, "cmd: %s completion timeout\n",
 			 TO_GPI_CMD_STR(gpi_cmd));
+		gpi_dump_debug_reg(gpii); 
 		return -EIO;
 	}
 
@@ -1003,6 +1183,33 @@ static void gpi_process_ch_ctrl_irq(struct gpii *gpii)
 			gpi_generate_cb_event(gpii_chan, MSM_GPI_QUP_CH_ERROR,
 					      __LINE__);
 	}
+}
+
+/* processing gpi general error interrupts */
+static void gpi_process_gen_err_irq(struct gpii *gpii)
+{
+	u32 gpii_id = gpii->gpii_id;
+	u32 offset = GPI_GPII_n_CNTXT_GPII_IRQ_STTS_OFFS(gpii_id);
+	u32 irq_stts = gpi_read_reg(gpii, gpii->regs + offset);
+	u32 chid;
+	struct gpii_chan *gpii_chan;
+
+	/* clear the status */
+	GPII_ERR(gpii, GPI_DBG_COMMON, "irq_stts:0x%x\n", irq_stts);
+
+	/* Notify the client about error */
+	for (chid = 0, gpii_chan = gpii->gpii_chan;
+		chid < MAX_CHANNELS_PER_GPII; chid++, gpii_chan++)
+		if (gpii_chan->client_info.callback)
+			gpi_generate_cb_event(gpii_chan, MSM_GPI_QUP_FW_ERROR,
+				      irq_stts);
+
+	/* Clear the register */
+	offset = GPI_GPII_n_CNTXT_GPII_IRQ_CLR_OFFS(gpii_id);
+	gpi_write_reg(gpii, gpii->regs + offset, irq_stts);
+
+	gpi_dump_debug_reg(gpii);
+	panic("fatal gpi interrupt");
 }
 
 /* processing gpi level error interrupts */
@@ -1155,6 +1362,13 @@ static irqreturn_t gpi_handle_irq(int irq, void *data)
 				  "process CH CTRL interrupts\n");
 			gpi_process_ch_ctrl_irq(gpii);
 			type &= ~(GPI_GPII_n_CNTXT_TYPE_IRQ_MSK_CH_CTRL);
+		}
+
+		/* General Interrupt */
+		if (type & GPI_GPII_n_CNTXT_TYPE_IRQ_MSK_GENERAL) {
+			GPII_ERR(gpii, GPI_DBG_COMMON,
+				  "process GENERAL interrupt\n");
+			gpi_process_gen_err_irq(gpii);
 		}
 
 		if (type) {
@@ -1898,6 +2112,9 @@ int gpi_terminate_all(struct dma_chan *chan)
 
 	GPII_INFO(gpii, gpii_chan->chid, "Enter\n");
 	mutex_lock(&gpii->ctrl_lock);
+
+	/* dump debug registers */
+	gpi_dump_debug_reg(gpii);
 
 	/*
 	 * treat both channels as a group if its protocol is not UART

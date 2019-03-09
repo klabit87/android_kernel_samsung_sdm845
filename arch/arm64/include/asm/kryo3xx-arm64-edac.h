@@ -14,9 +14,11 @@
 #define ASM_KRYO3xx_EDAC_H
 
 #if defined(CONFIG_EDAC_KRYO3XX_ARM64)
-void kryo3xx_poll_cache_errors(void *info);
+void kryo3xx_check_l1_l2_ecc(void *info);
+void kryo3xx_check_l3_scu_error(void *info);
 #else
-static inline void kryo3xx_poll_cache_errors(void *info) { }
+static inline void kryo3xx_check_l1_l2_ecc(void *info) { }
+static inline void kryo3xx_check_l3_scu_error(void *info) { }
 #endif
 
 #endif

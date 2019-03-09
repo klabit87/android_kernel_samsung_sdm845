@@ -53,12 +53,14 @@ static int add_to_rbuf(struct mbox_chan *chan, void *mssg)
 	return idx;
 }
 
+ktime_t start_msg_submit;
 static int __msg_submit(struct mbox_chan *chan)
 {
 	unsigned count, idx;
 	unsigned long flags;
 	void *data;
 	int err = -EBUSY;
+	start_msg_submit = ktime_get();
 
 	spin_lock_irqsave(&chan->lock, flags);
 
@@ -121,7 +123,6 @@ static void tx_tick(struct mbox_chan *chan, int r)
 
 	/* Submit next message */
 	msg_submit(chan);
-
 	if (!mssg)
 		return;
 
@@ -267,9 +268,11 @@ EXPORT_SYMBOL_GPL(mbox_client_peek_data);
  *	or transmission over chan (blocking mode).
  *	Negative value denotes failure.
  */
+ ktime_t start_send_msg;
 int mbox_send_message(struct mbox_chan *chan, void *mssg)
 {
 	int t;
+	start_send_msg = ktime_get();
 
 	if (!chan || !chan->cl)
 		return -EINVAL;

@@ -245,6 +245,9 @@ source "net/l3mdev/Kconfig"
 source "net/qrtr/Kconfig"
 source "net/ncsi/Kconfig"
 source "net/rmnet_data/Kconfig"
+# KNOX NPA - START
+source "net/ncm/Kconfig"
+# KNOX NPA - END
 
 config RPS
 	bool
@@ -450,3 +453,9 @@ config HAVE_CBPF_JIT
 # Extended BPF JIT (eBPF)
 config HAVE_EBPF_JIT
 	bool
+
+# Network Pacemaker
+config NETPM
+	bool "Network Pacemaker"
+	---help---
+	This feature implements Network Pacemaker (NETPM)

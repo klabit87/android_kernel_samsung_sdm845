@@ -581,8 +581,8 @@ static bool _sde_rm_check_lm_and_get_connected_blks(
 	const struct sde_lm_cfg *lm_cfg = to_sde_hw_mixer(lm->hw)->cap;
 	const struct sde_pingpong_cfg *pp_cfg;
 	struct sde_rm_hw_iter iter;
-	bool is_valid_dspp, is_valid_ds, ret;
 	u32 display_pref;
+	bool is_valid_dspp, is_valid_ds, ret;
 
 	*dspp = NULL;
 	*ds = NULL;
@@ -875,7 +875,7 @@ static int _sde_rm_reserve_ctls(
 		 * bypass rest feature checks on finding CTL preferred
 		 * for primary displays.
 		 */
-		if (!primary_pref && !_ctl_ids) {
+		if (!(reqs->hw_res.is_primary && primary_pref) && !_ctl_ids) {
 			if (top->needs_split_display != has_split_display)
 				continue;
 
@@ -1320,7 +1320,6 @@ static int _sde_rm_get_pp_dsc_for_cont_splash(struct sde_rm *rm,
 
 		_sde_rm_autorefresh_disable(pp, hw_intr);
 	}
-
 	return dsc_cnt;
 }
 

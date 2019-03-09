@@ -36,6 +36,7 @@
 #include <linux/sde_io_util.h>
 #include <asm/sizes.h>
 #include <linux/kthread.h>
+#include <linux/notifier.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_atomic.h>
@@ -47,6 +48,7 @@
 #include <drm/drm_gem.h>
 
 #include "sde_power_handle.h"
+#include <linux/sde_notify.h>
 
 #define GET_MAJOR_REV(rev)		((rev) >> 28)
 #define GET_MINOR_REV(rev)		(((rev) >> 16) & 0xFFF)
@@ -202,6 +204,7 @@ struct msm_vblank_ctrl {
 	struct kthread_work work;
 	struct list_head event_list;
 	spinlock_t lock;
+	struct msm_drm_private *priv;
 };
 
 #define MAX_H_TILES_PER_DISPLAY 2
@@ -615,7 +618,7 @@ struct msm_drm_private {
 	struct notifier_block vmap_notifier;
 	struct shrinker shrinker;
 
-	struct msm_vblank_ctrl vblank_ctrl;
+	struct msm_vblank_ctrl vblank_ctrl[MAX_CRTCS];
 
 	/* task holding struct_mutex.. currently only used in submit path
 	 * to detect and reject faults from copy_from_user() for submit
@@ -804,6 +807,7 @@ struct drm_framebuffer *msm_framebuffer_create(struct drm_device *dev,
 struct drm_fb_helper *msm_fbdev_init(struct drm_device *dev);
 void msm_fbdev_free(struct drm_device *dev);
 
+int __msm_drm_notifier_call_chain(unsigned long event, void *data);
 struct hdmi;
 #ifdef CONFIG_DRM_MSM_HDMI
 int msm_hdmi_modeset_init(struct hdmi *hdmi, struct drm_device *dev,

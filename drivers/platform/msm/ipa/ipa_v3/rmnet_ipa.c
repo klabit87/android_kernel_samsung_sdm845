@@ -1136,7 +1136,7 @@ static int ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (atomic_read(&wwan_ptr->outstanding_pkts) >=
 					wwan_ptr->outstanding_high) {
 		if (!qmap_check) {
-			IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
+			IPAWANDBG("pending(%d)/(%d)- stop(%d)\n",
 				atomic_read(&wwan_ptr->outstanding_pkts),
 				wwan_ptr->outstanding_high,
 				netif_queue_stopped(dev));
@@ -1243,7 +1243,7 @@ static void apps_ipa_tx_complete_notify(void *priv,
 		netif_queue_stopped(wwan_ptr->net) &&
 		atomic_read(&wwan_ptr->outstanding_pkts) <
 					(wwan_ptr->outstanding_low)) {
-		IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
+		IPAWANDBG("Outstanding low (%d) - waking up queue\n",
 				wwan_ptr->outstanding_low);
 		netif_wake_queue(wwan_ptr->net);
 	}

@@ -88,7 +88,11 @@ obj-$(CONFIG_REGULATOR_RN5T618) += rn5t618-regulator.o
 obj-$(CONFIG_REGULATOR_RT5033)	+= rt5033-regulator.o
 obj-$(CONFIG_REGULATOR_S2MPA01) += s2mpa01.o
 obj-$(CONFIG_REGULATOR_S2MPS11) += s2mps11.o
+obj-$(CONFIG_REGULATOR_S2MPB02) += s2mpb02-regulator.o
+obj-$(CONFIG_REGULATOR_S2MPB03) += s2mpb03.o
 obj-$(CONFIG_REGULATOR_S5M8767) += s5m8767.o
+obj-$(CONFIG_REGULATOR_S2DOS03) += s2dos03-regulator.o
+obj-$(CONFIG_REGULATOR_S2DOS05) += s2dos05.o s2dos05_powermeter.o
 obj-$(CONFIG_REGULATOR_SKY81452) += sky81452-regulator.o
 obj-$(CONFIG_REGULATOR_STW481X_VMMC) += stw481x-vmmc.o
 obj-$(CONFIG_REGULATOR_TI_ABB) += ti-abb-regulator.o
@@ -117,7 +121,7 @@ obj-$(CONFIG_REGULATOR_RPM_SMD) += rpm-smd-regulator.o
 obj-$(CONFIG_REGULATOR_SPM) += spm-regulator.o
 
 obj-$(CONFIG_REGULATOR_CPR) += cpr-regulator.o
-obj-$(CONFIG_REGULATOR_CPR3) += cpr3-regulator.o cpr3-util.o
+obj-$(CONFIG_REGULATOR_CPR3) += cpr3-regulator.o cpr3-util.o cpr3-util-sec.o
 obj-$(CONFIG_REGULATOR_CPR3_HMSS) += cpr3-hmss-regulator.o
 obj-$(CONFIG_REGULATOR_CPR3_MMSS) += cpr3-mmss-regulator.o
 obj-$(CONFIG_REGULATOR_CPR4_APSS) += cpr4-apss-regulator.o
@@ -133,5 +137,7 @@ obj-$(CONFIG_REGULATOR_QPNP) += qpnp-regulator.o
 obj-$(CONFIG_REGULATOR_REFGEN) += refgen.o
 obj-$(CONFIG_REGULATOR_RPMH) += rpmh-regulator.o
 obj-$(CONFIG_REGULATOR_STUB) += stub-regulator.o
+
+obj-$(CONFIG_REGULATOR_S2ABB01) += s2abb01.o
 
 ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG

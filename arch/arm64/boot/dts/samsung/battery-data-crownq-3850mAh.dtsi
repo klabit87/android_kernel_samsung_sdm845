@@ -1,0 +1,56 @@
+/*
+ * SAMSUNG board device tree source
+ *
+ * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+/* This dtsi is only for hw id 03, 06 */
+#include "battery-data-crownq-common.dtsi"
+
+&soc {
+	max77705-fuelgauge {
+		/* for 3850mAh battery */
+		fuelgauge,v_empty = <0xa05f>; /* Empty: 3260mV, Recover: 3480mV */
+		fuelgauge,qrtable20 = <0x0780>;
+		fuelgauge,qrtable30 = <0x0681>;
+		fuelgauge,capacity = <0x0e5a>;
+		fuelgauge,ttf_capacity = <3850>;
+	};
+
+	battery {
+		battery,swelling_low_temp_current = <900>;	/* 0.3C */
+		battery,swelling_high_temp_current = <1350>;	/* 0.45C */
+		battery,swelling_wc_high_temp_current = <900>;	/* 0.3C */
+		battery,swelling_wc_low_temp_current = <900>;	/* 0.3C */
+
+		battery,ttf_hv_charge_current = <2750>;
+		battery,ttf_hv_wireless_charge_current = <1350>;
+		battery,max_charging_current = <2750>;
+		battery,standard_curr = <2750>;
+		battery,battery_full_capacity = <3850>;
+	};
+
+	cable-info {
+		current_group_4 {
+			cable_number = <6 7 8 17 18>;
+			charging_current = <2750>;
+		};
+		current_group_5 {
+			cable_number = <9>;
+			charging_current = <2750>;
+		};
+		current_group_6 {
+			cable_number = <10 12 15 27>;
+			charging_current = <1500>;
+		};
+		current_group_10 {
+			cable_number = <11 14 16 28>;
+			charging_current = <1500>;
+		};
+	};
+};

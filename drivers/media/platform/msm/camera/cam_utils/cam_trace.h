@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -72,19 +72,17 @@ TRACE_EVENT(cam_isp_activated_irq,
 );
 
 TRACE_EVENT(cam_icp_fw_dbg,
-	TP_PROTO(char *dbg_message, uint64_t timestamp),
-	TP_ARGS(dbg_message, timestamp),
+	TP_PROTO(char *dbg_message),
+	TP_ARGS(dbg_message),
 	TP_STRUCT__entry(
 		__string(dbg_message, dbg_message)
-		__field(uint64_t, timestamp)
 	),
 	TP_fast_assign(
 		__assign_str(dbg_message, dbg_message);
-		__entry->timestamp = timestamp;
 	),
 	TP_printk(
-		"%llu %s: ",
-		 __entry->timestamp, __get_str(dbg_message)
+		"%s: ",
+		__get_str(dbg_message)
 	)
 );
 
@@ -228,7 +226,7 @@ TRACE_EVENT(cam_req_mgr_add_req,
 		__entry->session   = link->parent;
 	),
 	TP_printk(
-		"ReqMgr AddRequest devname=%s devid=%d request=%lld slot=%d pd=%d readymap=%x devicemap=%d link=%pk session=%pK",
+		"ReqMgr AddRequest devname=%s devid=%d request=%lld slot=%d pd=%d readymap=%x devicemap=%d link=%pK session=%pK",
 			__get_str(name), __entry->dev_id, __entry->req_id,
 			__entry->slot_id, __entry->delay, __entry->readymap,
 			__entry->devicemap, __entry->link, __entry->session

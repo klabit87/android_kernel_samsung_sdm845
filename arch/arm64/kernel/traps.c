@@ -46,6 +46,10 @@
 #include <asm/sysreg.h>
 #include <trace/events/exception.h>
 
+#include <linux/sec_debug.h>
+#include <linux/sec_debug_summary.h>
+#include <linux/sec_debug_user_reset.h>
+
 static const char *handler[]= {
 	"Synchronous Abort",
 	"IRQ",
@@ -145,6 +149,10 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 	unsigned long irq_stack_ptr;
 	int skip;
 
+#if (defined CONFIG_RKP_CFP_ROPP) && (defined CONFIG_RKP_CFP_TEST)
+	unsigned long value = 0x0;
+#endif
+
 	pr_debug("%s(regs = %p tsk = %p)\n", __func__, regs, tsk);
 
 	if (!tsk)
@@ -152,6 +160,11 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 
 	if (!try_get_task_stack(tsk))
 		return;
+
+#if (defined CONFIG_RKP_CFP_ROPP) && (defined CONFIG_RKP_CFP_TEST)
+	asm volatile("mrs %0, "STR(RRMK)"\n\t" : "=r" (value));
+	printk("CFP_TEST MK= %lx RRK=%lx X17=%lx\n", value, task_thread_info(tsk)->rrk, task_thread_info(tsk)->rrk ^ value);
+#endif
 
 	/*
 	 * Switching between stacks is valid when tracing current and in
@@ -256,6 +269,17 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 		 end_of_stack(tsk));
 
 	if (!user_mode(regs)) {
+#ifdef CONFIG_SEC_DEBUG
+		if (THREAD_SIZE + (unsigned long)task_stack_page(tsk) - regs->sp
+			> THREAD_SIZE) {
+			dump_mem(KERN_EMERG, "Stack: ", regs->sp,
+					THREAD_SIZE / 4 + regs->sp);
+		} else {
+			dump_mem(KERN_EMERG, "Stack: ", regs->sp, THREAD_SIZE
+					+ (unsigned long)task_stack_page(tsk));
+		}
+#endif
+
 		dump_backtrace(regs, tsk);
 		dump_instr(KERN_EMERG, regs);
 	}
@@ -273,6 +297,7 @@ static unsigned long oops_begin(void)
 	unsigned long flags;
 
 	oops_enter();
+	secdbg_sched_msg("!!die!!");
 
 	/* racy, but better than risking deadlock. */
 	raw_local_irq_save(flags);
@@ -327,6 +352,7 @@ void die(const char *str, struct pt_regs *regs, int err)
 	if (bug_type != BUG_TRAP_TYPE_NONE && !strlen(str))
 		str = "Oops - BUG";
 
+	sec_debug_save_die_info(str, regs);
 	ret = __die(str, err, regs);
 
 	oops_end(flags, regs, ret);
@@ -800,6 +826,9 @@ const char *esr_get_class_string(u32 esr)
 asmlinkage void bad_mode(struct pt_regs *regs, int reason, unsigned int esr)
 {
 	console_verbose();
+
+	sec_debug_save_badmode_info(reason, handler[reason],
+			esr, esr_get_class_string(esr));
 
 	pr_crit("Bad mode in %s handler detected on CPU%d, code 0x%08x -- %s\n",
 		handler[reason], smp_processor_id(), esr,

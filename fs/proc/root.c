@@ -94,7 +94,12 @@ static struct dentry *proc_mount(struct file_system_type *fs_type,
 		ns = task_active_pid_ns(current);
 	}
 
+#ifdef CONFIG_PROC_PARSE_OPTION_ON_MOUNT
+	return mount_ns_option(fs_type, flags, data, ns, ns->user_ns,
+				proc_fill_super, proc_parse_options);
+#else
 	return mount_ns(fs_type, flags, data, ns, ns->user_ns, proc_fill_super);
+#endif
 }
 
 static void proc_kill_sb(struct super_block *sb)
@@ -127,6 +132,7 @@ void __init proc_root_init(void)
 		return;
 
 	proc_self_init();
+
 	proc_thread_self_init();
 	proc_symlink("mounts", NULL, "self/mounts");
 

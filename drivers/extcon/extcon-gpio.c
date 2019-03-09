@@ -230,6 +230,8 @@ static int gpio_extcon_probe(struct platform_device *pdev)
 	if (ret < 0)
 		return ret;
 
+	enable_irq_wake(data->irq);
+
 	platform_set_drvdata(pdev, data);
 	/* Perform initial detection */
 	gpio_extcon_work(&data->work.work);

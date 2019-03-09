@@ -197,4 +197,14 @@ static inline int crypto_rng_seedsize(struct crypto_rng *tfm)
 	return crypto_rng_alg(tfm)->seedsize;
 }
 
+/**
+ * crypto_rng_check_entropy() - check rng is DRBG and initialized from hw entropy
+ *
+ * This function returns 0 if stdrng is DRBG familay and initialized by /dev/randon pool
+ * Important : only available where CONFIG_CRYPTO_FIPS build
+ *
+ * Return: 0 (/dev/random); -1 (/dev/urandom); < -1 if an error occurred
+ */
+int crypto_rng_check_entropy(struct crypto_rng *rng);
+
 #endif

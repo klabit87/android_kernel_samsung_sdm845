@@ -561,8 +561,13 @@ EXPORT_SYMBOL(mipi_dsi_set_maximum_return_packet_size);
  * Return: The number of bytes transmitted on success or a negative error code
  * on failure.
  */
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+ssize_t mipi_dsi_generic_write(struct mipi_dsi_device *dsi, void *payload,
+			       size_t size)
+#else
 ssize_t mipi_dsi_generic_write(struct mipi_dsi_device *dsi, const void *payload,
 			       size_t size)
+#endif
 {
 	struct mipi_dsi_msg msg = {
 		.channel = dsi->channel,
@@ -606,8 +611,13 @@ EXPORT_SYMBOL(mipi_dsi_generic_write);
  * Return: The number of bytes successfully read or a negative error code on
  * failure.
  */
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+ssize_t mipi_dsi_generic_read(struct mipi_dsi_device *dsi, void *params,
+			      size_t num_params, void *data, size_t size)
+#else
 ssize_t mipi_dsi_generic_read(struct mipi_dsi_device *dsi, const void *params,
 			      size_t num_params, void *data, size_t size)
+#endif
 {
 	struct mipi_dsi_msg msg = {
 		.channel = dsi->channel,
@@ -650,8 +660,13 @@ EXPORT_SYMBOL(mipi_dsi_generic_read);
  * Return: The number of bytes successfully transmitted or a negative error
  * code on failure.
  */
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+ssize_t mipi_dsi_dcs_write_buffer(struct mipi_dsi_device *dsi,
+				  void *data, size_t len)
+#else
 ssize_t mipi_dsi_dcs_write_buffer(struct mipi_dsi_device *dsi,
 				  const void *data, size_t len)
+#endif
 {
 	struct mipi_dsi_msg msg = {
 		.channel = dsi->channel,

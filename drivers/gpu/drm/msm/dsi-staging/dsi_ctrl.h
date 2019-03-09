@@ -59,6 +59,8 @@
 /* max size supported for dsi cmd transfer using TPG */
 #define DSI_CTRL_MAX_CMD_FIFO_STORE_SIZE 64
 
+/* max size supported for dsi cmd transfer using DMA */
+#define DSI_CTRL_MAX_CMD_FET_MEMORY_SIZE 200
 /**
  * enum dsi_channel_id - defines dsi channel id.
  * @DSI_CTRL_LEFT:    DSI 0 channel
@@ -427,7 +429,7 @@ int dsi_ctrl_soft_reset(struct dsi_ctrl *dsi_ctrl);
  *
  * Return: error code
  */
-int dsi_ctrl_host_timing_update(struct dsi_ctrl *dsi_ctrl);
+int dsi_ctrl_host_timing_update(struct dsi_ctrl *dsi_ctrl, bool cont_splash);
 
 /**
  * dsi_ctrl_host_init() - Initialize DSI host hardware.

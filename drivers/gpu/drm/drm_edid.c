@@ -36,6 +36,9 @@
 #include <drm/drmP.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_displayid.h>
+#ifdef CONFIG_SEC_DISPLAYPORT
+#include <linux/secdp_logger.h>
+#endif
 
 #define version_greater(edid, maj, min) \
 	(((edid)->version > (maj)) || \
@@ -1490,6 +1493,14 @@ drm_do_probe_ddc_edid(void *data, u8 *buf, unsigned int block, size_t len)
 			break;
 		}
 	} while (ret != xfers && --retries);
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (len == EDID_LENGTH) {
+		print_hex_dump(KERN_DEBUG, "secdp_EDID: ", DUMP_PREFIX_NONE, 16, 1,
+			buf, len, false);
+		secdp_logger_hex_dump(buf, "EDID:", len);
+	}
+#endif
 
 	return ret == xfers ? 0 : -1;
 }
@@ -3663,6 +3674,13 @@ struct edid *edid)
 	const u8 *cea = drm_find_cea_extension(edid);
 	const u8 *db = NULL;
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (connector->hdr_supported) {
+		pr_debug("prev: hdr_supported has set -> clear!\n");
+		connector->hdr_supported = false;
+	}
+#endif
+
 	if (cea && cea_revision(cea) >= 3) {
 		int i, start, end;
 
@@ -3688,6 +3706,16 @@ struct edid *edid)
 			}
 		}
 	}
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	if (connector) {
+		pr_debug("[drm-dp] %s: HDR electro-optical <%d>, hdr_supported <%d>\n",
+			__func__, connector->hdr_eotf, connector->hdr_supported);
+
+		if (connector->hdr_supported)
+			connector->hdr_supported = false;
+	}
+#endif
 }
 
 static u8 *

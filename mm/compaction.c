@@ -822,6 +822,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		 * Skip any other type of page
 		 */
 		if (!PageLRU(page)) {
+#ifdef CONFIG_ZSWAP_MIGRATION_SUPPORT
 			/*
 			 * __PageMovable can return false positive so we need
 			 * to verify it under page_lock.
@@ -837,7 +838,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 				if (isolate_movable_page(page, isolate_mode))
 					goto isolate_success;
 			}
-
+#endif
 			goto isolate_fail;
 		}
 
@@ -884,8 +885,9 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		del_page_from_lru_list(page, lruvec, page_lru(page));
 		inc_node_page_state(page,
 				NR_ISOLATED_ANON + page_is_file_cache(page));
-
+#ifdef CONFIG_ZSWAP_MIGRATION_SUPPORT
 isolate_success:
+#endif
 		list_add(&page->lru, &cc->migratepages);
 		cc->nr_migratepages++;
 		nr_isolated++;
@@ -1110,6 +1112,9 @@ static void isolate_freepages(struct compact_control *cc)
 		if (!isolation_suitable(cc, page))
 			continue;
 
+		if (is_migrate_rbin_page(page))
+			continue;
+
 		/* Found a block suitable for isolating free pages from. */
 		isolate_freepages_block(cc, &isolate_start_pfn, block_end_pfn,
 					freelist, false);
@@ -1261,6 +1266,8 @@ static isolate_migrate_t isolate_migratepages(struct zone *zone,
 		if (!isolation_suitable(cc, page))
 			continue;
 
+		if (is_migrate_rbin_page(page))
+			continue;
 		/*
 		 * For async compaction, also only scan in MOVABLE blocks.
 		 * Async compaction is optimistic to see if the minimum amount

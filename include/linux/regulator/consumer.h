@@ -234,6 +234,10 @@ int regulator_set_voltage_time(struct regulator *regulator,
 			       int old_uV, int new_uV);
 int regulator_get_voltage(struct regulator *regulator);
 int regulator_sync_voltage(struct regulator *regulator);
+#ifdef CONFIG_SEC_PM
+int regulator_set_short_detection(struct regulator *regulator,
+				  bool enable, int lv_uA);
+#endif
 int regulator_set_current_limit(struct regulator *regulator,
 			       int min_uA, int max_uA);
 int regulator_get_current_limit(struct regulator *regulator);
@@ -264,6 +268,10 @@ void devm_regulator_unregister_notifier(struct regulator *regulator,
 /* driver data - core doesn't touch */
 void *regulator_get_drvdata(struct regulator *regulator);
 void regulator_set_drvdata(struct regulator *regulator, void *data);
+
+#ifdef CONFIG_SEC_PM
+void regulator_showall_enabled(void);
+#endif
 
 #else
 
@@ -457,6 +465,14 @@ static inline int regulator_is_supported_voltage(struct regulator *regulator,
 {
 	return 0;
 }
+
+#ifdef CONFIG_SEC_PM
+static inline int regulator_set_short_protection(struct regulator *regulator,
+						 bool enable, int lv_uA)
+{
+	return 0;
+}
+#endif
 
 static inline int regulator_set_current_limit(struct regulator *regulator,
 					     int min_uA, int max_uA)

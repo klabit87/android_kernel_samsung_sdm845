@@ -29,4 +29,9 @@ config SLIMBUS_MSM_NGD
 	  component residing on ADSP for bandwidth and data-channel
 	  management.
 
+config SLIMBUS_DEBUG
+	tristate "Debug code for SLIMbus"
+	help
+	  debug code for SLIMbus issue
+
 endif

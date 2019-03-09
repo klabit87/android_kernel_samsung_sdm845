@@ -13,6 +13,9 @@
 #include "sdm845-pmic-overlay.dtsi"
 #include "sdm845-pinctrl-overlay.dtsi"
 
+/*
+ * TODO: ServiceTask#100911
 &pmi8998_charger {
 	qcom,suspend-input;
 };
+*/

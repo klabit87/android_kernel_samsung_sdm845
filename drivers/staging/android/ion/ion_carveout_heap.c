@@ -97,12 +97,15 @@ static int ion_carveout_heap_allocate(struct ion_heap *heap,
 
 	sg_set_page(table->sgl, pfn_to_page(PFN_DOWN(paddr)), size, 0);
 	/*
-	 * This is not correct - sg_dma_address needs a dma_addr_t that is valid
+	 * This is not correct: sg_dma_address needs a dma_addr)t that is valid
 	 * for the targeted device, but this works on the currently targeted
 	 * hardware.
 	 */
-	sg_dma_address(table->sgl) = sg_phys(table->sgl);
+        sg_dma_address(table->sgl) = sg_phys(table->sgl);
 
+	if (ion_buffer_cached(buffer))
+		dma_sync_sg_for_cpu(dev, table->sgl, table->nents,
+				DMA_BIDIRECTIONAL);
 	buffer->priv_virt = table;
 
 	if (ion_buffer_cached(buffer))

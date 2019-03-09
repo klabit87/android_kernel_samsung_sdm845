@@ -35,6 +35,7 @@
 #define   CTL_ROT_TOP                   0x0C0
 #define   CTL_ROT_FLUSH                 0x0C4
 #define   CTL_ROT_START                 0x0CC
+#define   CTL_DMA_START_QUEUE0		0xE0
 
 #define CTL_MIXER_BORDER_OUT            BIT(24)
 #define CTL_FLUSH_MASK_ROT              BIT(27)
@@ -76,6 +77,16 @@ static int _mixer_stages(const struct sde_lm_cfg *mixer, int count,
 	}
 
 	return stages;
+}
+
+static inline u32 sde_hw_ctl_read_start(struct sde_hw_ctl *ctx)
+{
+	return SDE_REG_READ(&ctx->hw, CTL_START);
+}
+
+static inline void sde_hw_ctl_reset_lutdma_start(struct sde_hw_ctl *ctx)
+{
+	SDE_REG_WRITE(&ctx->hw, CTL_DMA_START_QUEUE0, 0x10);
 }
 
 static inline void sde_hw_ctl_trigger_start(struct sde_hw_ctl *ctx)
@@ -671,6 +682,8 @@ static void _setup_ctl_ops(struct sde_hw_ctl_ops *ops,
 	ops->get_bitmask_wb = sde_hw_ctl_get_bitmask_wb;
 	ops->reg_dma_flush = sde_hw_reg_dma_flush;
 	ops->get_start_state = sde_hw_ctl_get_start_state;
+	ops->read_start = sde_hw_ctl_read_start;
+	ops->reset_lutdma_start = sde_hw_ctl_reset_lutdma_start;
 
 	if (cap & BIT(SDE_CTL_SBUF)) {
 		ops->get_bitmask_rot = sde_hw_ctl_get_bitmask_rot;

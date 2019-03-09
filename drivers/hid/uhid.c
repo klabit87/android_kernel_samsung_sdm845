@@ -24,6 +24,7 @@
 #include <linux/spinlock.h>
 #include <linux/uhid.h>
 #include <linux/wait.h>
+#include <linux/msm_drm_notify.h>
 
 #define UHID_NAME	"uhid"
 #define UHID_BUFSIZE	32
@@ -57,6 +58,8 @@ struct uhid_device {
 };
 
 static struct miscdevice uhid_misc;
+
+bool lcd_is_on = true;
 
 static void uhid_device_add_worker(struct work_struct *work)
 {
@@ -190,7 +193,7 @@ static int __uhid_report_queue_and_wait(struct uhid_device *uhid,
 
 	ret = wait_event_interruptible_timeout(uhid->report_wait,
 				!uhid->report_running || !uhid->running,
-				5 * HZ);
+				10/*5 * HZ*/);  // from 5000 to 10 due to BT stuck when connecting apple magic mouse
 	if (!ret || !uhid->running || uhid->report_running)
 		ret = -EIO;
 	else if (ret < 0)
@@ -792,8 +795,50 @@ static struct miscdevice uhid_misc = {
 	.minor		= UHID_MINOR,
 	.name		= UHID_NAME,
 };
-module_misc_device(uhid_misc);
 
+static int drm_state_change(struct notifier_block *nb,
+	unsigned long val, void *data)
+{
+	struct msm_drm_notifier *evdata = data;
+	unsigned int blank;
+
+	dbg_hid("drm_state_change");
+	if (val != MSM_DRM_EVENT_BLANK)
+		return 0;
+
+	blank = *(int *)evdata->data;
+
+	switch (blank) {
+	case MSM_DRM_BLANK_POWERDOWN:
+		lcd_is_on = false;
+		break;
+	case MSM_DRM_BLANK_UNBLANK:
+		lcd_is_on = true;
+		break;
+	default:
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+static struct notifier_block msm_drm_block = {
+	.notifier_call = drm_state_change,
+};
+
+static int __init uhid_init(void)
+{
+	msm_drm_register_client(&msm_drm_block);
+	return misc_register(&uhid_misc);
+}
+
+static void __exit uhid_exit(void)
+{
+	msm_drm_unregister_client(&msm_drm_block);
+	misc_deregister(&uhid_misc);
+}
+
+module_init(uhid_init);
+module_exit(uhid_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("David Herrmann <dh.herrmann@gmail.com>");
 MODULE_DESCRIPTION("User-space I/O driver support for HID subsystem");

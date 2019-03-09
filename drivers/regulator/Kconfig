@@ -701,6 +701,44 @@ config REGULATOR_S5M8767
 	 via I2C bus. S5M8767A have 9 Bucks and 28 LDOs output and
 	 supports DVS mode with 8bits of output voltage control.
 
+config REGULATOR_S2DOS03
+	tristate "SLSI S2DOS03 regulator"
+	depends on I2C
+	help
+	  This driver provides support for the voltage regulators of the S2DOS03.
+	  The S2DOS03 is a companion power management IC for the smart phones.
+	  The S2DOS03 handles LDO and BUCK control
+
+config REGULATOR_S2MPB02
+	tristate "Samsung S2MPB02 regulator"
+	depends on MFD_S2MPB02
+	help
+	 This driver controls a Samsung S2MPB02 regulator
+	 via I2C bus.
+
+config REGULATOR_S2MPB03
+	tristate "Samsung S2MPB03 regulator"
+	depends on I2C
+	help
+	 This driver controls a Samsung S2MPB03 regulator
+	 via I2C bus.
+
+config REGULATOR_S2ABB01
+	tristate "SLSI S2ABB01 regulator"
+	depends on I2C
+	help
+	  This driver provides support for the voltage regulators of the S2ABB01.
+	  The S2ABB01 is a power management IC for the smart phones.
+	  The S2ABB01 handles 1 LDO and 1 BUCK control
+
+config REGULATOR_S2DOS05
+	tristate "SLSI S2DOS05 regulator"
+	depends on I2C
+	help
+	  This driver provides support for the voltage regulators of the S2DOS05.
+	  The S2DOS05 is a companion power management IC for the smart phones.
+	  The S2DOS05 handles LDO and BUCK control
+
 config REGULATOR_SKY81452
 	tristate "Skyworks Solutions SKY81452 voltage regulator"
 	depends on MFD_SKY81452

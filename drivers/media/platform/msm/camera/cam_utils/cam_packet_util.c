@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,6 +16,17 @@
 #include "cam_mem_mgr.h"
 #include "cam_packet_util.h"
 #include "cam_debug_util.h"
+
+//Buffer that maintains info regarding prior patched addr's
+static struct cam_patch_info cam_patch_info_buf[CAM_MAX_PATCH_INFO];
+
+//pointer to current location of logging buffer
+static atomic64_t buffer_head;
+
+//macro to find current free idx in logging buffer
+#define INC_BUFFER_HEAD(head) \
+	(atomic64_add_return(1, head) % \
+	CAM_MAX_PATCH_INFO)
 
 int cam_packet_util_get_cmd_mem_addr(int handle, uint32_t **buf_addr,
 	size_t *len)
@@ -127,7 +138,7 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 	int32_t iommu_hdl, int32_t sec_mmu_hdl)
 {
 	struct cam_patch_desc *patch_desc = NULL;
-	dma_addr_t iova_addr;
+	uint64_t   iova_addr;
 	uint64_t   cpu_addr;
 	uint32_t   temp;
 	uint32_t  *dst_cpu_addr;
@@ -137,6 +148,7 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 	int        i;
 	int        rc = 0;
 	int32_t    hdl;
+	uint64_t   iterator = 0;
 
 	/* process patch descriptor */
 	patch_desc = (struct cam_patch_desc *)
@@ -171,24 +183,6 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 			patch_desc[i].dst_buf_hdl, patch_desc[i].dst_offset,
 			patch_desc[i].src_buf_hdl, patch_desc[i].src_offset);
 
-		if (patch_desc[i].src_offset >= src_buf_size) {
-			CAM_ERR_RATE_LIMIT(CAM_UTIL,
-				"Inval src offset:0x%x src len:0x%x reqid:%lld",
-				patch_desc[i].src_offset,
-				(unsigned int)src_buf_size,
-				packet->header.request_id);
-			return -EINVAL;
-		}
-
-		if (patch_desc[i].dst_offset >= dst_buf_len) {
-			CAM_ERR_RATE_LIMIT(CAM_UTIL,
-				"Inval dst offset:0x%x dst len:0x%x reqid:%lld",
-				patch_desc[i].dst_offset,
-				(unsigned int)dst_buf_len,
-				packet->header.request_id);
-			return -EINVAL;
-		}
-
 		dst_cpu_addr = (uint32_t *)((uint8_t *)dst_cpu_addr +
 			patch_desc[i].dst_offset);
 		temp += patch_desc[i].src_offset;
@@ -196,9 +190,17 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 		*dst_cpu_addr = temp;
 
 		CAM_DBG(CAM_UTIL,
-			"patch is done for dst %pK with src %pK value %llx",
+			"patch is done for dst %p with src %p value %llx length = %x end_addr = %x",
 			dst_cpu_addr, src_buf_iova_addr,
-			*((uint64_t *)dst_cpu_addr));
+			*((uint64_t *)dst_cpu_addr), (int)src_buf_size, (int)(temp + src_buf_size));
+
+		iterator = INC_BUFFER_HEAD(&buffer_head);
+		cam_patch_info_buf[iterator].dst_buf_hdl = patch_desc[i].dst_buf_hdl;
+		cam_patch_info_buf[iterator].src_buf_hdl = patch_desc[i].src_buf_hdl;
+		cam_patch_info_buf[iterator].dst_cpu_addr = dst_cpu_addr;
+		cam_patch_info_buf[iterator].src_buf_iova = src_buf_iova_addr;
+		cam_patch_info_buf[iterator].src_buf_size = src_buf_size;
+		cam_patch_info_buf[iterator].end_addr = (int)(temp + src_buf_size);
 	}
 
 	return rc;

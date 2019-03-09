@@ -33,6 +33,12 @@
 #include "sde_rotator_smmu.h"
 #include "sde_rotator_debug.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+#include <linux/delay.h>
+#include "../../../../../gpu/drm/msm/samsung/ss_dsi_panel_debug.h"
+#include <linux/sec_debug.h>
+#endif
+
 #define SMMU_SDE_ROT_SEC	"qcom,smmu_sde_rot_sec"
 #define SMMU_SDE_ROT_UNSEC	"qcom,smmu_sde_rot_unsec"
 
@@ -336,6 +342,10 @@ int sde_smmu_map_dma_buf(struct dma_buf *dma_buf,
 	int rc;
 	struct sde_smmu_client *sde_smmu = sde_smmu_get_cb(domain);
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	int retry_cnt;
+#endif
+
 	if (!sde_smmu) {
 		SDEROT_ERR("not able to get smmu context\n");
 		return -EINVAL;
@@ -343,6 +353,25 @@ int sde_smmu_map_dma_buf(struct dma_buf *dma_buf,
 
 	rc = msm_dma_map_sg_lazy(sde_smmu->dev, table->sgl, table->nents, dir,
 		dma_buf);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (!in_interrupt()) {
+		if (rc != table->nents) {
+			for (retry_cnt = 0; retry_cnt < 62 ; retry_cnt++) {
+				/* To wait free page by memory reclaim*/
+				usleep_range(16000, 16000);
+
+				SDEROT_ERR("dma map sg failed : retry (%d)\n", retry_cnt);
+				rc = msm_dma_map_sg_lazy(sde_smmu->dev, table->sgl, table->nents, dir,
+					dma_buf);
+
+				if (rc == table->nents)
+					break;
+			}
+		}
+	}
+#endif
+
 	if (rc != table->nents) {
 		SDEROT_ERR("dma map sg failed\n");
 		return -ENOMEM;
@@ -350,6 +379,12 @@ int sde_smmu_map_dma_buf(struct dma_buf *dma_buf,
 
 	*iova = table->sgl->dma_address;
 	*size = table->sgl->dma_length;
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (sec_debug_is_enabled())
+		ss_smmu_debug_map(SMMU_NRT_ROTATOR_DEBUG, domain, dma_buf->file, table);
+#endif
+
 	return 0;
 }
 
@@ -362,6 +397,11 @@ void sde_smmu_unmap_dma_buf(struct sg_table *table, int domain,
 		SDEROT_ERR("not able to get smmu context\n");
 		return;
 	}
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (sec_debug_is_enabled())
+		ss_smmu_debug_unmap(SMMU_NRT_ROTATOR_DEBUG, table);
+#endif
 
 	msm_dma_unmap_sg(sde_smmu->dev, table->sgl, table->nents, dir,
 		 dma_buf);

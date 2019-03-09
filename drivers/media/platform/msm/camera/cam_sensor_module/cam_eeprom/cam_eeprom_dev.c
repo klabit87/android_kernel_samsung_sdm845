@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -71,7 +71,15 @@ int32_t cam_eeprom_update_i2c_info(struct cam_eeprom_ctrl_t *e_ctrl,
 		cci_client->i2c_freq_mode = i2c_info->i2c_freq_mode;
 	} else if (e_ctrl->io_master_info.master_type == I2C_MASTER) {
 		e_ctrl->io_master_info.client->addr = i2c_info->slave_addr;
-		CAM_DBG(CAM_EEPROM, "Slave addr: 0x%x", i2c_info->slave_addr);
+		CAM_DBG(CAM_ACTUATOR, "Slave addr: 0x%x Freq Mode: %d",
+			i2c_info->slave_addr, i2c_info->i2c_freq_mode);
+	} else if (e_ctrl->io_master_info.master_type == SPI_MASTER) {
+		CAM_DBG(CAM_EEPROM, "Slave addr: 0x%x Freq Mode: %d",
+			i2c_info->slave_addr, i2c_info->i2c_freq_mode);
+	} else {
+		CAM_ERR(CAM_SENSOR, "Invalid Comm. Master:%d",
+			e_ctrl->io_master_info.master_type);
+		return -EINVAL;
 	}
 	return 0;
 }
@@ -175,6 +183,10 @@ static int cam_eeprom_i2c_driver_probe(struct i2c_client *client,
 		goto probe_failure;
 	}
 
+	e_ctrl->cal_data.mapdata = NULL;
+	e_ctrl->cal_data.map = NULL;
+	e_ctrl->userspace_probe = false;
+
 	soc_private = kzalloc(sizeof(*soc_private), GFP_KERNEL);
 	if (!soc_private)
 		goto ectrl_free;
@@ -185,15 +197,13 @@ static int cam_eeprom_i2c_driver_probe(struct i2c_client *client,
 
 	mutex_init(&(e_ctrl->eeprom_mutex));
 
+	INIT_LIST_HEAD(&(e_ctrl->wr_settings.list_head));
 	soc_info = &e_ctrl->soc_info;
 	soc_info->dev = &client->dev;
 	soc_info->dev_name = client->name;
 	e_ctrl->io_master_info.master_type = I2C_MASTER;
 	e_ctrl->io_master_info.client = client;
 	e_ctrl->eeprom_device_type = MSM_CAMERA_I2C_DEVICE;
-	e_ctrl->cal_data.mapdata = NULL;
-	e_ctrl->cal_data.map = NULL;
-	e_ctrl->userspace_probe = false;
 
 	rc = cam_eeprom_parse_dt(e_ctrl);
 	if (rc) {
@@ -233,11 +243,9 @@ probe_failure:
 
 static int cam_eeprom_i2c_driver_remove(struct i2c_client *client)
 {
-	int                             i;
 	struct v4l2_subdev             *sd = i2c_get_clientdata(client);
 	struct cam_eeprom_ctrl_t       *e_ctrl;
 	struct cam_eeprom_soc_private  *soc_private;
-	struct cam_hw_soc_info         *soc_info;
 
 	if (!sd) {
 		CAM_ERR(CAM_EEPROM, "Subdevice is NULL");
@@ -257,10 +265,6 @@ static int cam_eeprom_i2c_driver_remove(struct i2c_client *client)
 		return -EINVAL;
 	}
 
-	soc_info = &e_ctrl->soc_info;
-	for (i = 0; i < soc_info->num_clk; i++)
-		devm_clk_put(soc_info->dev, soc_info->clk[i]);
-
 	if (soc_private)
 		kfree(soc_private);
 
@@ -268,7 +272,6 @@ static int cam_eeprom_i2c_driver_remove(struct i2c_client *client)
 
 	return 0;
 }
-
 static int cam_eeprom_spi_setup(struct spi_device *spi)
 {
 	struct cam_eeprom_ctrl_t       *e_ctrl = NULL;
@@ -307,6 +310,7 @@ static int cam_eeprom_spi_setup(struct spi_device *spi)
 	e_ctrl->io_master_info.master_type = SPI_MASTER;
 	spi_client->spi_master = spi;
 
+	INIT_LIST_HEAD(&(e_ctrl->wr_settings.list_head));
 	power_info = &eb_info->power_info;
 	power_info->dev = &spi->dev;
 
@@ -317,6 +321,7 @@ static int cam_eeprom_spi_setup(struct spi_device *spi)
 	/* Initialize mutex */
 	mutex_init(&(e_ctrl->eeprom_mutex));
 
+	e_ctrl->bridge_intf.device_hdl = -1;
 	rc = cam_eeprom_parse_dt(e_ctrl);
 	if (rc) {
 		CAM_ERR(CAM_EEPROM, "failed: spi soc init rc %d", rc);
@@ -366,11 +371,9 @@ static int cam_eeprom_spi_driver_probe(struct spi_device *spi)
 
 static int cam_eeprom_spi_driver_remove(struct spi_device *sdev)
 {
-	int                             i;
 	struct v4l2_subdev             *sd = spi_get_drvdata(sdev);
 	struct cam_eeprom_ctrl_t       *e_ctrl;
 	struct cam_eeprom_soc_private  *soc_private;
-	struct cam_hw_soc_info         *soc_info;
 
 	if (!sd) {
 		CAM_ERR(CAM_EEPROM, "Subdevice is NULL");
@@ -382,10 +385,6 @@ static int cam_eeprom_spi_driver_remove(struct spi_device *sdev)
 		CAM_ERR(CAM_EEPROM, "eeprom device is NULL");
 		return -EINVAL;
 	}
-
-	soc_info = &e_ctrl->soc_info;
-	for (i = 0; i < soc_info->num_clk; i++)
-		devm_clk_put(soc_info->dev, soc_info->clk[i]);
 
 	kfree(e_ctrl->io_master_info.spi_client);
 	soc_private =
@@ -446,8 +445,10 @@ static int32_t cam_eeprom_platform_driver_probe(
 	if (rc) {
 		CAM_ERR(CAM_EEPROM, "failed: to update i2c info rc %d", rc);
 		goto free_soc;
+
 	}
 
+	INIT_LIST_HEAD(&(e_ctrl->wr_settings.list_head));
 	rc = cam_eeprom_init_subdev(e_ctrl);
 	if (rc)
 		goto free_soc;
@@ -474,9 +475,7 @@ free_e_ctrl:
 
 static int cam_eeprom_platform_driver_remove(struct platform_device *pdev)
 {
-	int                        i;
 	struct cam_eeprom_ctrl_t  *e_ctrl;
-	struct cam_hw_soc_info    *soc_info;
 
 	e_ctrl = platform_get_drvdata(pdev);
 	if (!e_ctrl) {
@@ -484,12 +483,7 @@ static int cam_eeprom_platform_driver_remove(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	soc_info = &e_ctrl->soc_info;
-
-	for (i = 0; i < soc_info->num_clk; i++)
-		devm_clk_put(soc_info->dev, soc_info->clk[i]);
-
-	kfree(soc_info->soc_private);
+	kfree(e_ctrl->soc_info.soc_private);
 	kfree(e_ctrl->io_master_info.cci_client);
 	kfree(e_ctrl);
 	return 0;
@@ -508,7 +502,6 @@ static struct platform_driver cam_eeprom_platform_driver = {
 		.name = "qcom,eeprom",
 		.owner = THIS_MODULE,
 		.of_match_table = cam_eeprom_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = cam_eeprom_platform_driver_probe,
 	.remove = cam_eeprom_platform_driver_remove,
@@ -525,6 +518,8 @@ static struct i2c_driver cam_eeprom_i2c_driver = {
 	.remove = cam_eeprom_i2c_driver_remove,
 	.driver = {
 		.name = "msm_eeprom",
+		.owner = THIS_MODULE,
+		.of_match_table = cam_eeprom_dt_match,
 	},
 };
 

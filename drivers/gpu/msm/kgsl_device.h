@@ -420,6 +420,7 @@ struct kgsl_context {
 	unsigned int fault_count;
 	unsigned long fault_time;
 	struct kgsl_mem_entry *user_ctxt_record;
+	u64 timers[3];
 };
 
 #define _context_comm(_c) \

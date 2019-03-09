@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,96 +20,6 @@
 #include "cam_eeprom_soc.h"
 #include "cam_debug_util.h"
 
-#define cam_eeprom_spi_parse_cmd(spi_dev, name, out)          \
-	{                                                     \
-		spi_dev->cmd_tbl.name.opcode = out[0];        \
-		spi_dev->cmd_tbl.name.addr_len = out[1];      \
-		spi_dev->cmd_tbl.name.dummy_len = out[2];     \
-		spi_dev->cmd_tbl.name.delay_intv = out[3];    \
-		spi_dev->cmd_tbl.name.delay_count = out[4];   \
-	}
-
-int cam_eeprom_spi_parse_of(struct cam_sensor_spi_client *spi_dev)
-{
-	int rc = -EFAULT;
-	uint32_t tmp[5];
-
-	rc  = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"spiop-read", tmp, 5);
-	if (!rc) {
-		cam_eeprom_spi_parse_cmd(spi_dev, read, tmp);
-	} else {
-		CAM_ERR(CAM_EEPROM, "Failed to get read data");
-		return -EFAULT;
-	}
-
-	rc = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"spiop-readseq", tmp, 5);
-	if (!rc) {
-		cam_eeprom_spi_parse_cmd(spi_dev, read_seq, tmp);
-	} else {
-		CAM_ERR(CAM_EEPROM, "Failed to get readseq data");
-		return -EFAULT;
-	}
-
-	rc = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"spiop-queryid", tmp, 5);
-	if (!rc) {
-		cam_eeprom_spi_parse_cmd(spi_dev, query_id, tmp);
-	} else {
-		CAM_ERR(CAM_EEPROM, "Failed to get queryid data");
-		return -EFAULT;
-	}
-
-	rc = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"spiop-pprog", tmp, 5);
-	if (!rc) {
-		cam_eeprom_spi_parse_cmd(spi_dev, page_program, tmp);
-	} else {
-		CAM_ERR(CAM_EEPROM, "Failed to get page program data");
-		return -EFAULT;
-	}
-
-	rc = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"spiop-wenable", tmp, 5);
-	if (!rc) {
-		cam_eeprom_spi_parse_cmd(spi_dev, write_enable, tmp);
-	} else {
-		CAM_ERR(CAM_EEPROM, "Failed to get write enable data");
-		return rc;
-	}
-
-	rc = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"spiop-readst", tmp, 5);
-	if (!rc) {
-		cam_eeprom_spi_parse_cmd(spi_dev, read_status, tmp);
-	} else {
-		CAM_ERR(CAM_EEPROM, "Failed to get readdst data");
-		return rc;
-	}
-
-	rc = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"spiop-erase", tmp, 5);
-	if (!rc) {
-		cam_eeprom_spi_parse_cmd(spi_dev, erase, tmp);
-	} else {
-		CAM_ERR(CAM_EEPROM, "Failed to get erase data");
-		return rc;
-	}
-
-	rc = of_property_read_u32_array(spi_dev->spi_master->dev.of_node,
-		"eeprom-id", tmp, 2);
-	if (rc) {
-		CAM_ERR(CAM_EEPROM, "Failed to get eeprom id");
-		return rc;
-	}
-
-	spi_dev->mfr_id0 = tmp[0];
-	spi_dev->device_id0 = tmp[1];
-
-	return 0;
-}
-
 /*
  * cam_eeprom_parse_memory_map() - parse memory map in device node
  * @of:         device node
@@ -126,6 +36,7 @@ int cam_eeprom_parse_dt_memory_map(struct device_node *node,
 	char      property[PROPERTY_MAXSIZE];
 	uint32_t  count = MSM_EEPROM_MEM_MAP_PROPERTIES_CNT;
 	struct    cam_eeprom_memory_map_t *map;
+	uint32_t  total_size = 0;
 
 	snprintf(property, PROPERTY_MAXSIZE, "num-blocks");
 	rc = of_property_read_u32(node, property, &data->num_map);
@@ -135,7 +46,7 @@ int cam_eeprom_parse_dt_memory_map(struct device_node *node,
 		return rc;
 	}
 
-	map = vzalloc((sizeof(*map) * data->num_map));
+	map = kzalloc((sizeof(*map) * data->num_map), GFP_KERNEL);
 	if (!map) {
 		rc = -ENOMEM;
 		return rc;
@@ -181,10 +92,23 @@ int cam_eeprom_parse_dt_memory_map(struct device_node *node,
 				rc);
 			goto ERROR;
 		}
-		data->num_data += map[i].mem.valid_size;
+		if (map[i].mem.data_type == 1)
+			data->num_data += map[i].mem.valid_size;
+	}
+	CAM_ERR(CAM_EEPROM, "valid size = %d\n", data->num_data);
+	// if total-size is defined at dtsi file.
+	// set num_data as total-size
+	snprintf(property, PROPERTY_MAXSIZE, "total-size");
+	rc = of_property_read_u32(node, property, &total_size);
+	CAM_ERR(CAM_EEPROM, "%s %d\n", property, total_size);
+	// if "total-size" propoerty exists.
+		if (rc >= 0) {
+			CAM_ERR(CAM_EEPROM, "set num_data as total-size (num_map : %d, total : %d, valid : %d)\n",
+				data->num_map, total_size, data->num_data);
+			data->num_data = total_size;
 	}
 
-	data->mapdata = vzalloc(data->num_data);
+	data->mapdata = kzalloc(data->num_data, GFP_KERNEL);
 	if (!data->mapdata) {
 		rc = -ENOMEM;
 		goto ERROR;
@@ -192,7 +116,7 @@ int cam_eeprom_parse_dt_memory_map(struct device_node *node,
 	return rc;
 
 ERROR:
-	vfree(data->map);
+	kfree(data->map);
 	memset(data, 0, sizeof(*data));
 	return rc;
 }
@@ -288,12 +212,14 @@ static int cam_eeprom_cmm_dts(struct cam_eeprom_soc_private *eb_info,
  */
 int cam_eeprom_parse_dt(struct cam_eeprom_ctrl_t *e_ctrl)
 {
-	int                             i, rc = 0;
+	int                             rc = 0;
 	struct cam_hw_soc_info         *soc_info = &e_ctrl->soc_info;
 	struct device_node             *of_node = NULL;
 	struct cam_eeprom_soc_private  *soc_private =
 		(struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
 	uint32_t                        temp;
+
+	e_ctrl->is_multimodule_node = false;
 
 	if (!soc_info->dev) {
 		CAM_ERR(CAM_EEPROM, "Dev is NULL");
@@ -308,13 +234,36 @@ int cam_eeprom_parse_dt(struct cam_eeprom_ctrl_t *e_ctrl)
 
 	of_node = soc_info->dev->of_node;
 
-	rc = of_property_read_string(of_node, "eeprom-name",
-		&soc_private->eeprom_name);
+	if (of_property_read_bool(of_node, "multimodule-support")) {
+		CAM_DBG(CAM_UTIL, "Multi Module is Supported");
+		e_ctrl->is_multimodule_node = true;
+	}
+
+	CAM_ERR(CAM_EEPROM, "VR:: MM Support %d",
+		e_ctrl->is_multimodule_node);
+
+	rc = of_property_read_u32(of_node, "cell-index",
+			&e_ctrl->soc_info.index);
+	CAM_DBG(CAM_EEPROM, "cell-index/subdev_id %d", e_ctrl->soc_info.index);
 	if (rc < 0) {
 		CAM_DBG(CAM_EEPROM, "kernel probe is not enabled");
+		//e_ctrl->userspace_probe = true;
+	}
+
+	of_node = soc_info->dev->of_node;
+
+	rc = of_property_read_string(of_node, "eeprom-name",
+		&soc_private->eeprom_name);
+
+	CAM_INFO(CAM_EEPROM, "eepromName: %s", soc_private->eeprom_name);
+
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "kernel probe is not enabled");
 		e_ctrl->userspace_probe = true;
 	}
 
+	CAM_INFO(CAM_EEPROM, "VR:: Cell Index: %d Userspace_probe: %d",
+		e_ctrl->soc_info.index, e_ctrl->userspace_probe);
 	if (e_ctrl->io_master_info.master_type == CCI_MASTER) {
 		rc = of_property_read_u32(of_node, "cci-master",
 			&e_ctrl->cci_i2c_master);
@@ -338,6 +287,7 @@ int cam_eeprom_parse_dt(struct cam_eeprom_ctrl_t *e_ctrl)
 	if ((e_ctrl->userspace_probe == false) &&
 			(e_ctrl->io_master_info.master_type != SPI_MASTER)) {
 		rc = of_property_read_u32(of_node, "slave-addr", &temp);
+
 		if (rc < 0)
 			CAM_DBG(CAM_EEPROM, "failed: no slave-addr rc %d", rc);
 
@@ -359,16 +309,91 @@ int cam_eeprom_parse_dt(struct cam_eeprom_ctrl_t *e_ctrl)
 			soc_private->i2c_info.slave_addr);
 	}
 
-	for (i = 0; i < soc_info->num_clk; i++) {
-		soc_info->clk[i] = devm_clk_get(soc_info->dev,
-			soc_info->clk_name[i]);
-		if (!soc_info->clk[i]) {
-			CAM_ERR(CAM_EEPROM, "get failed for %s",
-				soc_info->clk_name[i]);
-			rc = -ENOENT;
-			return rc;
-		}
+	return rc;
+}
+
+#define cam_eeprom_spi_parse_cmd(spic, str, name, out, size)		\
+	{								\
+		rc = of_property_read_u32_array(			\
+			spic->spi_master->dev.of_node,			\
+			str, out, size);				\
+		if (rc < 0)						\
+			return rc;					\
+		spic->cmd_tbl.name.opcode = out[0];			\
+		spic->cmd_tbl.name.addr_len = out[1];			\
+		spic->cmd_tbl.name.dummy_len = out[2];			\
+		spic->cmd_tbl.name.delay_intv = out[3];			\
+		spic->cmd_tbl.name.delay_count = out[4];		\
 	}
 
-	return rc;
+int cam_eeprom_spi_parse_of(struct cam_sensor_spi_client *spic)
+{
+	int rc = -EFAULT;
+	uint32_t tmp[5];
+	struct device_node *of = spic->spi_master->dev.of_node;
+
+	cam_eeprom_spi_parse_cmd(spic, "spiop-read", read, tmp, 5);
+	cam_eeprom_spi_parse_cmd(spic, "spiop-readseq", read_seq, tmp, 5);
+	cam_eeprom_spi_parse_cmd(spic, "spiop-queryid", query_id, tmp, 5);
+
+	cam_eeprom_spi_parse_cmd(spic, "spiop-pprog",
+				 page_program, tmp, 5);
+	cam_eeprom_spi_parse_cmd(spic, "spiop-wenable",
+				 write_enable, tmp, 5);
+	cam_eeprom_spi_parse_cmd(spic, "spiop-readst",
+				 read_status, tmp, 5);
+	cam_eeprom_spi_parse_cmd(spic, "spiop-erase", erase, tmp, 5);
+
+	rc = of_property_read_u32(of, "spi-busy-mask", tmp);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Failed to get busy mask");
+		return rc;
+	}
+	spic->busy_mask = tmp[0];
+	rc = of_property_read_u32(of, "spi-page-size", tmp);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Failed to get page size");
+		return rc;
+	}
+	spic->page_size = tmp[0];
+	rc = of_property_read_u32(of, "spi-erase-size", tmp);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Failed to get erase size");
+		return rc;
+	}
+	spic->erase_size = tmp[0];
+
+	rc = of_property_read_u32_array(of, "eeprom-id0", tmp, 2);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Failed to get eeprom id 0");
+		return rc;
+	}
+	spic->mfr_id0 = tmp[0];
+	spic->device_id0 = tmp[1];
+
+	rc = of_property_read_u32_array(of, "eeprom-id1", tmp, 2);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Failed to get eeprom id 1");
+		return rc;
+	}
+	spic->mfr_id1 = tmp[0];
+	spic->device_id1 = tmp[1];
+
+	rc = of_property_read_u32_array(of, "eeprom-id2", tmp, 2);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Failed to get eeprom id 2");
+		return rc;
+	}
+	spic->mfr_id2 = tmp[0];
+	spic->device_id2 = tmp[1];
+
+	rc = of_property_read_u32_array(of, "eeprom-id3", tmp, 2);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Failed to get eeprom id 3");
+		return rc;
+	}
+	spic->mfr_id3 = tmp[0];
+	spic->device_id3 = tmp[1];
+
+	return 0;
 }

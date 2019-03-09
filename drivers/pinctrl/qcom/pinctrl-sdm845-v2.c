@@ -1742,6 +1742,8 @@ static struct msm_dir_conn sdm845_dir_conn[] = {
 	{112, 568},
 	{113, 569},
 	{104, 566},
+	{108, 567},//fix bt hostwake isr fail in sleep state
+	{113, 569},
 	{115, 570},
 	{116, 571},
 	{117, 572},

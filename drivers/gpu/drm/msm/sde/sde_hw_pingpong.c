@@ -160,6 +160,7 @@ static void sde_hw_pp_dsc_enable(struct sde_hw_pingpong *pp)
 	c = &pp->hw;
 
 	SDE_REG_WRITE(c, PP_DSC_MODE, 1);
+	SDE_EVT32(pp->idx - PINGPONG_0);
 }
 
 static u32 sde_hw_pp_get_dsc_status(struct sde_hw_pingpong *pp)
@@ -187,6 +188,7 @@ static void sde_hw_pp_dsc_disable(struct sde_hw_pingpong *pp)
 	SDE_REG_WRITE(c, PP_DCE_DATA_OUT_SWAP, data);
 
 	SDE_REG_WRITE(c, PP_DSC_MODE, 0);
+	SDE_EVT32(pp->idx - PINGPONG_0);
 }
 
 static int sde_hw_pp_setup_dsc(struct sde_hw_pingpong *pp)

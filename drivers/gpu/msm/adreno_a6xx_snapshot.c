@@ -993,6 +993,9 @@ static size_t a6xx_legacy_snapshot_mvc(struct kgsl_device *device, u8 *buf,
 	unsigned int start, end, i, j, aperture_cntl = 0;
 	unsigned int data_size = 0;
 
+	if (!device->snapshot_legacy)
+		return 0;
+
 	if (remain < sizeof(*header)) {
 		SNAPSHOT_ERR_NOMEM(device, "MVC REGISTERS");
 		return 0;
@@ -1576,6 +1579,10 @@ void a6xx_snapshot(struct adreno_device *adreno_dev,
 	/* Return if the GX is off */
 	if (!gpudev->gx_is_on(adreno_dev))
 		return;
+
+	/* Try to run the crash dumper */
+	if (sptprac_on)
+		_a6xx_do_crashdump(device);
 
 	/* Dump the registers which get affected by crash dumper trigger */
 	kgsl_snapshot_add_section(device, KGSL_SNAPSHOT_SECTION_REGS,

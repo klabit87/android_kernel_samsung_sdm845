@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -51,10 +51,6 @@ static void cam_res_mgr_free_res(void)
 		kfree(flash_res);
 	}
 	mutex_unlock(&cam_res->flash_res_lock);
-
-	mutex_lock(&cam_res->clk_res_lock);
-	cam_res->shared_clk_ref_count = 0;
-	mutex_unlock(&cam_res->clk_res_lock);
 }
 
 void cam_res_mgr_led_trigger_register(const char *name, struct led_trigger **tp)
@@ -339,12 +335,10 @@ int cam_res_mgr_shared_pinctrl_post_init(void)
 	pinctrl_info = &cam_res->dt.pinctrl_info;
 
 	/*
-	 * If no gpio resource in gpio_res_list, and
-	 * no shared clk now, it means this device
-	 * don't have shared gpio.
+	 * If no gpio resource in gpio_res_list, it means
+	 * this device don't have shared gpio
 	 */
-	if (list_empty(&cam_res->gpio_res_list) &&
-		cam_res->shared_clk_ref_count < 1) {
+	if (list_empty(&cam_res->gpio_res_list) && cam_res->shared_clk_ref_count < 1) {
 		ret = pinctrl_select_state(pinctrl_info->pinctrl,
 			pinctrl_info->gpio_state_suspend);
 		devm_pinctrl_put(pinctrl_info->pinctrl);
@@ -570,15 +564,13 @@ int cam_res_mgr_gpio_set_value(unsigned int gpio, int value)
 			gpio_res->power_on_count++;
 			if (gpio_res->power_on_count < 2) {
 				gpio_set_value_cansleep(gpio, value);
-				CAM_DBG(CAM_RES,
-					"Shared GPIO(%d) : HIGH", gpio);
+				CAM_DBG(CAM_RES, "Shared GPIO(%d) : HIGH", gpio);
 			}
 		} else {
 			gpio_res->power_on_count--;
 			if (gpio_res->power_on_count < 1) {
 				gpio_set_value_cansleep(gpio, value);
-				CAM_DBG(CAM_RES,
-					"Shared GPIO(%d) : LOW", gpio);
+				CAM_DBG(CAM_RES, "Shared GPIO(%d) : LOW", gpio);
 			}
 		}
 	}
@@ -592,12 +584,10 @@ void cam_res_mgr_shared_clk_config(bool value)
 	if (!cam_res)
 		return;
 
-	mutex_lock(&cam_res->clk_res_lock);
 	if (value)
 		cam_res->shared_clk_ref_count++;
 	else
 		cam_res->shared_clk_ref_count--;
-	mutex_unlock(&cam_res->clk_res_lock);
 }
 EXPORT_SYMBOL(cam_res_mgr_shared_clk_config);
 
@@ -674,7 +664,6 @@ static int cam_res_mgr_probe(struct platform_device *pdev)
 	cam_res->dev = &pdev->dev;
 	mutex_init(&cam_res->flash_res_lock);
 	mutex_init(&cam_res->gpio_res_lock);
-	mutex_init(&cam_res->clk_res_lock);
 
 	rc = cam_res_mgr_parse_dt(&pdev->dev);
 	if (rc) {
@@ -685,7 +674,6 @@ static int cam_res_mgr_probe(struct platform_device *pdev)
 		cam_res->shared_gpio_enabled = true;
 	}
 
-	cam_res->shared_clk_ref_count = 0;
 	cam_res->pstatus = PINCTRL_STATUS_PUT;
 
 	INIT_LIST_HEAD(&cam_res->gpio_res_list);
@@ -718,7 +706,6 @@ static struct platform_driver cam_res_mgr_driver = {
 		.name = "cam_res_mgr",
 		.owner = THIS_MODULE,
 		.of_match_table = cam_res_mgr_dt_match,
-		.suppress_bind_attrs = true,
 	},
 };
 

@@ -46,9 +46,9 @@
 /**
  * enum flush_type_t - Identifies the various flush types
  *
- * @CAM_FLUSH_TYPE_REQ:    Flush specific request
- * @CAM_FLUSH_TYPE_ALL:    Flush all requests belonging to a context
- * @CAM_FLUSH_TYPE_MAX:    Max enum to validate flush type
+ * @CAM_FLUSH_TYPE_REQ:     Flush specific request
+ * @CAM_FLUSH_TYPE_ALL:     Flush all requests belonging to a context
+ * @CAM_FLUSH_TYPE_MAX:     Max enum to validate flush type
  *
  */
 enum flush_type_t {
@@ -452,26 +452,13 @@ struct cam_acquire_dev_cmd {
 	uint64_t        resource_hdl;
 };
 
-/**
- * struct cam_flush_dev_cmd - Control payload for flush devices
- *
- * @version:           Version
- * @session_handle:    Session handle for the acquire command
- * @dev_handle:        Device handle to be returned
- * @flush_type:        Flush type:
- *                     0 = flush specific request
- *                     1 = flush all
- * @reserved:          Reserved for 64 bit aligngment
- * @req_id:            Request id that needs to cancel
- *
- */
 struct cam_flush_dev_cmd {
 	uint64_t       version;
-	int32_t        session_handle;
-	int32_t        dev_handle;
-	uint32_t       flush_type;
-	uint32_t       reserved;
-	int64_t        req_id;
+	int32_t         session_handle;
+	int32_t         dev_handle;
+	uint32_t        flush_type;
+	uint32_t        reserved;
+	int64_t         req_id;
 };
 
 #endif /* __UAPI_CAM_DEFS_H__ */

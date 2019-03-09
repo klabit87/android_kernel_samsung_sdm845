@@ -2086,6 +2086,7 @@ static int tx_data(struct glink_transport_if *if_ptr, uint16_t cmd_id,
 	if (cmd.id == TRACER_PKT_CMD)
 		tracer_pkt_log_event((void *)(pctx->data), GLINK_XPRT_TX);
 
+	SMEM_IPC_LOG(einfo, __func__, cmd.id, cmd.lcid, cmd.riid);
 	ret = fifo_write_complex(einfo, &cmd, sizeof(cmd), data_start, size,
 							zeros, zeros_size);
 	if (ret < 0) {
@@ -2560,6 +2561,16 @@ static int glink_smem_native_probe(struct platform_device *pdev)
 	if (rc < 0)
 		pr_err("%s: enable_irq_wake() failed on %d\n", __func__,
 								irq_line);
+	einfo->debug_mask = QCOM_GLINK_DEBUG_ENABLE;
+	snprintf(log_name, sizeof(log_name), "%s_%s_xprt",
+			einfo->xprt_cfg.edge, einfo->xprt_cfg.name);
+	if (einfo->debug_mask & QCOM_GLINK_DEBUG_ENABLE)
+		einfo->log_ctx =
+			ipc_log_context_create(NUM_LOG_PAGES, log_name, 0);
+	if (!einfo->log_ctx)
+		GLINK_ERR("%s: unable to create log context for [%s:%s]\n",
+			__func__, einfo->xprt_cfg.edge,
+			einfo->xprt_cfg.name);
 
 	key = "cpu-affinity";
 	cpu_size = of_property_count_u32_elems(node, key);
