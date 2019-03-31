@@ -446,22 +446,22 @@ static ssize_t show_eye_rd_info(struct device *dev,
 	ssize_t info_size = 0;
 	uint32_t ch, cs, dq;
 
-	info_size += snprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
+	info_size += scnprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
 				"\"DDRV\":\"%s\",", get_ddr_vendor_name());
-	info_size += snprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
+	info_size += scnprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
 				"\"DSF\":\"%d.%d\",",
 				(get_ddr_DSF_version() >> 16) & 0xFFFF,
 				get_ddr_DSF_version() & 0xFFFF);
 
-	info_size += snprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
+	info_size += scnprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
 			"\"CNT\":\"%d\",",ddr_get_small_eye_detected());
 
-	info_size += snprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
+	info_size += scnprintf((char*)(buf+info_size), DEFAULT_LEN_STR - info_size,
 			"\"rd_width\":\"R1\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
 			for (dq = 0; dq < NUM_DQ_PCH; dq++) {
-				info_size += snprintf((char*)(buf+info_size),
+				info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size,
 				"\"RW%d_%d_%d\":\"%d\",", ch, cs, dq,
 				ddr_get_rd_pr_width(ch, cs, dq));
@@ -469,23 +469,23 @@ static ssize_t show_eye_rd_info(struct device *dev,
 		}
 	}
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"rd_height\":\"R2\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
-			info_size += snprintf((char*)(buf+info_size),
+			info_size += scnprintf((char*)(buf+info_size),
 			DEFAULT_LEN_STR - info_size,
 			"\"RH%d_%d_x\":\"%d\",", ch, cs,
 			ddr_get_rd_min_eye_height(ch, cs));
 		}
 	}
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"rd_vref\":\"Rx\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
 			for (dq = 0; dq < NUM_DQ_PCH; dq++) {
-				info_size += snprintf((char*)(buf+info_size),
+				info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size,
 				"\"RV%d_%d_%d\":\"%d\",", ch, cs, dq,
 				ddr_get_rd_best_vref(ch, cs, dq));
@@ -508,23 +508,23 @@ static ssize_t show_eye_dcc_info(struct device *dev,
 	ssize_t info_size = 0;
 	uint32_t ch, cs, dq;
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"dqs_dcc\":\"D3\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (dq = 0; dq < NUM_DQ_PCH; dq++) {
-			info_size += snprintf((char*)(buf+info_size),
+			info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size,
 				"\"DS%d_x_%d\":\"%d\",", ch, dq,
 				ddr_get_dqs_dcc_adj(ch, dq));
 		}
 	}
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"dq_dcc\":\"D5\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
 			for (dq = 0; dq < NUM_DQ_PCH; dq++) {
-				info_size += snprintf((char*)(buf+info_size),
+				info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size,
 				"\"DQ%d_%d_%d\":\"%d\",", ch, cs, dq,
 				ddr_get_dq_dcc_abs(ch, cs, dq));
@@ -547,12 +547,12 @@ static ssize_t show_eye_wr1_info(struct device *dev,
 	ssize_t info_size = 0;
 	uint32_t ch, cs, dq;
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"wr_width\":\"W1\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
 			for (dq = 0; dq < NUM_DQ_PCH; dq++) {
-				info_size += snprintf((char*)(buf+info_size),
+				info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size,
 				"\"WW%d_%d_%d\":\"%d\",", ch, cs, dq,
 				ddr_get_wr_pr_width(ch, cs, dq));
@@ -560,22 +560,22 @@ static ssize_t show_eye_wr1_info(struct device *dev,
 		}
 	}
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"wr_height\":\"W2\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
-			info_size += snprintf((char*)(buf+info_size),
+			info_size += scnprintf((char*)(buf+info_size),
 			DEFAULT_LEN_STR - info_size,
 			"\"WH%d_%d_x\":\"%d\",", ch, cs,
 			ddr_get_wr_min_eye_height(ch, cs));
 		}
 	}
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"wr_vref\":\"Wx\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
-			info_size += snprintf((char*)(buf+info_size),
+			info_size += scnprintf((char*)(buf+info_size),
 			DEFAULT_LEN_STR - info_size,
 			"\"WV%d_%d_x\":\"%d\",", ch, cs,
 			ddr_get_wr_best_vref(ch, cs));
@@ -597,12 +597,12 @@ static ssize_t show_eye_wr2_info(struct device *dev,
 	ssize_t info_size = 0;
 	uint32_t ch, cs, dq;
 
- 	info_size += snprintf((char*)(buf+info_size),
+ 	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"wr_topw\":\"W4\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
 			for (dq = 0; dq < NUM_DQ_PCH; dq++) {
-				info_size += snprintf((char*)(buf+info_size),
+				info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size,
 				"\"WT%d_%d_%d\":\"%d\",", ch, cs, dq,
 				ddr_get_wr_vmax_to_vmid(ch, cs, dq));
@@ -610,12 +610,12 @@ static ssize_t show_eye_wr2_info(struct device *dev,
 		}
 	}
 
-	info_size += snprintf((char*)(buf+info_size),
+	info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size, "\"wr_botw\":\"W4\",");
 	for (ch = 0; ch < NUM_CH; ch++) {
 		for (cs = 0; cs < NUM_CS; cs++) {
 			for (dq = 0; dq < NUM_DQ_PCH; dq++) {
-				info_size += snprintf((char*)(buf+info_size),
+				info_size += scnprintf((char*)(buf+info_size),
 				DEFAULT_LEN_STR - info_size,
 				"\"WB%d_%d_%d\":\"%d\",", ch, cs, dq,
 				ddr_get_wr_vmid_to_vmin(ch, cs, dq));
@@ -741,101 +741,101 @@ static ssize_t show_extra_info(struct device *dev,
 	p_kinfo = &p_rst_exinfo->kern_ex_info.info;
 	cpu = p_kinfo->cpu;
 
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"RR\":\"%s\",", sec_debug_get_reset_reason_str(reset_reason));
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"RWC\":\"%d\",", sec_debug_get_reset_write_cnt());
 
 	ts_nsec = p_kinfo->ktime;
 	rem_nsec = do_div(ts_nsec, 1000000000ULL);
 
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"KTIME\":\"%llu.%06llu\",", ts_nsec, rem_nsec / 1000ULL);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"CPU\":\"%d\",", p_kinfo->cpu);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"TASK\":\"%s\",", p_kinfo->task_name);
 
 	if (p_kinfo->smmu.fsr) {
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"\"SDN\":\"%s\",", p_kinfo->smmu.dev_name);
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"\"FSR\":\"%x\",", p_kinfo->smmu.fsr);
 
 		if (p_kinfo->smmu.fsynr) {
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"FSRY\":\"%x\",", p_kinfo->smmu.fsynr);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"IOVA\":\"%08lx\",", p_kinfo->smmu.iova);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"FAR\":\"%016lx\",", p_kinfo->smmu.far);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"SMN\":\"%s\",", p_kinfo->smmu.mas_name);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"CB\":\"%d\",", p_kinfo->smmu.cbndx);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"SOFT\":\"%016llx\",", p_kinfo->smmu.phys_soft);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"ATOS\":\"%016llx\",", p_kinfo->smmu.phys_atos);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"SID\":\"%x\",", p_kinfo->smmu.sid);
 		}
 	}
 
 	if (p_kinfo->badmode.esr) {
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"\"BDR\":\"%08x\",", p_kinfo->badmode.reason);
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"\"BDRS\":\"%s\",", p_kinfo->badmode.handler_str);
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"\"BDE\":\"%08x\",", p_kinfo->badmode.esr);
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"\"BDES\":\"%s\",", p_kinfo->badmode.esr_str);
 	}
 
 	if ((cpu > -1) && (cpu < num_present_cpus())) {
 		if (p_kinfo->fault[cpu].esr) {
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"ESR\":\"%08x\",", p_kinfo->fault[cpu].esr);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"FNM\":\"%s\",", p_kinfo->fault[cpu].str);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"FV1\":\"%016llx\",", p_kinfo->fault[cpu].var1);
-			offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 					"\"FV2\":\"%016llx\",",	p_kinfo->fault[cpu].var2);
 		}
 
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"\"FAULT\":\"pgd=%016llx VA=%016llx ",
 				p_kinfo->fault[cpu].pte[0],
 				p_kinfo->fault[cpu].pte[1]);
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"*pgd=%016llx *pud=%016llx ",
 				p_kinfo->fault[cpu].pte[2],
 				p_kinfo->fault[cpu].pte[3]);
-		offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 				"*pmd=%016llx *pte=%016llx\",",
 				p_kinfo->fault[cpu].pte[4],
 				p_kinfo->fault[cpu].pte[5]);
 	}
 
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"BUG\":\"%s\",", p_kinfo->bug_buf);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"PANIC\":\"%s\",", p_kinfo->panic_buf);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"PC\":\"%s\",", p_kinfo->pc);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"LR\":\"%s\",", p_kinfo->lr);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"GLE\":\"%s\",", p_kinfo->dbg0);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"UFS\":\"%s\",", p_kinfo->ufs_err);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"DISP\":\"%s\",", p_kinfo->display_err);
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"ROT\":\"W%dC%d\",", get_param0(2), get_param0(3));
-	offset += snprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), EXTRA_LEN_STR - offset,
 			"\"STACK\":\"%s\"", p_kinfo->backtrace);
 
 out:
@@ -880,15 +880,15 @@ static ssize_t show_extrb_info(struct device *dev,
 		goto out;
 	}
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"RR\":\"%s\",", sec_debug_get_reset_reason_str(reset_reason));
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"RWC\":\"%d\",", sec_debug_get_reset_write_cnt());
 
 	if (p_rst_exinfo->rpm_ex_info.info.magic == RPM_EX_INFO_MAGIC
 		 && p_rst_exinfo->rpm_ex_info.info.nlog > 0) {
-		offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 				"\"RPM\":\"");
 
 		if (p_rst_exinfo->rpm_ex_info.info.nlog > 5) {
@@ -905,67 +905,67 @@ static ssize_t show_extrb_info(struct device *dev,
 			ts_nsec = pRPMlog->nsec;
 			rem_nsec = do_div(ts_nsec, 1000000000);
 
-			offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 					"%lu.%06lu ", (unsigned long)ts_nsec, rem_nsec / 1000);
 
-			offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 					"%s ", pRPMlog->msg);
 
-			offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+			offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 					"%x %x %x %x", 
 					pRPMlog->arg[0], pRPMlog->arg[1], pRPMlog->arg[2], pRPMlog->arg[3]);
 
 			if (cnt == max_cnt - 1) {
-				offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\",");
+				offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\",");
 			} else {
-				offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "/");
+				offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "/");
 			}
 		}
 	}
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"TZ_RR\":\"%s\"", p_rst_exinfo->tz_ex_info.msg);
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			",\"PIMEM\":\"0x%08x,0x%08x,0x%08x,0x%08x\"",
 			p_rst_exinfo->pimem_info.esr, p_rst_exinfo->pimem_info.ear0,
 			p_rst_exinfo->pimem_info.esr_sdi, p_rst_exinfo->pimem_info.ear0_sdi);
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			",\"HYP\":\"%s\"", p_rst_exinfo->hyp_ex_info.msg);
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",\"LPM\":\"");
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",\"LPM\":\"");
 	max_cnt = sizeof(p_rst_exinfo->kern_ex_info.info.lpm_state);
 	max_cnt = max_cnt/sizeof(p_rst_exinfo->kern_ex_info.info.lpm_state[0]);
 	for (idx = 0; idx < max_cnt; idx++) {
-		offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 				"%x", p_rst_exinfo->kern_ex_info.info.lpm_state[idx]);
 		if (idx != max_cnt - 1)
-			offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",");
+			offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",");
 	}
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\"");
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\"");
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			",\"PKO\":\"%x\"", p_rst_exinfo->kern_ex_info.info.pko);
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",\"LR\":\"");
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",\"LR\":\"");
 	max_cnt = sizeof(p_rst_exinfo->kern_ex_info.info.lr_val);
 	max_cnt = max_cnt/sizeof(p_rst_exinfo->kern_ex_info.info.lr_val[0]);
 	for (idx = 0; idx < max_cnt; idx++) {
-		offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 				"%llx",	p_rst_exinfo->kern_ex_info.info.lr_val[idx]);
 		if (idx != max_cnt - 1)
-			offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",");
+			offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",");
 	}
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\"");
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\"");
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",\"PC\":\"");
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",\"PC\":\"");
 	max_cnt = sizeof(p_rst_exinfo->kern_ex_info.info.pc_val);
 	max_cnt = max_cnt/sizeof(p_rst_exinfo->kern_ex_info.info.pc_val[0]);
 	for (idx = 0; idx < max_cnt; idx++) {
-		offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+		offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 				"%llx",	p_rst_exinfo->kern_ex_info.info.pc_val[idx]);
 		if (idx != max_cnt - 1)
-			offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",");
+			offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, ",");
 	}
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\"");
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset, "\"");
 
 out:
 	if (p_rst_exinfo)
@@ -1006,10 +1006,10 @@ static ssize_t show_extrc_info(struct device *dev,
 		goto out;
 	}
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"RR\":\"%s\",", sec_debug_get_reset_reason_str(reset_reason));
 
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"RWC\":\"%d\",", sec_debug_get_reset_write_cnt());
 
 	for(i = 0; i < SEC_DEBUG_RESET_EXTRC_SIZE; i++) { // check " character and then change ' character
@@ -1021,7 +1021,7 @@ static ssize_t show_extrc_info(struct device *dev,
 
 	extrc_buf[SEC_DEBUG_RESET_EXTRC_SIZE-1] = '\0';
 	
-	offset += snprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
+	offset += scnprintf((char*)(buf + offset), SPECIAL_LEN_STR - offset,
 			"\"LKL\":\"%s\"", &extrc_buf[offset]);
 out:
 	if (extrc_buf)

@@ -385,14 +385,17 @@ void max77705_notify_rp_current_level(struct max77705_usbc_platform_data *usbc_d
 	unsigned int rp_currentlvl;
 
 	switch (usbc_data->cc_data->ccistat) {
-	case 1:
+	case CCI_500mA:
 		rp_currentlvl = RP_CURRENT_LEVEL_DEFAULT;
 		break;
-	case 2:
+	case CCI_1_5A:
 		rp_currentlvl = RP_CURRENT_LEVEL2;
 		break;
-	case 3:
+	case CCI_3_0A:
 		rp_currentlvl = RP_CURRENT_LEVEL3;
+		break;
+	case CCI_SHORT:
+		rp_currentlvl = RP_CURRENT_ABNORMAL;
 		break;
 	default:
 		rp_currentlvl = RP_CURRENT_LEVEL_NONE;

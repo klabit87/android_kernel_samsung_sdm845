@@ -31,12 +31,14 @@
 #include <linux/sec_bsp.h>
 
 #include <soc/qcom/boot_stats.h>
+#include <linux/slab.h>
 
 #define BOOT_EVT_PREFIX			"!@Boot"
 #define BOOT_EVT_PREFIX_NONE		""
 #define BOOT_EVT_PREFIX_PLATFORM	": "
 #define BOOT_EVT_PREFIX_RIL		"_SVC : "
 #define BOOT_EVT_PREFIX_DEBUG		"_DEBUG: "
+#define BOOT_EVT_PREFIX_SYSTEMSERVER		"_SystemServer: "
 
 #define DEFAULT_BOOT_STAT_FREQ		32768
 
@@ -44,11 +46,13 @@ static struct device *sec_bsp_dev;
 
 static bool console_enabled;
 static unsigned int __is_boot_recovery;
+static bool bootcompleted=false;
 
 static const char *boot_prefix[16] = {
 	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_PLATFORM,
 	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_RIL,
 	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_DEBUG,
+	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_SYSTEMSERVER,
 	BOOT_EVT_PREFIX_NONE
 };
 
@@ -56,6 +60,7 @@ enum boot_events_prefix {
 	EVT_PLATFORM,
 	EVT_RIL,
 	EVT_DEBUG,
+	EVT_SYSTEMSERVER,
 	EVT_INVALID,
 };
 
@@ -217,6 +222,7 @@ static struct suspend_resume_event suspend_resume_event[] = {
 };
 
 LIST_HEAD(device_init_time_list);
+LIST_HEAD(systemserver_init_time_list);
 
 static int __init boot_recovery(char *str)
 {
@@ -245,6 +251,7 @@ static int sec_boot_stat_proc_show(struct seq_file *m, void *v)
 	unsigned long time, ktime, prev_time;
 	char boot_string[256];
 	struct device_init_time_entry *entry;
+	struct systemserver_init_time_entry *systemserver_entry;
 
 	if (!freq)
 		freq = DEFAULT_BOOT_STAT_FREQ;
@@ -294,6 +301,12 @@ static int sec_boot_stat_proc_show(struct seq_file *m, void *v)
 		seq_printf(m, "%-20s : %lld usces\n",
 			   entry->buf, entry->duration);
 
+	seq_puts(m, "------------------------------------------");
+	seq_puts(m, "-----------------------------------------\n");
+	seq_puts(m, "SystemServer services that took long time\n\n");
+	list_for_each_entry (systemserver_entry, &systemserver_init_time_list, next)
+		seq_printf(m, "%s\n",systemserver_entry->buf);
+
 	return 0;
 }
 
@@ -325,6 +338,17 @@ void sec_bootstat_add_initcall(const char *s)
 	}
 }
 
+void sec_boot_stat_record_systemserver(const char *c)
+{
+	struct systemserver_init_time_entry *entry;
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return;
+	strncpy(entry->buf,c,MAX_LENGTH_OF_SYSTEMSERVER_LOG);
+	entry->buf[MAX_LENGTH_OF_SYSTEMSERVER_LOG-1] = 0;
+	list_add(&entry->next, &systemserver_init_time_list);
+}
+
 void sec_boot_stat_record(int idx, int time)
 {
 	u64 t;
@@ -351,12 +375,20 @@ void sec_boot_stat_add(const char *c)
 	if (!strncmp(android_log, BOOT_EVT_PREFIX_PLATFORM, 2)) {
 		prefix = EVT_PLATFORM;
 		android_log = (char *)(android_log + 2);
+		if (!strncmp(android_log, "bootcomplete", 12))
+			bootcompleted=true;
 	} else if (!strncmp(android_log, BOOT_EVT_PREFIX_RIL, 7)) {
 		prefix = EVT_RIL;
 		android_log = (char *)(android_log + 7);
 	} else if (!strncmp(android_log, BOOT_EVT_PREFIX_DEBUG, 8)) {
 		prefix = EVT_DEBUG;
 		android_log = (char *)(android_log + 8);
+	} else if (!strncmp(android_log, BOOT_EVT_PREFIX_SYSTEMSERVER, 15)) {
+		prefix = EVT_SYSTEMSERVER;
+		android_log = (char *)(android_log + 15);
+		if (bootcompleted==false)
+			sec_boot_stat_record_systemserver(android_log);
+		return;
 	} else
 		return;
 
