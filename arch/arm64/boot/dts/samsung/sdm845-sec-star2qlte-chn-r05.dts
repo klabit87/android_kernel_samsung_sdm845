@@ -24449,8 +24449,6 @@
 			battery,wpc_store_lcd_on_charging_limit_current = <0x190>;
 			battery,sleep_mode_limit_current = <0x1f4>;
 			battery,wc_full_input_limit_current = <0x64>;
-			battery,wc_cv_current = <0x334>;
-			battery,wc_cv_pack_current = <0x276>;
 			battery,mix_high_temp = <0x1a4>;
 			battery,mix_high_chg_temp = <0x1f4>;
 			battery,mix_high_temp_recovery = <0x186>;
@@ -24589,7 +24587,7 @@
 			};
 
 			current_group_6 {
-				cable_number = <0xa 0xc 0xe 0xf 0x1b>;
+				cable_number = <0xa 0xc 0xf 0x1b 0x21>;
 				input_current = <0x384>;
 				charging_current = <0x578>;
 			};
@@ -24613,7 +24611,7 @@
 			};
 
 			current_group_10 {
-				cable_number = <0xb 0x10 0x1c>;
+				cable_number = <0xb 0xe 0x10 0x1c>;
 				input_current = <0x28a>;
 				charging_current = <0x578>;
 			};

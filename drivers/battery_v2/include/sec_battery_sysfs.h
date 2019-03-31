@@ -188,6 +188,7 @@ enum {
 	BATT_CURRENT_EVENT,
 	CC_INFO,	
 	BATT_JIG_GPIO,
+	EXT_EVENT,
 };
 
 #endif /* __SEC_BATTERY_SYSFS_H */

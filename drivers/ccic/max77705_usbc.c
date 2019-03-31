@@ -2247,6 +2247,8 @@ void max77705_usbc_check_sysmsg(struct max77705_usbc_platform_data *usbc_data, u
 		if (o_notify)
 			inc_hw_param(o_notify, USB_CCIC_VBUS_CC_SHORT_COUNT);
 #endif
+		usbc_data->cc_data->ccistat = CCI_SHORT;
+		max77705_notify_rp_current_level(usbc_data);
 		break;
 	case SYSMSG_SBUx_GND_SHORT:
 		msg_maxim("SBU-GND SHORT");
@@ -2852,7 +2854,7 @@ static int max77705_usbc_probe(struct platform_device *pdev)
 	if (IS_ERR(usbc_data->port))
 		pr_err("unable to register typec_register_port\n");
 	else
-		msg_maxim("success typec_register_port port=%p", usbc_data->port);
+		msg_maxim("success typec_register_port");
 	usbc_data->partner = NULL;
 	init_completion(&usbc_data->typec_reverse_completion);
 #endif

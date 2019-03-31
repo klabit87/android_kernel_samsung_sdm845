@@ -145,7 +145,6 @@ obj-$(CONFIG_GPIO_ZYNQ)		+= gpio-zynq.o
 obj-$(CONFIG_GPIO_ZX)		+= gpio-zx.o
 obj-$(CONFIG_GPIO_LOONGSON1)	+= gpio-loongson1.o
 obj-$(CONFIG_MSM_SMP2P)		+= gpio-msm-smp2p.o
-obj-$(CONFIG_MSM_SMP2P_TEST)	+= gpio-msm-smp2p-test.o
 obj-$(CONFIG_GPIO_PCAL6524)	+= gpio-pcal6524.o
 
 # Debug and verify gpio configurations.
