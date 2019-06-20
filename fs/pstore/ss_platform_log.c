@@ -866,7 +866,7 @@ static int ss_plog_probe(struct platform_device *pdev)
 		err = -ENOMEM;
 		goto fail_out;
 	}
-	pr_info("logger buffer alloc address: 0x%p\n", logger.buffer);
+	pr_info("logger buffer alloc address: 0x%pK\n", logger.buffer);
 
 	return 0;
 

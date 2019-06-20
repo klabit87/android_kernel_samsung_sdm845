@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -53,6 +53,7 @@ struct dp_debug_private {
 	struct device *dev;
 	struct work_struct sim_work;
 	struct dp_debug dp_debug;
+	struct mutex lock;
 };
 
 static int dp_debug_get_edid_buf(struct dp_debug_private *debug)
@@ -101,6 +102,8 @@ static ssize_t dp_debug_write_edid(struct file *file,
 
 	if (!debug)
 		return -ENODEV;
+
+	mutex_lock(&debug->lock);
 
 	if (*ppos)
 		goto bail;
@@ -152,6 +155,7 @@ bail:
 	if (!debug->dp_debug.sim_mode)
 		debug->panel->set_edid(debug->panel, edid);
 
+	mutex_unlock(&debug->lock);
 	return rc;
 }
 
@@ -169,6 +173,8 @@ static ssize_t dp_debug_write_dpcd(struct file *file,
 
 	if (!debug)
 		return -ENODEV;
+
+	mutex_lock(&debug->lock);
 
 	if (*ppos)
 		goto bail;
@@ -234,6 +240,7 @@ bail:
 	else
 		debug->panel->set_dpcd(debug->panel, dpcd);
 
+	mutex_unlock(&debug->lock);
 	return rc;
 }
 
@@ -877,6 +884,8 @@ static ssize_t dp_debug_write_sim(struct file *file,
 	if (*ppos)
 		return 0;
 
+	mutex_lock(&debug->lock);
+
 	/* Leave room for termination char */
 	len = min_t(size_t, count, SZ_8 - 1);
 	if (copy_from_user(buf, user_buff, len))
@@ -910,9 +919,11 @@ static ssize_t dp_debug_write_sim(struct file *file,
 	debug->aux->set_sim_mode(debug->aux, debug->dp_debug.sim_mode,
 			debug->edid, debug->dpcd);
 end:
+	mutex_unlock(&debug->lock);
 	return len;
 error:
 	devm_kfree(debug->dev, debug->edid);
+	mutex_unlock(&debug->lock);
 	return len;
 }
 
@@ -1276,6 +1287,8 @@ struct dp_debug *dp_debug_get(struct device *dev, struct dp_panel *panel,
 	dp_debug->hdisplay = 0;
 	dp_debug->vrefresh = 0;
 
+	mutex_init(&debug->lock);
+
 	rc = dp_debug_init(dp_debug);
 	if (rc) {
 		devm_kfree(dev, debug);
@@ -1311,6 +1324,8 @@ void dp_debug_put(struct dp_debug *dp_debug)
 	debug = container_of(dp_debug, struct dp_debug_private, dp_debug);
 
 	dp_debug_deinit(dp_debug);
+
+	mutex_destroy(&debug->lock);
 
 	if (debug->edid)
 		devm_kfree(debug->dev, debug->edid);
