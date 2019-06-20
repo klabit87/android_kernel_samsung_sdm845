@@ -57,6 +57,10 @@ struct ss_vib {
 	struct work_struct work;
 	struct workqueue_struct *queue;
 	struct mutex lock;
+	struct mutex sysfs_lock;
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *pin_active;
+	struct pinctrl_state *pin_suspend;
 
 	int state;
 	int timeout;
@@ -298,7 +302,7 @@ static void max778xx_haptic_en(struct ss_vib *vib, bool onoff)
 
 static void set_vibrator(struct ss_vib *vib)
 {
-	struct pinctrl *motor_pinctrl;
+	int ret;
 
 	pr_info("[VIB]: %s, value[%d]\n", __func__, vib->state);
 	if (vib->state) {
@@ -309,13 +313,14 @@ static void set_vibrator(struct ss_vib *vib)
 #endif
 		max778xx_haptic_en(vib, true);
 
-		motor_pinctrl = devm_pinctrl_get_select(vib->dev, "tlmm_motor_active");
-		if (IS_ERR(motor_pinctrl)) {
-			if (PTR_ERR(motor_pinctrl) == -EPROBE_DEFER)
-				pr_err("[VIB]: Error %d\n", -EPROBE_DEFER);
-
-			pr_debug("[VIB]: Target does not use pinctrl\n");
-			motor_pinctrl = NULL;
+		if (IS_ERR(vib->pinctrl)) {
+			pr_debug("[VIB]: pinctrl error(%d)\n", IS_ERR(vib->pinctrl));
+		} else if (IS_ERR(vib->pin_active)) {
+			pr_debug("[VIB]: pin_active error(%d)\n", IS_ERR(vib->pin_active));
+		} else {
+			ret = pinctrl_select_state(vib->pinctrl, vib->pin_active);
+			if (ret)
+				pr_err("[VIB]: can not change pin_active\n");
 		}
 
 #if defined(CONFIG_BOOST_POWER_SHARE)
@@ -330,14 +335,16 @@ static void set_vibrator(struct ss_vib *vib)
 		hrtimer_start(&vib->vib_timer, ktime_set(vib->timevalue / 1000,
 			(vib->timevalue % 1000) * 1000000), HRTIMER_MODE_REL);
 	} else {
-		motor_pinctrl = devm_pinctrl_get_select(vib->dev, "tlmm_motor_suspend");
-		if (IS_ERR(motor_pinctrl)) {
-			if (PTR_ERR(motor_pinctrl) == -EPROBE_DEFER)
-				pr_err("[VIB]: Error %d\n", -EPROBE_DEFER);
-
-			pr_debug("[VIB]: Target does not use pinctrl\n");
-			motor_pinctrl = NULL;
+		if (IS_ERR(vib->pinctrl)) {
+			pr_debug("[VIB]: pinctrl error(%d)\n", IS_ERR(vib->pinctrl));
+		} else if (IS_ERR(vib->pin_suspend)) {
+			pr_debug("[VIB]: pin_suspend error(%d)\n", IS_ERR(vib->pin_suspend));
+		} else {
+			ret = pinctrl_select_state(vib->pinctrl, vib->pin_suspend);
+			if (ret)
+				pr_err("[VIB]: can not change pin_suspend\n");
 		}
+
 		gpio_set_value(vib->vib_pwm_gpio, VIBRATION_OFF);
 
 		if (vib->flag_en_gpio)
@@ -751,57 +758,45 @@ static DEVICE_ATTR(multi_freq, 0660, multi_freq_show, multi_freq_store);
 static ssize_t haptic_engine_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
-	struct ss_vib *vib = dev_get_drvdata(dev);
-	int i = 0, _data = 0, tmp = 0;
+     struct ss_vib *vib = dev_get_drvdata(dev);
+     int i = 0, _data = 0, skip = 0;
 
-	if (sscanf(buf++, "%4u", &_data) == 1) {
-		if (_data > PACKET_MAX_SIZE * 4)
-			pr_info("%s, [%d] packet size over, Please check again\n", __func__, _data);
-		else {
-			vib->packet_size = _data / 4;
-			vib->packet_cnt = 0;
-			vib->f_packet_en = true;
-			vib->f_overdrive_en = true;
+     if (sscanf(buf, "%4u %n", &_data, &skip) != 1)
+             goto invalid_data;
 
-			buf = strstr(buf, " ");
+     if (_data > PACKET_MAX_SIZE * 4)
+             goto invalid_data;
 
-			for (i = 0; i < vib->packet_size; i++) {
-				for (tmp = 0; tmp < 4; tmp++) {
-					if (buf == NULL) {
-						pr_err("%s, packet data error, Please check again\n", __func__);
-						vib->f_packet_en = false;
-						vib->f_overdrive_en = false;
-						return size;
-					}
+     vib->f_packet_en = false;
+     vib->f_overdrive_en = false;
+     vib->packet_size = _data / 4;
+     vib->packet_cnt = 0;
 
-					if (sscanf(buf++, "%5u", &_data) == 1) {
-						switch (tmp) {
-						case 0:
-							vib->haptic_eng[i].time = _data;
-							break;
-						case 1:
-							vib->haptic_eng[i].intensity = _data;
-							break;
-						case 2:
-							vib->haptic_eng[i].freq = _data;
-							break;
-						case 3:
-							vib->haptic_eng[i].overdrive = _data;
-							break;
-						}
-						buf = strstr(buf, " ");
-					} else {
-						pr_info("%s, packet data error, Please check again\n", __func__);
-						vib->f_packet_en = false;
-						vib->f_overdrive_en = false;
-						break;
-					}
-				}
-			}
-		}
-	}
+     for (i = 0; i < vib->packet_size; i++) {
+             unsigned data[4] = { 0 };
+			 
+             buf += skip;
+			 
+             if (sscanf(buf, "%5u %5u %5u %5u %n", &data[0], &data[1],
+                                    &data[2], &data[3], &skip) != 4) {
+                     goto invalid_data;
+             }
 
-	return size;
+             vib->haptic_eng[i].time      = data[0];
+             vib->haptic_eng[i].intensity = data[1];
+             vib->haptic_eng[i].freq      = data[2];
+             vib->haptic_eng[i].overdrive = data[3];
+     }
+
+     vib->f_packet_en = true;
+     vib->f_overdrive_en = true;
+
+     return size;
+
+invalid_data:
+     pr_err("%s, packet data error, Please check again\n", __func__);
+	 
+     return -EINVAL;
 }
 
 static ssize_t haptic_engine_show(struct device *dev, struct device_attribute *attr,
@@ -812,27 +807,31 @@ static ssize_t haptic_engine_show(struct device *dev, struct device_attribute *a
 	int i = 0, tmp = 0;
 	size_t size = 0;
 
-	size += snprintf(&buf[size], PACKET_MAX_SIZE * 4, "\n");
-	for (i = 0; i < vib->packet_size && vib->f_packet_en; i++) {
+	mutex_lock(&vib->sysfs_lock);
+
+	size += snprintf(&buf[size], VIB_BUFSIZE, "\n");
+	for (i = 0; i < vib->packet_size && vib->f_packet_en &&
+			((4 * VIB_BUFSIZE + size) < PAGE_SIZE); i++) {
 		for (tmp = 0; tmp < 4; tmp++) {
 			switch (tmp) {
 			case 0:
-				size += snprintf(&buf[size], PACKET_MAX_SIZE * 4, "%u ", vib->haptic_eng[i].time);
+				size += snprintf(&buf[size], VIB_BUFSIZE, "%u ", vib->haptic_eng[i].time);
 				break;
 			case 1:
-				size += snprintf(&buf[size], PACKET_MAX_SIZE * 4, "%u ", vib->haptic_eng[i].intensity);
+				size += snprintf(&buf[size], VIB_BUFSIZE, "%u ", vib->haptic_eng[i].intensity);
 				break;
 			case 2:
-				size += snprintf(&buf[size], PACKET_MAX_SIZE * 4, "%u ", vib->haptic_eng[i].freq);
+				size += snprintf(&buf[size], VIB_BUFSIZE, "%u ", vib->haptic_eng[i].freq);
 				break;
 			case 3:
-				size += snprintf(&buf[size], PACKET_MAX_SIZE * 4, "%u ", vib->haptic_eng[i].overdrive);
+				size += snprintf(&buf[size], VIB_BUFSIZE, "%u ", vib->haptic_eng[i].overdrive);
 				break;
 			}
 		}
 	}
 	size += snprintf(&buf[size], PACKET_MAX_SIZE * 4, "\n");
 
+	mutex_unlock(&vib->sysfs_lock);
 	return size;
 }
 
@@ -994,7 +993,6 @@ extern int haptic_homekey_release(void)
 static int ss_vibrator_probe(struct platform_device *pdev)
 {
 	struct ss_vib *vib;
-	struct pinctrl *motor_pinctrl;
 	int rc = 0;
 
 	pr_info("[VIB]: %s\n", __func__);
@@ -1043,6 +1041,7 @@ static int ss_vibrator_probe(struct platform_device *pdev)
 	vibe_set_intensity(vib->intensity);
 	INIT_WORK(&vib->work, ss_vibrator_update);
 	mutex_init(&vib->lock);
+	mutex_init(&vib->sysfs_lock);
 
 	vib->queue = create_singlethread_workqueue("ss_vibrator");
 	if (!vib->queue) {
@@ -1053,13 +1052,6 @@ static int ss_vibrator_probe(struct platform_device *pdev)
 	hrtimer_init(&vib->vib_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	vib->vib_timer.function = vibrator_timer_func;
 
-	motor_pinctrl = devm_pinctrl_get_select(vib->dev, "tlmm_motor_suspend");
-	if (IS_ERR(motor_pinctrl)) {
-		if (PTR_ERR(motor_pinctrl) == -EPROBE_DEFER)
-			pr_err("[VIB]: Error %d\n", -EPROBE_DEFER);
-			pr_debug("[VIB]: Target does not use pinctrl\n");
-			motor_pinctrl = NULL;
-		}
 	gpio_set_value(vib->vib_pwm_gpio, VIBRATION_OFF);
 
 	dev_set_drvdata(&pdev->dev, vib);
@@ -1111,11 +1103,29 @@ static int ss_vibrator_probe(struct platform_device *pdev)
 	wake_lock_init(&vib_wake_lock, WAKE_LOCK_SUSPEND, "vib_present");
 	pm_qos_add_request(&pm_qos_req, PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
 
+	vib->pinctrl = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(vib->pinctrl)) {
+		pr_err("[VIB]: Failed to get pinctrl(%d)\n", IS_ERR(vib->pinctrl));
+	} else {
+		vib->pin_active = pinctrl_lookup_state(vib->pinctrl, "tlmm_motor_active");
+		if (IS_ERR(vib->pin_active))
+			pr_err("[VIB]: Failed to get pin_active(%d)\n", IS_ERR(vib->pin_active));
+		vib->pin_suspend = pinctrl_lookup_state(vib->pinctrl, "tlmm_motor_suspend");
+		if (IS_ERR(vib->pin_suspend)) {
+			pr_err("[VIB]: Failed to get pin_suspend(%d)\n", IS_ERR(vib->pin_suspend));
+		} else {
+			rc = pinctrl_select_state(vib->pinctrl, vib->pin_suspend);
+			if (rc)
+				pr_err("[VIB]: can not change pin_suspend\n");
+		}
+	}
+
 	return 0;
 err_read_vib:
 	iounmap(virt_mmss_gp1_base);
 	destroy_workqueue(vib->queue);
 	mutex_destroy(&vib->lock);
+	mutex_destroy(&vib->sysfs_lock);
 	return rc;
 }
 
@@ -1128,6 +1138,7 @@ static int ss_vibrator_remove(struct platform_device *pdev)
 
 	destroy_workqueue(vib->queue);
 	mutex_destroy(&vib->lock);
+	mutex_destroy(&vib->sysfs_lock);
 	wake_lock_destroy(&vib_wake_lock);
 	return 0;
 }

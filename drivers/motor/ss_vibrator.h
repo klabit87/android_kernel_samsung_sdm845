@@ -56,6 +56,7 @@ enum freq_type {
 #define IMM_PWM_MULTIPLIER			92
 
 #define PM_QOS_NONIDLE_VALUE			300
+#define VIB_BUFSIZE                     30
 
 /*
  * Global variables

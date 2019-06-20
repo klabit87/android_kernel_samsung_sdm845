@@ -654,6 +654,7 @@ static irqreturn_t max77705_psrdy_irq(int irq, void *data)
 			&& usbc_data->pd_data->cc_status != CC_NO_CONN)
 		usbc_data->pd_support = true;
 
+#if defined(CONFIG_TYPEC)
 	if (usbc_data->typec_try_state_change == TRY_ROLE_SWAP_PR &&
 		usbc_data->pd_support) {
 		/* Role change try and new mode detected */
@@ -661,6 +662,7 @@ static irqreturn_t max77705_psrdy_irq(int irq, void *data)
 		usbc_data->typec_try_state_change = TRY_ROLE_SWAP_NONE;
 		complete(&usbc_data->typec_reverse_completion);
 	}
+#endif
 
 	msg_maxim("psrdy_received=%d, usbc_data->pd_support=%d, cc_status=%d",
 		psrdy_received, usbc_data->pd_support, usbc_data->pd_data->cc_status);
