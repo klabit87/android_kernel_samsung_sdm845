@@ -3861,15 +3861,6 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 	unsigned long flags;
 
 	/*
-	 * May get invoked from shutdown and IOCTL contexts.
-	 * In shutdown context, it comes in with lock acquired.
-	 * In error recovery context, it may come with lock acquired.
-	 */
-
-	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba))
-		down_read(&hba->lock);
-
-	/*
 	 * Get free slot, sleep if slots are unavailable.
 	 * Even though we use wait_event() which sleeps indefinitely,
 	 * the maximum wait time is bounded by SCSI request timeout.
@@ -3900,8 +3891,6 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 out_put_tag:
 	ufshcd_put_dev_cmd_tag(hba, tag);
 	wake_up(&hba->dev_cmd.tag_wq);
-	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba))
-		up_read(&hba->lock);
 #if defined(SEC_UFS_ERROR_COUNT)
 	if (err && (cmd_type != DEV_CMD_TYPE_NOP))
 		SEC_ufs_query_error_check(hba, cmd_type);
@@ -3980,10 +3969,15 @@ int ufshcd_query_flag(struct ufs_hba *hba, enum query_opcode opcode,
 	struct ufs_query_res *response = NULL;
 	int err, index = 0, selector = 0;
 	int timeout = QUERY_REQ_TIMEOUT;
+	bool has_read_lock = false;
 
 	BUG_ON(!hba);
 
 	ufshcd_hold_all(hba);
+	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba)) {
+		down_read(&hba->lock);
+		has_read_lock = true;
+	}
 	mutex_lock(&hba->dev_cmd.lock);
 	ufshcd_init_query(hba, &request, &response, opcode, idn, index,
 			selector);
@@ -4027,6 +4021,8 @@ int ufshcd_query_flag(struct ufs_hba *hba, enum query_opcode opcode,
 
 out_unlock:
 	mutex_unlock(&hba->dev_cmd.lock);
+	if (has_read_lock)
+		up_read(&hba->lock);
 	ufshcd_release_all(hba);
 	return err;
 }
@@ -4049,6 +4045,7 @@ int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
 	struct ufs_query_req *request = NULL;
 	struct ufs_query_res *response = NULL;
 	int err;
+	bool has_read_lock = false;
 
 	BUG_ON(!hba);
 
@@ -4060,6 +4057,15 @@ int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
 		goto out;
 	}
 
+	/*
+	 * May get invoked from shutdown and IOCTL contexts.
+	 * In shutdown context, it comes in with lock acquired.
+	 * In error recovery context, it may come with lock acquired.
+	 */
+	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba)) {
+		down_read(&hba->lock);
+		has_read_lock = true;
+	}
 	mutex_lock(&hba->dev_cmd.lock);
 	ufshcd_init_query(hba, &request, &response, opcode, idn, index,
 			selector);
@@ -4092,6 +4098,8 @@ int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
 
 out_unlock:
 	mutex_unlock(&hba->dev_cmd.lock);
+	if (has_read_lock)
+		up_read(&hba->lock);
 out:
 	ufshcd_release_all(hba);
 	return err;
@@ -4142,6 +4150,7 @@ static int __ufshcd_query_descriptor(struct ufs_hba *hba,
 	struct ufs_query_req *request = NULL;
 	struct ufs_query_res *response = NULL;
 	int err;
+	bool has_read_lock = false;
 
 	BUG_ON(!hba);
 
@@ -4160,6 +4169,10 @@ static int __ufshcd_query_descriptor(struct ufs_hba *hba,
 		goto out;
 	}
 
+	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba)) {
+		down_read(&hba->lock);
+		has_read_lock = true;
+	}
 	mutex_lock(&hba->dev_cmd.lock);
 	ufshcd_init_query(hba, &request, &response, opcode, idn, index,
 			selector);
@@ -4195,6 +4208,8 @@ static int __ufshcd_query_descriptor(struct ufs_hba *hba,
 
 out_unlock:
 	mutex_unlock(&hba->dev_cmd.lock);
+	if (has_read_lock)
+		up_read(&hba->lock);
 out:
 	ufshcd_release_all(hba);
 	return err;
@@ -5853,8 +5868,13 @@ static int ufshcd_verify_dev_init(struct ufs_hba *hba)
 {
 	int err = 0;
 	int retries;
+	bool has_read_lock = false;
 
 	ufshcd_hold_all(hba);
+	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba)) {
+		down_read(&hba->lock);
+		has_read_lock = true;
+	}
 	mutex_lock(&hba->dev_cmd.lock);
 	for (retries = NOP_OUT_RETRIES; retries > 0; retries--) {
 		err = ufshcd_exec_dev_cmd(hba, DEV_CMD_TYPE_NOP,
@@ -5866,6 +5886,8 @@ static int ufshcd_verify_dev_init(struct ufs_hba *hba)
 		dev_dbg(hba->dev, "%s: error %d retrying\n", __func__, err);
 	}
 	mutex_unlock(&hba->dev_cmd.lock);
+	if (has_read_lock)
+		up_read(&hba->lock);
 	ufshcd_release_all(hba);
 
 	if (err)
@@ -8230,7 +8252,7 @@ static void ufshcd_set_active_icc_lvl(struct ufs_hba *hba)
 		dev_err(hba->dev,
 			"%s: Failed reading power descriptor.len = %d ret = %d",
 			__func__, buff_len, ret);
-		return;
+		goto out;
 	}
 
 	icc_level = ufshcd_find_max_sup_active_icc_level(hba, desc_buf,
@@ -8244,6 +8266,9 @@ static void ufshcd_set_active_icc_lvl(struct ufs_hba *hba)
 		dev_err(hba->dev,
 			"%s: Failed configuring bActiveICCLevel = %d ret = %d",
 			__func__, icc_level, ret);
+
+out:
+	kfree(desc_buf);
 }
 
 /**
@@ -8631,7 +8656,7 @@ static void ufs_set_sec_unique_number(struct ufs_hba *hba, u8 *str_desc_buf, u8 
 
 static int ufs_read_device_desc_data(struct ufs_hba *hba)
 {
-	int err;
+	int err = 0;
 	u8 str_desc_buf[QUERY_DESC_STRING_MAX_SIZE + 1];
 	u8 health_buf[QUERY_DESC_HEALTH_MAX_SIZE];
 	u8 serial_num_index;
@@ -8648,7 +8673,7 @@ static int ufs_read_device_desc_data(struct ufs_hba *hba)
 	}
 	err = ufshcd_read_device_desc(hba, desc_buf, hba->desc_size.dev_desc);
 	if (err)
-		return err;
+		goto out;
 
 	/*
 	 * getting vendor (manufacturerID) and Bank Index in big endian
@@ -8667,7 +8692,7 @@ static int ufs_read_device_desc_data(struct ufs_hba *hba)
 	err = ufshcd_read_string_desc(hba, serial_num_index,
 			str_desc_buf, QUERY_DESC_STRING_MAX_SIZE, UTF16_STD);
 	if (err)
-		return err;
+		goto out;
 	str_desc_buf[QUERY_DESC_STRING_MAX_SIZE] = '\0';
 
 	ufs_set_sec_unique_number(hba, str_desc_buf, desc_buf);
@@ -8684,7 +8709,9 @@ static int ufs_read_device_desc_data(struct ufs_hba *hba)
 				health_buf[HEALTH_DEVICE_DESC_PARAM_LIFETIMEB]);
 	}
 
-	return 0;
+out:
+	kfree(desc_buf);
+	return err;
 }
 
 static int ufshcd_reset_all_before_retry_setup_link(struct ufs_hba *hba)
@@ -11423,12 +11450,9 @@ static int ufshcd_devfreq_scale(struct ufs_hba *hba, bool scale_up)
 		 * e.g. link_recovery. Hence, release the rw_sem
 		 * before hibern8.
 		 */
-		up_write(&hba->lock);
 		ret = ufshcd_uic_hibern8_enter(hba);
-		down_write(&hba->lock);
 		if (ret)
-			/* link will be bad state so no need to scale_up_gear */
-			return ret;
+			goto scale_up_gear;
 		ufshcd_custom_cmd_log(hba, "Hibern8-entered");
 	}
 
@@ -11440,8 +11464,7 @@ static int ufshcd_devfreq_scale(struct ufs_hba *hba, bool scale_up)
 	if (ufshcd_is_auto_hibern8_supported(hba)) {
 		ret = ufshcd_uic_hibern8_exit(hba);
 		if (ret)
-			/* link will be bad state so no need to scale_up_gear */
-			return ret;
+			goto scale_up_gear;
 		ufshcd_custom_cmd_log(hba, "Hibern8-Exited");
 	}
 

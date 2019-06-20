@@ -176,13 +176,24 @@ enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 	}
 
 #ifdef CONFIG_USER_RESET_DEBUG
+#define MAX_BUG_STRING_SIZE	56
 	if (file) {
+		unsigned int length;
 		char *new_file;
 		new_file = strstr(file, "kernel");
-		if (new_file == NULL)
-			sec_debug_store_bug_string("%s %u", file, line);
-		else
-			sec_debug_store_bug_string("%s %u", new_file, line);
+		if (new_file == NULL) {
+			length = strlen(file);
+			if (length > MAX_BUG_STRING_SIZE)
+				sec_debug_store_bug_string("%s %u", &file[length - MAX_BUG_STRING_SIZE], line);
+			else
+				sec_debug_store_bug_string("%s %u", file, line);
+		} else {
+			length = strlen(new_file);
+			if (length > MAX_BUG_STRING_SIZE)
+				sec_debug_store_bug_string("%s %u", &new_file[length - MAX_BUG_STRING_SIZE], line);
+			else 
+				sec_debug_store_bug_string("%s %u", new_file, line);
+		}
 	}
 #endif
 
