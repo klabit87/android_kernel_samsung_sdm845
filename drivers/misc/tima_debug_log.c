@@ -8,7 +8,6 @@
 #include <linux/highmem.h>
 #include <linux/io.h>
 #include <linux/types.h>
-#include <linux/uaccess.h>
 #include <linux/slab.h>
 
 #define DEBUG_LOG_START (0x9f900000)
@@ -38,7 +37,7 @@ unsigned long *tima_debug_log_addr = 0;
 ssize_t	tima_read(struct file *filep, char __user *buf, size_t size, loff_t *offset)
 {
     char *localbuf = NULL;
-	mm_segment_t old_fs = get_fs();
+
 	/* First check is to get rid of integer overflow exploits */
 	if (size > DEBUG_LOG_SIZE || (*offset) + size > DEBUG_LOG_SIZE) {
 		pr_err("Extra read\n");
@@ -49,15 +48,12 @@ ssize_t	tima_read(struct file *filep, char __user *buf, size_t size, loff_t *off
     if(localbuf == NULL)
         return -ENOMEM;
 
-	set_fs(KERNEL_DS);
 	memcpy_fromio(localbuf, (const char *)tima_debug_log_addr + (*offset), size);
 	if (copy_to_user(buf, localbuf, size)) {
-		set_fs(old_fs);
 		pr_err("Copy to user failed\n");
 		kfree(localbuf);
 		return -1;
 	} else {
-		set_fs(old_fs);
 		*offset += size;
 		kfree(localbuf);
 		return size;
