@@ -803,7 +803,9 @@ struct bus_type chip_id_subsys = {
 static ssize_t ap_serial_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	pr_info("%s: ap_serial:[%s]\n", __func__, ap_serial_from_cmdline);
+#endif
 	return snprintf(buf, sizeof(ap_serial_from_cmdline), "%s\n", ap_serial_from_cmdline);
 }
 

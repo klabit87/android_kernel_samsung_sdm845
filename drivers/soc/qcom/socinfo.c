@@ -1744,6 +1744,7 @@ static int __init socinfo_init_sysfs(void)
 
 late_initcall(socinfo_init_sysfs);
 
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 static void socinfo_print(void)
 {
 	uint32_t f_maj = SOCINFO_VERSION_MAJOR(socinfo_format);
@@ -1937,6 +1938,7 @@ static void socinfo_print(void)
 		break;
 	}
 }
+#endif
 
 static void socinfo_select_format(void)
 {
@@ -1984,7 +1986,9 @@ int __init socinfo_init(void)
 		cur_cpu = cpu_of_id[socinfo->v0_1.id].generic_soc_type;
 
 	boot_stats_init();
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	socinfo_print();
+#endif
 	arch_read_hardware_id = msm_read_hardware_id;
 	socinfo_init_done = true;
 
