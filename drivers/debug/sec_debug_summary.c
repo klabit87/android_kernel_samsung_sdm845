@@ -262,8 +262,13 @@ static int __init summary_init_infomon(void)
 	if (___build_root_init(build_root) == 0)
 		ADD_STR_TO_INFOMON(build_root);
 	ADD_STR_TO_INFOMON(linux_banner);
+#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
+	sec_debug_summary_add_infomon("Kernel cmdline", -1,
+				      __pa(erased_command_line));
+#else
 	sec_debug_summary_add_infomon("Kernel cmdline", -1,
 				      __pa(saved_command_line));
+#endif
 	sec_debug_summary_add_infomon("Hardware name", -1,
 				      __pa(sec_debug_arch_desc));
 
