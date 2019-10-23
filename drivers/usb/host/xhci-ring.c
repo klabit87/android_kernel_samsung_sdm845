@@ -282,6 +282,7 @@ static void xhci_handle_stopped_cmd_ring(struct xhci_hcd *xhci,
 	struct xhci_command *i_cmd;
 	u32 cycle_state;
 
+	xhci_info(xhci, "%s \n", __func__);
 	/* Turn all aborted commands in list to no-ops, then restart */
 	list_for_each_entry(i_cmd, &xhci->cmd_list, cmd_list) {
 
@@ -290,7 +291,7 @@ static void xhci_handle_stopped_cmd_ring(struct xhci_hcd *xhci,
 
 		i_cmd->status = COMP_CMD_STOP;
 
-		xhci_dbg(xhci, "Turn aborted command %pK to no-op\n",
+		xhci_info(xhci, "Turn aborted command %pK to no-op\n",
 			 i_cmd->command_trb);
 		/* get cycle state from the original cmd trb */
 		cycle_state = le32_to_cpu(
@@ -325,7 +326,7 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 	u64 temp_64;
 	int ret;
 
-	xhci_dbg(xhci, "Abort command ring\n");
+	xhci_info(xhci, "Abort command ring\n");
 
 	reinit_completion(&xhci->cmd_ring_stop_completion);
 
@@ -348,6 +349,9 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 		xhci_err(xhci, "Abort failed to stop command ring: %d\n", ret);
 		xhci_halt(xhci);
 		xhci_hc_died(xhci);
+#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
+		spin_lock_irqsave(&xhci->lock, flags);
+#endif
 		return ret;
 	}
 	/*
@@ -363,10 +367,15 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 					  msecs_to_jiffies(2000));
 	spin_lock_irqsave(&xhci->lock, flags);
 	if (!ret) {
-		xhci_dbg(xhci, "No stop event for abort, ring start fail?\n");
+		xhci_info(xhci, "No stop event for abort, ring start fail?\n");
+#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
 		cancel_delayed_work(&xhci->cmd_timer);
+#endif
 		xhci_cleanup_command_queue(xhci);
+#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
 		xhci->current_cmd = NULL;
+#endif
+		xhci_info(xhci, "xhci->xhc_state 0x%x\n", xhci->xhc_state);
 	} else {
 		xhci_handle_stopped_cmd_ring(xhci, xhci_next_queued_cmd(xhci));
 	}
