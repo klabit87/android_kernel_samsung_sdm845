@@ -1046,10 +1046,13 @@ int get_ese_lock(enum p61_access_state  p61_current_state, int timeout)
 		p61_current_state, timeout, tempJ);
 	reinit_completion(&pn547_dev->ese_comp);
 
-	if (!wait_for_completion_timeout(&pn547_dev->ese_comp, tempJ)) {
-		NFC_LOG_ERR("timeout p61_current_state = %d\n", p61_current_state);
-		return -EBUSY;
+	if (p61_trans_acc_on) {
+		if (!wait_for_completion_timeout(&pn547_dev->ese_comp, tempJ)) {
+			NFC_LOG_ERR("timeout p61_current_state = %d\n", p61_current_state);
+			return -EBUSY;
+		}
 	}
+
 	p61_trans_acc_on = 1;
 	NFC_LOG_INFO("exit p61_trans_acc_on =%d, timeout = %d\n",
 		p61_trans_acc_on, timeout);
@@ -1061,8 +1064,8 @@ static void release_ese_lock(enum p61_access_state  p61_current_state)
 {
 	NFC_LOG_INFO("enter p61_current_state = (0x%x)\n",
 			p61_current_state);
-	complete(&pn547_dev->ese_comp);
 	p61_trans_acc_on = 0;
+	complete(&pn547_dev->ese_comp);
 	NFC_LOG_INFO("p61_trans_acc_on =%d exit\n", p61_trans_acc_on);
 }
 

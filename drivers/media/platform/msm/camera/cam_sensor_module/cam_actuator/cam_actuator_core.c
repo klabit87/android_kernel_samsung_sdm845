@@ -503,6 +503,114 @@ int32_t cam_actuator_publish_dev_info(struct cam_req_mgr_device_info *info)
 	return 0;
 }
 
+#if defined(CONFIG_SEC_CROWNQLTE_PROJECT)
+//#define CROWN_TELE_ACTUATOR_PID_DEBUG
+#define CROWN_TELE_ACTUATOR_PID_UPDATE_ENABLE
+#endif
+
+#if defined(CROWN_TELE_ACTUATOR_PID_DEBUG)
+#define ATR_PID_READ_MAX	25
+static int32_t cam_actuator_PID_read(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	int rc = 0;
+	int i;
+	uint32_t addr[ATR_PID_READ_MAX] = {
+		0x00, 0x01, 0x02, 0x03, 0xAE,
+		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+		0x1a, 0x1c, 0x1d, 0x1e, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25
+	};
+	uint32_t data;
+
+	if ((a_ctrl == NULL) || (a_ctrl->io_master_info.master_type != I2C_MASTER)) {
+		CAM_ERR(CAM_ACTUATOR, "[ACT_PID] not I2C_MASTER");
+		return 0;
+	}
+
+	if ((a_ctrl->io_master_info.client == NULL) || (a_ctrl->io_master_info.client->addr != 0x1E)) {
+		CAM_ERR(CAM_ACTUATOR, "[ACT_PID] not 0x1E");
+		return 0;
+	}
+
+	for(i = 0; i < ATR_PID_READ_MAX; i++)
+	{
+		rc = camera_io_dev_read(&a_ctrl->io_master_info, addr[i], &data,
+		 	CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR, "[ACT_PID] read failed!");
+			return rc;
+		}
+		CAM_ERR(CAM_ACTUATOR, "[ACT_PID] read A(0x%X) D(0x%X)", addr[i], data);
+	}
+
+	return 0;
+}
+#endif
+
+#if defined(CROWN_TELE_ACTUATOR_PID_UPDATE_ENABLE)
+#define ATR_PID_WRITE_MAX	22
+static int32_t cam_actuator_PID_write(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	int rc = 0;
+	int i;
+	struct cam_sensor_i2c_reg_setting reg_setting;
+	struct cam_sensor_i2c_reg_array reg_arr;
+	uint32_t check_pid4;
+	uint32_t addr[ATR_PID_WRITE_MAX] = {
+		0xAE, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+		0x1a, 0x1c, 0x1d, 0x1e, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0xAE
+	};
+	
+	uint8_t data[ATR_PID_WRITE_MAX] = {
+		0x3B, 0x3C, 0x37, 0x50, 0x19, 0x1E, 0x2A, 0x14, 0x62, 0xDB, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x37, 0x00, 0x14, 0x00, 0x00, 0x00
+	};
+
+	if ((a_ctrl == NULL) || (a_ctrl->io_master_info.master_type != I2C_MASTER)) {
+		CAM_DBG(CAM_ACTUATOR, "[ACT_PID] not I2C Master!");
+		return 0;
+	}
+
+	if ((a_ctrl->io_master_info.client == NULL) || (a_ctrl->io_master_info.client->addr != 0x1E)) {
+		CAM_DBG(CAM_ACTUATOR, "[ACT_PID] Slave Addr is not 0x1E");
+		return 0;
+	}
+
+	rc = camera_io_dev_read(&a_ctrl->io_master_info, addr[1], &check_pid4,
+		CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "[ACT_PID] I2C Read failed!");
+		return rc;
+	}
+
+	if (check_pid4 != 0x55) {
+		CAM_DBG(CAM_ACTUATOR, "[ACT_PID] PID Ver is not 4. (%d)", check_pid4);
+		return 0;
+	}
+
+	reg_setting.size = 1;
+	reg_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	reg_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	reg_setting.reg_setting = &reg_arr;
+	reg_setting.delay = 0;
+	reg_arr.delay = 0;
+	reg_arr.data_mask = 0;
+
+	for(i = 0; i < ATR_PID_WRITE_MAX; i++)
+	{
+		reg_arr.reg_addr = addr[i];
+		reg_arr.reg_data = data[i];
+		rc = camera_io_dev_write(&a_ctrl->io_master_info, &reg_setting);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR, "[ACT_PID] I2C write failed!");
+			return rc;
+		}
+		//CAM_ERR(CAM_ACTUATOR, "[ACT_PID] write A(0x%X) D(0x%X)", reg_arr.reg_addr, reg_arr.reg_data);
+	}
+	CAM_INFO(CAM_ACTUATOR, "[ACT_PID] Replaced PID4 to PID6");
+	return 0;
+}
+#endif
+
 int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 	void *arg)
 {
@@ -637,6 +745,20 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 					" Actuator Power up failed");
 				return rc;
 			}
+#if defined(CROWN_TELE_ACTUATOR_PID_DEBUG)
+			rc = cam_actuator_PID_read(a_ctrl);
+			if (rc < 0) {
+				CAM_ERR(CAM_ACTUATOR, "[ACT_PID] read failed");
+				return rc;
+			}
+#endif
+#if defined(CROWN_TELE_ACTUATOR_PID_UPDATE_ENABLE)
+			rc = cam_actuator_PID_write(a_ctrl);
+			if (rc < 0) {
+				CAM_ERR(CAM_ACTUATOR, "[ACT_PID] update failed");
+				return rc;
+			}
+#endif
 			a_ctrl->cam_act_state = CAM_ACTUATOR_CONFIG;
 		}
 
@@ -646,7 +768,13 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 			CAM_ERR(CAM_ACTUATOR, "Cannot apply Init settings");
 			return rc;
 		}
-
+#if defined(CROWN_TELE_ACTUATOR_PID_DEBUG)
+		rc = cam_actuator_PID_read(a_ctrl);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR, "[ACT_PID] read failed");
+			return rc;
+		}
+#endif
 		/* Delete the request even if the apply is failed */
 		rc = delete_request(&a_ctrl->i2c_data.init_settings);
 		if (rc < 0) {

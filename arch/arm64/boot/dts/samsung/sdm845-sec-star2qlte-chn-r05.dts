@@ -14001,6 +14001,54 @@
 				cam,dual_open = <0x1>;
 				cam,valid = <0x1>;
 			};
+
+			qcom,cam-sensor@4 {
+				cell-index = <0x4>;
+				compatible = "qcom,cam-sensor";
+				reg = <0x4>;
+				csiphy-sd-index = <0x2>;
+				sensor-position-roll = <0x10e>;
+				sensor-position-pitch = <0x0>;
+				sensor-position-yaw = <0x0>;
+				actuator-src = <0x21f>;
+				eeprom-src = <0x220>;
+				cam_vdig-supply = <0x221>;
+				cam_vio-supply = <0x6f>;
+				cam_vana-supply = <0x222>;
+				cam_clk-supply = <0x5c>;
+				regulator-names = "cam_vdig", "cam_vio", "cam_vana", "cam_clk";
+				rgltr-cntrl-support;
+				rgltr-min-voltage = <0x100590 0x1b7740 0x2ab980 0x0>;
+				rgltr-max-voltage = <0x100590 0x1b7740 0x2ab980 0x0>;
+				rgltr-load-current = <0x30d40 0x30d40 0x1388 0x0>;
+				gpio-no-mux = <0x0>;
+				pinctrl-names = "cam_default", "cam_suspend";
+				pinctrl-0 = <0x223 0x224>;
+				pinctrl-1 = <0x225 0x226>;
+				gpios = <0x2d 0xf 0x0 0x2d 0xc 0x0>;
+				gpio-reset = <0x1>;
+				gpio-req-tbl-num = <0x0 0x1>;
+				gpio-req-tbl-flags = <0x1 0x0>;
+				gpio-req-tbl-label = "CAMIF_MCLK2", "CAM_RESET2";
+				sensor-mode = <0x0>;
+				cci-master = <0x1>;
+				status = "ok";
+				clocks = <0x61 0x46>;
+				clock-names = "cam_clk";
+				clock-cntl-level = "turbo";
+				clock-rates = <0x16e3600>;
+				cam,isp = <0x0>;
+				cam,cal_memory = <0x2>;
+				cam,read_version = <0x0>;
+				cam,core_voltage = <0x0>;
+				cam,upgrade = <0x0>;
+				cam,fw_write = <0x0>;
+				cam,fw_dump = <0x0>;
+				cam,companion_chip = <0x0>;
+				cam,ois = <0x0>;
+				cam,dual_open = <0x0>;
+				cam,valid = <0x1>;
+			};
 		};
 
 		qcom,cam_smmu {
@@ -24449,6 +24497,8 @@
 			battery,wpc_store_lcd_on_charging_limit_current = <0x190>;
 			battery,sleep_mode_limit_current = <0x1f4>;
 			battery,wc_full_input_limit_current = <0x64>;
+			battery,wc_cv_current = <0x334>;
+			battery,wc_cv_tx_current = <0x28a>;
 			battery,mix_high_temp = <0x1a4>;
 			battery,mix_high_chg_temp = <0x1f4>;
 			battery,mix_high_temp_recovery = <0x186>;
