@@ -1,0 +1,7 @@
+V5.8
+ - 51be089c1c9e Fix compilation issue for n9600
+ - a65dbb7f9bc9 Version update to V5.8
+ - 6d82feea736f Add changelog
+ - 59276102c07a Update crownqlte defconfig
+ - 05cc9bc32e03 OSRC: G9650ZCU6CSJ2
+ - 1df895937a46 Merge SM-N9600 defconfig and dts
