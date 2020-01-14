@@ -1,5 +1,5 @@
 V5.8
  - Small version bump to 5.9.
- - Integrate auto patch of security patch date since Samsung slow af
+ - Integrate auto patch of security patch date since Samsung slow af (Credit to @djb77)
  - Better GSI compatibility.
  - Better OneUI compatibility for recent/most up-to-date firmwares.
