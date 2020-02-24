@@ -65,6 +65,119 @@ extern char iris_cam_fw_full_ver[FW_VER_SIZE];
 extern char iris_cam_fw_user_ver[FW_VER_SIZE];
 extern char iris_cam_fw_factory_ver[FW_VER_SIZE];
 
+#if defined(CONFIG_SEC_LYKANLTE_PROJECT)
+int cam_sensor_check_resolution(struct cam_sensor_ctrl_t *s_ctrl)
+{
+	struct cam_sensor_i2c_reg_setting reg_setting;
+	struct cam_sensor_i2c_reg_array reg_arr;
+	int rc = 0;
+	uint32_t sensor_rev = 0;
+	uint32_t iris_cam_year = 0;
+	uint32_t iris_cam_month = 0;
+	uint32_t iris_cam_company = 0;
+	uint8_t year_month_company[3] = {'0', '0', '0'};
+	uint32_t otp_resolution_check = 0;
+
+	memset(&reg_setting, 0, sizeof(reg_setting));
+	memset(&reg_arr, 0, sizeof(reg_arr));
+	reg_setting.size = 1;
+	reg_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+	reg_setting.data_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+	reg_setting.reg_setting = &reg_arr;
+
+	reg_arr.reg_addr = IRIS_CMD_CHECK_RESOLUTION_1;
+	reg_arr.reg_data = 0x0;
+	rc = camera_io_dev_write(&s_ctrl->io_master_info, &reg_setting);
+	if (rc < 0) {
+		CAM_ERR(CAM_SENSOR, "write IRIS_CMD_CHECK_RESOLUTION_1 failed");
+		goto exit;
+	}
+	usleep_range(50, 50);
+
+	reg_arr.reg_addr = IRIS_CMD_CHECK_RESOLUTION_2;
+	reg_arr.reg_data = 0x0;
+	rc = camera_io_dev_write(&s_ctrl->io_master_info, &reg_setting);
+	if (rc < 0) {
+		CAM_ERR(CAM_SENSOR, "write IRIS_CMD_CHECK_RESOLUTION_2 failed");
+		goto exit;
+	}
+	usleep_range(50, 50);
+
+	/* read otp value */
+	rc = camera_io_dev_read(&s_ctrl->io_master_info, 0x0A04,
+		&otp_resolution_check, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_SENSOR, "read otp failed");
+		goto exit;
+	}
+	CAM_INFO(CAM_SENSOR, "read otp resolution check : 0x%x", otp_resolution_check);
+
+	/* read year */
+	rc = camera_io_dev_read(&s_ctrl->io_master_info, 0x0A05,
+		&iris_cam_year, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0)
+		CAM_ERR(CAM_SENSOR, "read year failed");
+	//CAM_INFO(CAM_SENSOR, "read year : %c", iris_cam_year);
+
+	/* read month */
+	rc = camera_io_dev_read(&s_ctrl->io_master_info, 0x0A06,
+		&iris_cam_month, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0)
+		CAM_ERR(CAM_SENSOR, "read month failed");
+	//CAM_INFO(CAM_SENSOR, "read month : %c", iris_cam_month);
+
+	/* read company */
+	rc = camera_io_dev_read(&s_ctrl->io_master_info, 0x0A07,
+		&iris_cam_company, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0)
+		CAM_ERR(CAM_SENSOR, "read company failed");
+	//CAM_INFO(CAM_SENSOR, "read company : %c", iris_cam_company);
+
+	/* read sensor version and write sysfs */
+	rc = camera_io_dev_read(&s_ctrl->io_master_info, 0x0010,
+		&sensor_rev, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_SENSOR, "read sensor_rev failed\n");
+		snprintf(iris_cam_fw_user_ver, FW_VER_SIZE, "NG\n");
+	}
+	CAM_INFO(CAM_SENSOR, "sensor rev : 0x%x", sensor_rev);
+
+	if (sensor_rev == 0x10) {
+		snprintf(iris_cam_fw_ver, FW_VER_SIZE, "S5K5E6 N\n");
+		snprintf(iris_cam_fw_full_ver, FW_VER_SIZE, "S5K5E6 N N\n");
+	} else {
+		snprintf(iris_cam_fw_ver, FW_VER_SIZE, "S5K5E8 N\n");
+		snprintf(iris_cam_fw_full_ver, FW_VER_SIZE, "S5K5E8 N N\n");
+		snprintf(iris_cam_fw_user_ver, FW_VER_SIZE, "NG\n");
+	}
+
+	/* write sysfs for resolution/year/month/company */
+	if (iris_cam_year != 0x00 && iris_cam_year >= 'A' && iris_cam_year <= 'Z')
+		year_month_company[0] = iris_cam_year;
+
+	if (iris_cam_month != 0x00 && iris_cam_month >= 'A' && iris_cam_month <= 'Z')
+		year_month_company[1] = iris_cam_month;
+
+	if (iris_cam_company != 0x00 && iris_cam_company >= 'A' && iris_cam_company <= 'Z')
+		year_month_company[2] = iris_cam_company;
+
+	if (otp_resolution_check == 0x01) { // success
+		if (sensor_rev == 0x10)
+			snprintf(iris_cam_fw_factory_ver, FW_VER_SIZE, "OK %c %c %c\n", year_month_company[0], year_month_company[1], year_month_company[2]); // resolution check pass with 0x01
+		else
+			snprintf(iris_cam_fw_factory_ver, FW_VER_SIZE, "NG_VER %c %c %c\n", year_month_company[0], year_month_company[1], year_month_company[2]); // resolution check pass but dev module ver
+	} else { // fail
+		snprintf(iris_cam_fw_factory_ver, FW_VER_SIZE, "NG_RES %c %c %c\n", year_month_company[0], year_month_company[1], year_month_company[2]); //resolution check fail with 0x00
+	}
+
+	CAM_INFO(CAM_SENSOR, "iris_cam_fw_factory_ver : %s", iris_cam_fw_factory_ver);
+
+exit:
+	return rc;
+}
+
+#else
+
 int cam_sensor_check_resolution(struct cam_sensor_ctrl_t *s_ctrl)
 {
 	struct cam_sensor_i2c_reg_setting reg_setting;
@@ -274,6 +387,7 @@ exit:
 	}
 	return rc;
 }
+#endif
 #endif
 
 #if defined(CONFIG_SENSOR_RETENTION)
@@ -1263,6 +1377,9 @@ void cam_sensor_shutdown(struct cam_sensor_ctrl_t *s_ctrl)
 
 	kfree(power_info->power_setting);
 	kfree(power_info->power_down_setting);
+	power_info->power_setting = NULL;
+	power_info->power_down_setting = NULL;
+
 	s_ctrl->streamon_count = 0;
 	s_ctrl->streamoff_count = 0;
 
@@ -1331,24 +1448,6 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				"Already Sensor Probed in the slot");
 			break;
 		}
-		/* Allocate memory for power up setting */
-		pu = kzalloc(sizeof(struct cam_sensor_power_setting) *
-			MAX_POWER_CONFIG, GFP_KERNEL);
-		if (!pu) {
-			rc = -ENOMEM;
-			goto release_mutex;
-		}
-
-		pd = kzalloc(sizeof(struct cam_sensor_power_setting) *
-			MAX_POWER_CONFIG, GFP_KERNEL);
-		if (!pd) {
-			kfree(pu);
-			rc = -ENOMEM;
-			goto release_mutex;
-		}
-
-		power_info->power_setting = pu;
-		power_info->power_down_setting = pd;
 
 #if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
 		sec_sensor_position = s_ctrl->id;
@@ -1370,6 +1469,9 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			CAM_ERR(CAM_SENSOR, "Invalid Command Type: %d",
 				 cmd->handle_type);
 		}
+		
+		pu = power_info->power_setting;
+		pd = power_info->power_down_setting;
 
 		/* Parse and fill vreg params for powerup settings */
 		rc = msm_camera_fill_vreg_params(

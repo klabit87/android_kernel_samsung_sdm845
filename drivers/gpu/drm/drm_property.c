@@ -773,7 +773,7 @@ int drm_mode_createblob_ioctl(struct drm_device *dev,
 	list_for_each_entry(bt, &file_priv->blobs, head_file)
 		count++;
 
-	mutex_unlock(&dev->mode_config.blob_lock); 
+	mutex_unlock(&dev->mode_config.blob_lock);
 
 	if (count == MAX_BLOB_PROP_COUNT)
 		return -EINVAL;

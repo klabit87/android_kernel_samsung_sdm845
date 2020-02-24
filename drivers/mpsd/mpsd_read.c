@@ -11,6 +11,7 @@
 
 #include <linux/mm.h>
 #include <linux/sched.h>
+#include <linux/sched/loadavg.h>
 #include <linux/tick.h>
 #include <linux/kernel_stat.h>
 #include <linux/cpufreq.h>

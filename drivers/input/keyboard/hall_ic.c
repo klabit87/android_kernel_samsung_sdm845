@@ -40,9 +40,9 @@ static ssize_t hall_detect_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	if (flip_cover)
-		sprintf(buf, "OPEN\n");
-	else
 		sprintf(buf, "CLOSE\n");
+	else
+		sprintf(buf, "OPEN\n");
 
 	return strlen(buf);
 }
@@ -56,13 +56,13 @@ static void flip_cover_work(struct work_struct *work)
 		container_of(work, struct hall_drvdata,
 				flip_cover_dwork.work);
 
-	first = gpio_get_value(ddata->gpio_flip_cover);
+	first = !gpio_get_value(ddata->gpio_flip_cover);
 
 	pr_info("keys:%s #1 : %d\n", __func__, first);
 
 	msleep(50);
 
-	second = gpio_get_value(ddata->gpio_flip_cover);
+	second = !gpio_get_value(ddata->gpio_flip_cover);
 
 	pr_info("keys:%s #2 : %d\n", __func__, second);
 
@@ -80,8 +80,8 @@ static void flip_cover_work(struct work_struct *work)
 		container_of(work, struct hall_drvdata,
 				flip_cover_dwork.work);
 
-	ddata->flip_cover = gpio_get_value(ddata->gpio_flip_cover);
-	first = gpio_get_value(ddata->gpio_flip_cover);
+	ddata->flip_cover = !gpio_get_value(ddata->gpio_flip_cover);
+	first = !gpio_get_value(ddata->gpio_flip_cover);
 
 	pr_info("keys:%s #1 : %d\n", __func__, first);
 
@@ -98,7 +98,7 @@ static void __flip_cover_detect(struct hall_drvdata *ddata, bool flip_status)
 #ifdef CONFIG_SEC_FACTORY
 	schedule_delayed_work(&ddata->flip_cover_dwork, HZ / 20);
 #else
-	if (flip_status)	{
+	if (!flip_status)	{
 		wake_lock_timeout(&ddata->flip_wake_lock, HZ * 5 / 100); /* 50ms */
 		schedule_delayed_work(&ddata->flip_cover_dwork, HZ * 1 / 100); /* 10ms */
 	} else {
@@ -113,7 +113,7 @@ static irqreturn_t flip_cover_detect(int irq, void *dev_id)
 	bool flip_status;
 	struct hall_drvdata *ddata = dev_id;
 
-	flip_status = gpio_get_value(ddata->gpio_flip_cover);
+	flip_status = !gpio_get_value(ddata->gpio_flip_cover);
 
 	pr_info("keys:%s flip_status : %d\n",
 		 __func__, flip_status);
@@ -146,7 +146,7 @@ static void init_hall_ic_irq(struct input_dev *input)
 	int ret = 0;
 	int irq = ddata->irq_flip_cover;
 
-	flip_cover = gpio_get_value(ddata->gpio_flip_cover);
+	flip_cover = !gpio_get_value(ddata->gpio_flip_cover);
 
 	INIT_DELAYED_WORK(&ddata->flip_cover_dwork, flip_cover_work);
 

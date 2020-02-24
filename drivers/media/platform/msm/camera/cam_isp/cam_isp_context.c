@@ -2617,7 +2617,7 @@ int cam_isp_context_dump_active_request(struct cam_isp_context *isp_ctx)
 					__cam_isp_resource_handle_id_to_type(pf_dbg_entry->port_map[i].port_id),
 					pf_dbg_entry->port_map[i].format);
 			for(j = 0; j < pf_dbg_entry->port_map[i].num_planes; j++) {
-				CAM_ERR(CAM_ISP,"w: %d h: %d s: %zd addr: %p addr_end:%p",
+				CAM_ERR(CAM_ISP,"w: %d h: %d s: %zd addr: %pK addr_end:%pK",
 						pf_dbg_entry->port_map[i].plane_map[j].width,
 						pf_dbg_entry->port_map[i].plane_map[j].height,
 						pf_dbg_entry->port_map[i].plane_map[j].mapped_total_size,

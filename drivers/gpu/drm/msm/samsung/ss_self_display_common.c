@@ -1066,6 +1066,11 @@ static ssize_t self_display_write(struct file *file, const char __user *buf,
 		return -EINVAL;
 	}
 
+	if (count <= IMAGE_HEADER_SIZE) {
+		LCD_ERR("Invalid Buffer Size (%d)\n", (int)count);
+		return -EINVAL;
+	}
+
 	/*
 	 * get 2byte flas to distinguish what operation is passing
 	 */

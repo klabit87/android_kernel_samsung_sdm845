@@ -661,6 +661,54 @@ static ssize_t front_camera_info_store(struct device *dev,
 }
 #endif
 
+char supported_camera_ids[] = { 
+	0,  //REAR_0
+	1,  //FRONT_1
+#if defined(CONFIG_SAMSUNG_REAR_DUAL) || defined(CONFIG_SAMSUNG_REAR_TRIPLE)
+	20, //DUAL_REAR_ZOOM
+#endif
+#if defined(CONFIG_SAMSUNG_REAR_DUAL) || defined(CONFIG_SAMSUNG_REAR_TRIPLE)
+	21, //DUAL_REAR_PORTRAIT
+#endif
+#if defined(CONFIG_SAMSUNG_REAR_DUAL) || defined(CONFIG_SAMSUNG_REAR_TRIPLE)
+	50, //REAR_2ND
+#endif
+//#if defined(CONFIG_SAMSUNG_FRONT_DUAL)
+//	51, //FRONT_2ND
+//#endif
+//#if defined(CONFIG_SAMSUNG_REAR_DUAL) || defined(CONFIG_SAMSUNG_REAR_TRIPLE)
+//	52, //REAR_3RD
+//#endif
+#if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
+	90  //IRIS
+#endif
+	};
+
+static ssize_t supported_camera_ids_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int i = 0, size = 0;
+	int offset = 0, cnt = 0;
+
+	size = sizeof(supported_camera_ids) / sizeof(char);
+	for (i = 0; i < size; i++) {
+		cnt = scnprintf(buf + offset, PAGE_SIZE, "%d ", supported_camera_ids[i]);
+		offset += cnt;
+	}
+
+	return offset;	
+}
+
+static ssize_t supported_camera_ids_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	pr_info("[FW_DBG] buf : %s\n", buf);
+//	scnprintf(supported_camera_Ids, sizeof(supported_camera_ids), "%s", buf);
+
+	return size;
+}
+
+
 #if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
 char iris_cam_fw_ver[SYSFS_FW_VER_SIZE] = "UNKNOWN N\n";
 static ssize_t iris_camera_firmware_show(struct device *dev,
@@ -1226,7 +1274,7 @@ static ssize_t ois_autotest_store(struct device *dev,
 	return size;
 }
 
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 static ssize_t ois_autotest_2nd_show(struct device *dev,
 					 struct device_attribute *attr, char *buf)
 {
@@ -1316,6 +1364,9 @@ static ssize_t ois_power_store(struct device *dev, struct device_attribute *attr
 	case '1':
 		cam_ois_power_up(g_o_ctrl);
 		msleep(200);
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+		cam_ois_write_cal_data(g_o_ctrl);
+#endif
 		pr_info("%s: power up", __func__);
 		break;
 
@@ -1325,14 +1376,101 @@ static ssize_t ois_power_store(struct device *dev, struct device_attribute *attr
 	return size;
 }
 
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+long raw_init_x = 0, raw_init_y = 0;
+
+static ssize_t gyro_format_data(char *buf, long raw_data_x, long raw_data_y, size_t offset)
+{
+	ssize_t rc = 0;
+
+	if (buf == NULL) {
+	    return rc;
+	}
+	if(offset){
+		rc += sprintf(buf+offset, "%s", ",");
+		offset += rc;
+	}
+	if (raw_data_x < 0 && raw_data_y < 0) {
+		rc += sprintf(buf+offset, "-%ld.%03ld,-%ld.%03ld\n",
+			(long int)abs(raw_data_x / 1000), (long int)abs(raw_data_x % 1000),
+			(long int)abs(raw_data_y / 1000), (long int)abs(raw_data_y % 1000));
+	} else if (raw_data_x < 0) {
+		rc += sprintf(buf+offset, "-%ld.%03ld,%ld.%03ld\n",
+			(long int)abs(raw_data_x / 1000), (long int)abs(raw_data_x % 1000),
+			raw_data_y / 1000, raw_data_y % 1000);
+	} else if (raw_data_y < 0) {
+		rc +=  sprintf(buf+offset, "%ld.%03ld,-%ld.%03ld\n",
+			raw_data_x / 1000, raw_data_x % 1000,
+			(long int)abs(raw_data_y / 1000), (long int)abs(raw_data_y % 1000));
+	} else {
+		rc += sprintf(buf+offset, "%ld.%03ld,%ld.%03ld\n",
+			raw_data_x / 1000, raw_data_x % 1000,
+			raw_data_y / 1000, raw_data_y % 1000);
+	}
+	pr_info("[%s] current buf : %s rc=%d offset=%u\n", __func__, buf, (int)rc, (unsigned int)offset);
+
+	return rc;
+}
+
+static ssize_t gyro_calibration_start_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	ssize_t rc = 0;
+	int result = 0;
+	long raw_data_x = 0, raw_data_y = 0;
+
+	result = cam_ois_gyro_sensor_calibration(g_o_ctrl, &raw_data_x, &raw_data_y);
+	rc = sprintf(buf, "%d", result);
+	rc += gyro_format_data(buf, raw_data_x, raw_data_y, strlen(buf));
+	pr_info("[%s] current buf : %s rc=%d\n", __func__, buf, (int)rc);
+
+	return rc;
+}
+
+char ois_current_fw[SYSFS_FW_VER_SIZE] = "NULL NULL\n";
+static ssize_t ois_fw_download_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	snprintf(ois_current_fw, 40, "%s %s\n", g_o_ctrl->module_ver,g_o_ctrl->phone_ver);
+	pr_info("[FW_DBG] current OIS_fw_ver : %s\n", ois_current_fw);
+	return snprintf(buf, sizeof(ois_current_fw), "%s", ois_current_fw);
+}
+
+static ssize_t ois_fw_download_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	int rc = 0;
+	if (g_o_ctrl == NULL || g_o_ctrl->io_master_info.client == NULL)
+		return size;
+	
+	switch (buf[0]) {
+	case '1':
+		cam_ois_power_up(g_o_ctrl);
+		msleep(200);
+		rc = cam_ois_fw_update(g_o_ctrl, 1);
+		msleep(200);
+		cam_ois_power_down(g_o_ctrl);
+		pr_info("%s: ois force download complete, rc = %d ", __func__,rc);
+		break;
+	default:
+		break;
+	}
+	return size;
+}
+#endif
+
 static ssize_t gyro_selftest_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	int result_total = 0;
 	bool result_offset = 0, result_selftest = 0;
 	uint32_t selftest_ret = 0;
 	long raw_data_x = 0, raw_data_y = 0;
-
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	int OIS_GYRO_OFFSET_SPEC = 10000;
+	int result = cam_ois_offset_test(g_o_ctrl, &raw_data_x, &raw_data_y, 1);
+#else
 	cam_ois_offset_test(g_o_ctrl, &raw_data_x, &raw_data_y, 1);
+#endif
 	msleep(50);
 	selftest_ret = cam_ois_self_test(g_o_ctrl);
 
@@ -1341,7 +1479,15 @@ static ssize_t gyro_selftest_show(struct device *dev, struct device_attribute *a
 	else
 		result_selftest = false;
 
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	if ((result < 0) ||
+		abs(raw_data_x) > OIS_GYRO_OFFSET_SPEC ||
+		abs(raw_data_y) > OIS_GYRO_OFFSET_SPEC ||
+		abs(raw_init_x - raw_data_x) > OIS_GYRO_OFFSET_SPEC ||
+		abs(raw_init_y - raw_data_y) > OIS_GYRO_OFFSET_SPEC)
+#else
 	if (abs(raw_data_x) > 30000 || abs(raw_data_y) > 30000)
+#endif
 		result_offset = false;
 	else
 		result_offset = true;
@@ -1386,6 +1532,10 @@ static ssize_t gyro_rawdata_test_show(struct device *dev,
 	long raw_data_x = 0, raw_data_y = 0;
 
 	cam_ois_offset_test(g_o_ctrl, &raw_data_x, &raw_data_y, 0);
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	raw_init_x = raw_data_x;
+	raw_init_y = raw_data_y;
+#endif
 
 	pr_info("%s: raw data x = %ld.%03ld, raw data y = %ld.%03ld\n", __func__,
 		raw_data_x / 1000, raw_data_x % 1000,
@@ -1852,6 +2002,10 @@ static DEVICE_ATTR(front_mtf_exif, S_IRUGO|S_IWUSR|S_IWGRP,
 #if defined(CONFIG_CAMERA_DYNAMIC_MIPI)
 static DEVICE_ATTR(front_mipi_clock, S_IRUGO, front_camera_mipi_clock_show, NULL);
 #endif
+
+static DEVICE_ATTR(supported_cameraIds, S_IRUGO|S_IWUSR|S_IWGRP,
+	supported_camera_ids_show, supported_camera_ids_store);
+
 static DEVICE_ATTR(rear_mtf_exif, S_IRUGO|S_IWUSR|S_IWGRP,
 		rear_mtf_exif_show, rear_mtf_exif_store);
 static DEVICE_ATTR(rear_mtf2_exif, S_IRUGO|S_IWUSR|S_IWGRP,
@@ -1912,8 +2066,12 @@ static DEVICE_ATTR(rear2_hwparam, S_IRUGO|S_IWUSR|S_IWGRP,
 
 static DEVICE_ATTR(ois_power, S_IWUSR, NULL, ois_power_store);
 static DEVICE_ATTR(autotest, S_IRUGO|S_IWUSR|S_IWGRP, ois_autotest_show, ois_autotest_store);
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 static DEVICE_ATTR(autotest_2nd, S_IRUGO|S_IWUSR|S_IWGRP, ois_autotest_2nd_show, ois_autotest_2nd_store);
+#endif
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+static DEVICE_ATTR(calibrationtest, S_IRUGO, gyro_calibration_start_show , NULL);
+static DEVICE_ATTR(ois_fw_download, S_IRUGO|S_IWUSR|S_IWGRP, ois_fw_download_show, ois_fw_download_store);
 #endif
 static DEVICE_ATTR(selftest, S_IRUGO, gyro_selftest_show, NULL);
 static DEVICE_ATTR(ois_rawdata, S_IRUGO, gyro_rawdata_test_show, NULL);
@@ -2247,6 +2405,10 @@ static int __init cam_sysfs_init(void)
 			dev_attr_SVC_front_module.attr.name);
 		ret = -ENODEV;
 	}
+	if (device_create_file(cam_dev_back, &dev_attr_supported_cameraIds) < 0) {
+		pr_err("Failed to create device file!(%s)!\n",
+			dev_attr_supported_cameraIds.attr.name);
+	}	
 #if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
 	cam_dev_iris = device_create(camera_class, NULL,
 		2, NULL, "secure");
@@ -2404,12 +2566,25 @@ static int __init cam_sysfs_init(void)
 			dev_attr_autotest.attr.name);
 		ret = -ENODEV;
 	}
-#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6)
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S6) || defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
 	if (device_create_file(cam_dev_ois, &dev_attr_autotest_2nd) < 0) {
 		pr_err("Failed to create device file, %s\n",
 			dev_attr_autotest_2nd.attr.name);
 		ret = -ENODEV;
 	}
+#endif
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+	if (device_create_file(cam_dev_ois, &dev_attr_calibrationtest) < 0) {
+		pr_err("failed to create device file, %s\n",
+		dev_attr_calibrationtest.attr.name);
+		ret = -ENOENT;
+	}
+	if (device_create_file(cam_dev_ois, &dev_attr_ois_fw_download) < 0) {
+		pr_err("failed to create device file, %s\n",
+		dev_attr_ois_fw_download.attr.name);
+		ret = -ENOENT;
+	}
+
 #endif
 	if (device_create_file(cam_dev_ois, &dev_attr_selftest) < 0) {
 		pr_err("failed to create device file, %s\n",

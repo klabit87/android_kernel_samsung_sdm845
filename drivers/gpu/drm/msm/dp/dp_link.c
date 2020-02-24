@@ -906,8 +906,10 @@ static void dp_link_parse_sink_status_field(struct dp_link_private *link)
 #ifdef CONFIG_SEC_DISPLAYPORT
 	else {
 		int i;
+		pr_cont("[drm-dp] %s: ", __func__);
 		for (i = 0; i < DP_LINK_STATUS_SIZE; i++)
-			pr_debug("0x%x: 0x%02x\n", DP_LANE0_1_STATUS + i, link->link_status[i]);
+			pr_cont("0x%x: 0x%02x ", DP_LANE0_1_STATUS + i, link->link_status[i]);
+		pr_cont("\n");
 	}
 #endif
 	dp_link_parse_request(link);
@@ -1151,19 +1153,11 @@ static int dp_link_process_link_status_update(struct dp_link_private *link)
 			link->dp_link.link_params.lane_count)))
 		return -EINVAL;
 
-#ifndef CONFIG_SEC_DISPLAYPORT
-	pr_debug("channel_eq_done = %d, clock_recovery_done = %d\n",
-			drm_dp_clock_recovery_ok(link->link_status,
-			link->dp_link.link_params.lane_count),
-			drm_dp_clock_recovery_ok(link->link_status,
-			link->dp_link.link_params.lane_count));
-#else
 	pr_debug("channel_eq_done = %d, clock_recovery_done = %d\n",
 			drm_dp_channel_eq_ok(link->link_status,
 			link->dp_link.link_params.lane_count),
 			drm_dp_clock_recovery_ok(link->link_status,
 			link->dp_link.link_params.lane_count));
-#endif
 
 	return 0;
 }

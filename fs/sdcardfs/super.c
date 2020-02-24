@@ -80,7 +80,7 @@ static int sdcardfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 
 	if (uid_eq(GLOBAL_ROOT_UID, current_fsuid()) ||
 			capable(CAP_SYS_RESOURCE) ||
-			in_group_p(AID_RESERVED_DISK))
+			in_group_p(AID_USE_ROOT_RESERVED))
 		goto out;
 
 	if (sbi->options.reserved_mb) {
@@ -316,6 +316,8 @@ static int sdcardfs_show_options(struct vfsmount *mnt, struct seq_file *m,
 		seq_puts(m, ",default_normal");
 	if (opts->reserved_mb != 0)
 		seq_printf(m, ",reserved=%uMB", opts->reserved_mb);
+	if (opts->nocache)
+		seq_printf(m, ",nocache");
 
 	return 0;
 };

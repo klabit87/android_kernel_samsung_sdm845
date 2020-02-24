@@ -15,6 +15,7 @@
 
 #include "msm8909-mtp.dtsi"
 #include "msm8909w.dtsi"
+#include "msm8909w-gpu.dtsi"
 #include "8909w-pm660.dtsi"
 #include "apq8009w-bg-memory.dtsi"
 #include "msm8909-audio-bg_codec.dtsi"
@@ -115,6 +116,13 @@
 			qcom,glinkpkt-edge = "bg";
 			qcom,glinkpkt-ch-name = "RSB_CTRL";
 			qcom,glinkpkt-dev-name = "glink_pkt_bg_rsb_ctrl";
+		};
+
+		qcom,glinkpkt-bg-sso-ctrl {
+			qcom,glinkpkt-transport = "bgcom";
+			qcom,glinkpkt-edge = "bg";
+			qcom,glinkpkt-ch-name = "sso-ctrl";
+			qcom,glinkpkt-dev-name = "glink_pkt_bg_sso_ctrl";
 		};
 	};
 

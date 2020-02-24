@@ -30,12 +30,11 @@ enum {
 	SENSOR_EGIS,
 	SENSOR_VIPER_WOG,
 	SENSOR_NAMSAN,
-	SENSOR_CPID,
 	SENSOR_MAXIMUM,
 };
 
-#define SENSOR_STATUS_SIZE 9
+#define SENSOR_STATUS_SIZE 8
 static char sensor_status[SENSOR_STATUS_SIZE][10] = {"ooo", "unknown",
-	"failed", "viper", "raptor", "egis", "viper_wog", "namsan", "cpid"};
+	"failed", "viper", "raptor", "egis", "viper_wog", "namsan"};
 
 #endif

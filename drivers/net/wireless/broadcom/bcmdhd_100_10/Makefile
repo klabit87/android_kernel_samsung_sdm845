@@ -324,7 +324,7 @@ endif
 endif
 
 # TCP SYNC flood attack block
-DHDCFLAGS += -DDHDTCPSYNC_FLOOD_BLK -DTCP_SYNC_FLOOD_LIMIT=50
+DHDCFLAGS += -DDHDTCPSYNC_FLOOD_BLK -DTCP_SYNC_FLOOD_LIMIT=500
 
 ##############################
 # Android Platform Definition

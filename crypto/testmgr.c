@@ -72,7 +72,7 @@ EXPORT_SYMBOL_GPL(in_fips_err);
  */
 #define IDX1		32
 #define IDX2		32400
-#define IDX3		1
+#define IDX3		1511
 #define IDX4		8193
 #define IDX5		22222
 #define IDX6		17101
@@ -2353,6 +2353,36 @@ static const struct alg_test_desc alg_test_descs[] = {
 		.test = alg_test_null,
 		.fips_allowed = 1,
 	}, {
+		.alg = "adiantum(xchacha12,aes)",
+		.test = alg_test_skcipher,
+		.suite = {
+			.cipher = {
+				.enc = {
+					.vecs = adiantum_xchacha12_aes_enc_tv_template,
+					.count = ARRAY_SIZE(adiantum_xchacha12_aes_enc_tv_template),
+				},
+				.dec = {
+					.vecs = adiantum_xchacha12_aes_dec_tv_template,
+					.count = ARRAY_SIZE(adiantum_xchacha12_aes_dec_tv_template),
+				},
+			}
+		},
+	}, {
+		.alg = "adiantum(xchacha20,aes)",
+		.test = alg_test_skcipher,
+		.suite = {
+			.cipher = {
+				.enc = {
+					.vecs = adiantum_xchacha20_aes_enc_tv_template,
+					.count = ARRAY_SIZE(adiantum_xchacha20_aes_enc_tv_template),
+				},
+				.dec = {
+					.vecs = adiantum_xchacha20_aes_dec_tv_template,
+					.count = ARRAY_SIZE(adiantum_xchacha20_aes_dec_tv_template),
+				},
+			}
+		},
+	}, {
 		.alg = "ansi_cprng",
 		.test = alg_test_cprng,
 		.suite = {
@@ -3408,36 +3438,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 			}
 		}
 	}, {
-		.alg = "ecb(speck128)",
-		.test = alg_test_skcipher,
-		.suite = {
-			.cipher = {
-				.enc = {
-					.vecs = speck128_enc_tv_template,
-					.count = ARRAY_SIZE(speck128_enc_tv_template)
-				},
-				.dec = {
-					.vecs = speck128_dec_tv_template,
-					.count = ARRAY_SIZE(speck128_dec_tv_template)
-				}
-			}
-		}
-	}, {
-		.alg = "ecb(speck64)",
-		.test = alg_test_skcipher,
-		.suite = {
-			.cipher = {
-				.enc = {
-					.vecs = speck64_enc_tv_template,
-					.count = ARRAY_SIZE(speck64_enc_tv_template)
-				},
-				.dec = {
-					.vecs = speck64_dec_tv_template,
-					.count = ARRAY_SIZE(speck64_dec_tv_template)
-				}
-			}
-		}
-	}, {
 		.alg = "ecb(tea)",
 		.test = alg_test_skcipher,
 		.suite = {
@@ -3845,6 +3845,15 @@ static const struct alg_test_desc alg_test_descs[] = {
 			}
 		}
 	}, {
+		.alg = "nhpoly1305",
+		.test = alg_test_hash,
+		.suite = {
+			.hash = {
+				.vecs = nhpoly1305_tv_template,
+				.count = ARRAY_SIZE(nhpoly1305_tv_template),
+			}
+		}
+	}, {
 		.alg = "ofb(aes)",
 		.test = alg_test_skcipher,
 		.fips_allowed = 1,
@@ -4197,6 +4206,36 @@ static const struct alg_test_desc alg_test_descs[] = {
 			}
 		}
 	}, {
+		.alg = "xchacha12",
+		.test = alg_test_skcipher,
+		.suite = {
+			.cipher = {
+				.enc = {
+					.vecs = xchacha12_tv_template,
+					.count = ARRAY_SIZE(xchacha12_tv_template),
+				},
+				.dec = {
+					.vecs = xchacha12_tv_template,
+					.count = ARRAY_SIZE(xchacha12_tv_template),
+				},
+			}
+		},
+	}, {
+		.alg = "xchacha20",
+		.test = alg_test_skcipher,
+		.suite = {
+			.cipher = {
+				.enc = {
+					.vecs = xchacha20_tv_template,
+					.count = ARRAY_SIZE(xchacha20_tv_template),
+				},
+				.dec = {
+					.vecs = xchacha20_tv_template,
+					.count = ARRAY_SIZE(xchacha20_tv_template),
+				},
+			}
+		},
+	}, {
 		.alg = "xts(aes)",
 		.test = alg_test_skcipher,
 		.fips_allowed = 1,
@@ -4258,36 +4297,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 			}
 		}
 	}, {
-		.alg = "xts(speck128)",
-		.test = alg_test_skcipher,
-		.suite = {
-			.cipher = {
-				.enc = {
-					.vecs = speck128_xts_enc_tv_template,
-					.count = ARRAY_SIZE(speck128_xts_enc_tv_template)
-				},
-				.dec = {
-					.vecs = speck128_xts_dec_tv_template,
-					.count = ARRAY_SIZE(speck128_xts_dec_tv_template)
-				}
-			}
-		}
-	}, {
-		.alg = "xts(speck64)",
-		.test = alg_test_skcipher,
-		.suite = {
-			.cipher = {
-				.enc = {
-					.vecs = speck64_xts_enc_tv_template,
-					.count = ARRAY_SIZE(speck64_xts_enc_tv_template)
-				},
-				.dec = {
-					.vecs = speck64_xts_dec_tv_template,
-					.count = ARRAY_SIZE(speck64_xts_dec_tv_template)
-				}
-			}
-		}
-	}, {
 		.alg = "xts(twofish)",
 		.test = alg_test_skcipher,
 		.suite = {
@@ -4310,15 +4319,15 @@ static const struct alg_test_desc alg_test_descs[] = {
 			.comp = {
 				.comp = {
 					.vecs = zstd_comp_tv_template,
-					.count = 2
+					.count = ZSTD_COMP_TEST_VECTORS
 				},
 				.decomp = {
 					.vecs = zstd_decomp_tv_template,
-					.count = 2
+					.count = ZSTD_DECOMP_TEST_VECTORS
 				}
 			}
 		}
-	}
+	},
 };
 
 static bool alg_test_descs_checked;

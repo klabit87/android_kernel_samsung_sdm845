@@ -155,28 +155,50 @@ int32_t cam_ois_construct_default_power_setting(
 	power_info->power_down_setting[3].config_val = 0;
 #endif
 #if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
-	power_info->power_setting_size = 2;
+	power_info->power_setting_size = 5;
 
-	power_info->power_setting[0].seq_type = SENSOR_VIO;
-	power_info->power_setting[0].seq_val = CAM_VIO;
+	power_info->power_setting[0].seq_type = SENSOR_VDIG;
+	power_info->power_setting[0].seq_val = CAM_VDIG;
 	power_info->power_setting[0].config_val = 1;
 	power_info->power_setting[0].delay = 1;
 
-	power_info->power_setting[1].seq_type = SENSOR_VDIG;
-	power_info->power_setting[1].seq_val = CAM_VDIG;
+	power_info->power_setting[1].seq_type = SENSOR_VANA;
+	power_info->power_setting[1].seq_val = CAM_VANA;
 	power_info->power_setting[1].config_val = 1;
 	power_info->power_setting[1].delay = 1;
 
-        power_info->power_down_setting_size = 2;
+	power_info->power_setting[2].seq_type = SENSOR_VIO;
+	power_info->power_setting[2].seq_val = CAM_VIO;
+	power_info->power_setting[2].config_val = 1;
+	power_info->power_setting[2].delay = 1;
 
-	power_info->power_down_setting[0].seq_type = SENSOR_VDIG;
-	power_info->power_down_setting[0].seq_val = CAM_VDIG;
+	power_info->power_setting[3].seq_type = SENSOR_RESET;
+	power_info->power_setting[3].config_val = 1;
+	power_info->power_setting[3].delay = 15;
+
+	power_info->power_setting[4].seq_type = SENSOR_CUSTOM_GPIO1;
+	power_info->power_setting[4].config_val = 0;
+	power_info->power_setting[4].delay = 1;	
+
+	power_info->power_down_setting_size = 5;
+
+	power_info->power_down_setting[0].seq_type = SENSOR_VANA;
+	power_info->power_down_setting[0].seq_val = CAM_VANA;
 	power_info->power_down_setting[0].config_val = 0;
 
-	power_info->power_down_setting[1].seq_type = SENSOR_VIO;
-	power_info->power_down_setting[1].seq_val = CAM_VIO;
+	power_info->power_down_setting[1].seq_type = SENSOR_RESET;
 	power_info->power_down_setting[1].config_val = 0;
 
+	power_info->power_down_setting[2].seq_type = SENSOR_CUSTOM_GPIO1;
+	power_info->power_down_setting[2].config_val = 0;
+
+	power_info->power_down_setting[3].seq_type = SENSOR_VDIG;
+	power_info->power_down_setting[3].seq_val = CAM_VDIG;
+	power_info->power_down_setting[3].config_val = 0;
+
+	power_info->power_down_setting[4].seq_type = SENSOR_VIO;
+	power_info->power_down_setting[4].seq_val = CAM_VIO;
+	power_info->power_down_setting[4].config_val = 0;
 #endif
 
 	return rc;

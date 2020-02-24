@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -532,7 +532,10 @@ static bool _sde_encoder_phys_is_dual_ctl(struct sde_encoder_phys *phys_enc)
 
 	topology = sde_connector_get_topology_name(phys_enc->connector);
 	if ((topology == SDE_RM_TOPOLOGY_DUALPIPE_DSC) ||
-		(topology == SDE_RM_TOPOLOGY_DUALPIPE))
+		(topology == SDE_RM_TOPOLOGY_DUALPIPE) ||
+		(topology == SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE) ||
+		(topology == SDE_RM_TOPOLOGY_QUADPIPE_DSCMERGE) ||
+		(topology == SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE_DSC))
 		return true;
 
 	return false;
@@ -755,11 +758,10 @@ static void sde_encoder_phys_vid_enable(struct sde_encoder_phys *phys_enc)
 	sde_encoder_phys_vid_setup_timing_engine(phys_enc);
 
 	/*
-	 * For single flush cases (dual-ctl or pp-split), skip setting the
-	 * flush bit for the slave intf, since both intfs use same ctl
-	 * and HW will only flush the master.
+	 * For pp-split, skip setting the flush bit for the slave intf,
+	 * since both intfs use same ctl and HW will only flush the master.
 	 */
-	if (sde_encoder_phys_vid_needs_single_flush(phys_enc) &&
+	if (_sde_encoder_phys_is_ppsplit(phys_enc) &&
 		!sde_encoder_phys_vid_is_master(phys_enc))
 		goto skip_flush;
 

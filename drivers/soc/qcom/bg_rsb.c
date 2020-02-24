@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,21 +22,21 @@
 #include <linux/platform_device.h>
 #include <soc/qcom/glink.h>
 #include <linux/input.h>
+#include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/regulator/consumer.h>
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
-
 #include "bgrsb.h"
 
 #define BGRSB_GLINK_INTENT_SIZE 0x04
 #define BGRSB_MSG_SIZE 0x08
 #define TIMEOUT_MS 2000
 
-#define BGRSB_LDO15_VTG_MIN_UV 3300000
-#define BGRSB_LDO15_VTG_MAX_UV 3300000
+#define BGRSB_LDO15_VTG_MIN_UV 3000000
+#define BGRSB_LDO15_VTG_MAX_UV 3000000
 
 #define BGRSB_LDO11_VTG_MIN_UV 1800000
 #define BGRSB_LDO11_VTG_MAX_UV 1800000
@@ -49,6 +49,8 @@
 #define BGRSB_POWER_DISABLE 0
 #define BGRSB_GLINK_POWER_ENABLE 6
 #define BGRSB_GLINK_POWER_DISABLE 7
+#define BGRSB_IN_TWM 8
+#define BGRSB_OUT_TWM 9
 
 
 struct bgrsb_regulator {
@@ -69,7 +71,6 @@ enum bgrsb_state {
 	BGRSB_STATE_INIT,
 	BGRSB_STATE_LDO11_ENABLED,
 	BGRSB_STATE_RSB_CONFIGURED,
-	BGRSB_STATE_LDO15_ENABLED,
 	BGRSB_STATE_RSB_ENABLED
 };
 
@@ -135,10 +136,14 @@ struct bgrsb_priv {
 
 	bool calibration_needed;
 	bool is_calibrd;
+
+	bool is_cnfgrd;
+	bool blk_rsb_cmnds;
 };
 
 static void *bgrsb_drv;
 static int bgrsb_enable(struct bgrsb_priv *dev, bool enable);
+static bool is_in_twm;
 
 int bgrsb_send_input(struct event *evnt)
 {
@@ -415,6 +420,8 @@ static void bgrsb_bgdown_work(struct work_struct *work)
 			pr_err("Failed to unvote LDO-11 on BG down\n");
 	}
 
+	dev->is_cnfgrd = false;
+	dev->blk_rsb_cmnds = false;
 	pr_info("RSB current state is : %d\n", dev->bgrsb_current_state);
 
 	if (dev->bgrsb_current_state == BGRSB_STATE_INIT) {
@@ -452,6 +459,11 @@ static void bgrsb_glink_bgdown_work(struct work_struct *work)
 		else
 			pr_err("Failed to unvote LDO-11 on BG Glink down\n");
 	}
+
+	dev->is_cnfgrd = false;
+	if (is_in_twm)
+		dev->blk_rsb_cmnds = true;
+
 	if (dev->handle)
 		glink_close(dev->handle);
 	dev->handle = NULL;
@@ -562,6 +574,8 @@ static void bgrsb_bgup_work(struct work_struct *work)
 				dev->bgrsb_current_state = BGRSB_STATE_INIT;
 			return;
 		}
+
+		dev->is_cnfgrd = true;
 		dev->bgrsb_current_state = BGRSB_STATE_RSB_CONFIGURED;
 		pr_debug("RSB Cofigured\n");
 	}
@@ -592,6 +606,7 @@ static void bgrsb_glink_bgup_work(struct work_struct *work)
 				dev->bgrsb_current_state = BGRSB_STATE_INIT;
 			return;
 		}
+		dev->is_cnfgrd = true;
 		dev->bgrsb_current_state = BGRSB_STATE_RSB_CONFIGURED;
 		pr_debug("Glink RSB Cofigured\n");
 	}
@@ -715,6 +730,11 @@ static void bgrsb_calibration(struct work_struct *work)
 			container_of(work, struct bgrsb_priv,
 							rsb_calibration_work);
 
+	if (!dev->is_cnfgrd) {
+		pr_err("RSB is not configured\n");
+		return;
+	}
+
 	req.cmd_id = 0x03;
 	req.data = dev->calbrtion_cpi;
 
@@ -743,6 +763,11 @@ static void bgrsb_buttn_configration(struct work_struct *work)
 	struct bgrsb_priv *dev =
 			container_of(work, struct bgrsb_priv,
 							bttn_configr_work);
+
+	if (!dev->is_cnfgrd) {
+		pr_err("RSB is not configured\n");
+		return;
+	}
 
 	req.cmd_id = 0x05;
 	req.data = dev->bttn_configs;
@@ -813,16 +838,19 @@ static int split_bg_work(struct bgrsb_priv *dev, char *str)
 		dev->bttn_configs = (uint8_t)val;
 		queue_work(dev->bgrsb_wq, &dev->bttn_configr_work);
 		break;
+	case BGRSB_IN_TWM:
+		is_in_twm = true;
 	case BGRSB_GLINK_POWER_DISABLE:
 		queue_work(dev->bgrsb_wq, &dev->rsb_glink_down_work);
 		break;
+	case BGRSB_OUT_TWM:
+		is_in_twm = false;
 	case BGRSB_GLINK_POWER_ENABLE:
 		queue_work(dev->bgrsb_wq, &dev->rsb_glink_up_work);
 		break;
 	}
 	return 0;
 }
-
 static int store_enable(struct device *pdev, struct device_attribute *attr,
 		const char *buff, size_t count)
 {
@@ -831,13 +859,22 @@ static int store_enable(struct device *pdev, struct device_attribute *attr,
 	char *arr = kstrdup(buff, GFP_KERNEL);
 
 	if (!arr)
-		goto err_ret;
+		return -ENOMEM;
+
+	if (dev->blk_rsb_cmnds) {
+		pr_err("Device is in TWM state\n");
+		kfree(arr);
+		return count;
+	}
+
+	if (!dev->is_cnfgrd) {
+		kfree(arr);
+		return -ENOMEDIUM;
+	}
 
 	rc = split_bg_work(dev, arr);
 	if (rc != 0)
 		pr_err("Not able to process request\n");
-
-err_ret:
 	return count;
 }
 
@@ -993,7 +1030,8 @@ static int bg_rsb_resume(struct device *pldev)
 		goto ret_success;
 
 	if (dev->bgrsb_current_state == BGRSB_STATE_INIT) {
-		if (bgrsb_ldo_work(dev, BGRSB_ENABLE_LDO11) == 0) {
+		if (dev->is_cnfgrd &&
+			bgrsb_ldo_work(dev, BGRSB_ENABLE_LDO11) == 0) {
 			dev->bgrsb_current_state = BGRSB_STATE_RSB_CONFIGURED;
 			pr_debug("RSB Cofigured\n");
 			goto ret_success;

@@ -20,15 +20,18 @@ struct cam_ois_sinewave_t
     int sin_y;
 };
 
-void cam_ois_offset_test(struct cam_ois_ctrl_t *o_ctrl,
+int cam_ois_offset_test(struct cam_ois_ctrl_t *o_ctrl,
                          long *raw_data_x, long *raw_data_y, bool is_need_cal);
 uint32_t cam_ois_self_test(struct cam_ois_ctrl_t *o_ctrl);
+int cam_ois_gyro_sensor_calibration(struct cam_ois_ctrl_t *o_ctrl,
+	long *raw_data_x, long *raw_data_y);
 bool cam_ois_sine_wavecheck(struct cam_ois_ctrl_t *o_ctrl, int threshold,
                             struct cam_ois_sinewave_t *sinewave, int *result, int num_of_module);
 int cam_ois_check_fw(struct cam_ois_ctrl_t *o_ctrl);
+int32_t cam_ois_fw_update(struct cam_ois_ctrl_t *o_ctrl,bool is_force_update);
 int cam_ois_wait_idle(struct cam_ois_ctrl_t *o_ctrl, int retries);
 int cam_ois_init(struct cam_ois_ctrl_t *o_ctrl);
-int cam_ois_i2c_byte_write(struct cam_ois_ctrl_t *o_ctrl, uint32_t addr, uint16_t data);
+int cam_ois_i2c_byte_write(struct cam_ois_ctrl_t *o_ctrl, uint32_t addr, uint32_t data);
 int32_t cam_ois_set_debug_info(struct cam_ois_ctrl_t *o_ctrl, uint16_t mode);
 int cam_ois_get_ois_mode(struct cam_ois_ctrl_t *o_ctrl, uint16_t *mode);
 int cam_ois_set_ois_mode(struct cam_ois_ctrl_t *o_ctrl, uint16_t mode);
@@ -38,6 +41,8 @@ int cam_ois_set_angle_for_compensation(struct cam_ois_ctrl_t *o_ctrl);
 int cam_ois_set_ggfadeup(struct cam_ois_ctrl_t *o_ctrl, uint16_t value);
 int cam_ois_set_ggfadedown(struct cam_ois_ctrl_t *o_ctrl, uint16_t value);
 int cam_ois_fixed_aperture(struct cam_ois_ctrl_t *o_ctrl);
+int cam_ois_write_cal_data(struct cam_ois_ctrl_t *o_ctrl);
+
 
 /*
 *Below code add for MCU sysboot cmd operation
@@ -78,7 +83,9 @@ typedef struct
 #define BOOT_I2C_XMIT_TMOUT(count)      (5 + (1 * count))
 #define BOOT_I2C_RECV_TMOUT(count)      BOOT_I2C_XMIT_TMOUT(count)
 
+
 /* Payload length info. */
+
 
 #define BOOT_I2C_CMD_LEN                (1)
 #define BOOT_I2C_ADDRESS_LEN            (4)
@@ -86,6 +93,7 @@ typedef struct
 #define BOOT_I2C_NUM_WRITE_LEN          (1)
 #define BOOT_I2C_NUM_ERASE_LEN          (2)
 #define BOOT_I2C_CHECKSUM_LEN           (1)
+
 
 #define BOOT_I2C_MAX_WRITE_LEN          (256)  /* Protocol limitation */
 #define BOOT_I2C_MAX_ERASE_PARAM_LEN    (4096) /* In case of erase parameter with 2048 pages */

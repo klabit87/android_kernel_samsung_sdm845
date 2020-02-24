@@ -20,6 +20,8 @@ gensrcs {
           "include/uapi/linux/qseecom.h",
           "include/uapi/linux/msm_ion.h",
           "include/uapi/linux/ion.h",
+          "include/uapi/linux/msm_kgsl.h",
+          "include/uapi/media/msm_media_info.h",
     ],
     output_extension: "h",
 }

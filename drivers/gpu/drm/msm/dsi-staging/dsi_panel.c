@@ -743,7 +743,7 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	dsi = &panel->mipi_device;
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
-	rc = ss_brightness_dcs(panel->panel_private, bl_lvl);
+	rc = ss_brightness_dcs(panel->panel_private, bl_lvl, BACKLIGHT_NORMAL);
 	if (rc < 0)
 		pr_err("failed to update dcs backlight:%d\n", bl_lvl);
 #else
@@ -1239,6 +1239,46 @@ error:
 	return rc;
 }
 
+static int dsi_panel_parse_dyn_clk_caps(struct dsi_dyn_clk_caps *dyn_clk_caps,
+				     struct device_node *of_node,
+				     const char *name)
+{
+	int rc = 0;
+	bool supported = false;
+
+	supported = of_property_read_bool(of_node, "qcom,dsi-dyn-clk-enable");
+
+	if (!supported) {
+		dyn_clk_caps->dyn_clk_support = false;
+		return rc;
+	}
+
+	of_find_property(of_node, "qcom,dsi-dyn-clk-list",
+			      &dyn_clk_caps->bit_clk_list_len);
+	dyn_clk_caps->bit_clk_list_len /= sizeof(u32);
+	if (dyn_clk_caps->bit_clk_list_len < 1) {
+		pr_err("[%s] failed to get supported bit clk list\n", name);
+		return -EINVAL;
+	}
+
+	dyn_clk_caps->bit_clk_list = kcalloc(dyn_clk_caps->bit_clk_list_len,
+					     sizeof(u32), GFP_KERNEL);
+	if (!dyn_clk_caps->bit_clk_list)
+		return -ENOMEM;
+
+	rc = of_property_read_u32_array(of_node, "qcom,dsi-dyn-clk-list",
+				   dyn_clk_caps->bit_clk_list,
+				   dyn_clk_caps->bit_clk_list_len);
+	if (rc) {
+		pr_err("[%s] failed to parse supported bit clk list\n", name);
+		return -EINVAL;
+	}
+
+	dyn_clk_caps->dyn_clk_support = true;
+
+	return 0;
+}
+
 static int dsi_panel_parse_dfps_caps(struct dsi_dfps_capabilities *dfps_caps,
 				     struct device_node *of_node,
 				     const char *name)
@@ -1246,7 +1286,7 @@ static int dsi_panel_parse_dfps_caps(struct dsi_dfps_capabilities *dfps_caps,
 	int rc = 0;
 	bool supported = false;
 	const char *type;
-	u32 val = 0;
+	u32 i;
 
 	supported = of_property_read_bool(of_node,
 					"qcom,mdss-dsi-pan-enable-dynamic-fps");
@@ -1254,68 +1294,67 @@ static int dsi_panel_parse_dfps_caps(struct dsi_dfps_capabilities *dfps_caps,
 	if (!supported) {
 		pr_debug("[%s] DFPS is not supported\n", name);
 		dfps_caps->dfps_support = false;
-	} else {
-
-		type = of_get_property(of_node,
-				       "qcom,mdss-dsi-pan-fps-update",
-				       NULL);
-		if (!type) {
-			pr_err("[%s] dfps type not defined\n", name);
-			rc = -EINVAL;
-			goto error;
-		} else if (!strcmp(type, "dfps_suspend_resume_mode")) {
-			dfps_caps->type = DSI_DFPS_SUSPEND_RESUME;
-		} else if (!strcmp(type, "dfps_immediate_clk_mode")) {
-			dfps_caps->type = DSI_DFPS_IMMEDIATE_CLK;
-		} else if (!strcmp(type, "dfps_immediate_porch_mode_hfp")) {
-			dfps_caps->type = DSI_DFPS_IMMEDIATE_HFP;
-		} else if (!strcmp(type, "dfps_immediate_porch_mode_vfp")) {
-			dfps_caps->type = DSI_DFPS_IMMEDIATE_VFP;
-		} else {
-			pr_err("[%s] dfps type is not recognized\n", name);
-			rc = -EINVAL;
-			goto error;
-		}
-
-		rc = of_property_read_u32(of_node,
-					  "qcom,mdss-dsi-min-refresh-rate",
-					  &val);
-		if (rc) {
-			pr_err("[%s] Min refresh rate is not defined\n", name);
-			rc = -EINVAL;
-			goto error;
-		}
-		dfps_caps->min_refresh_rate = val;
-
-		rc = of_property_read_u32(of_node,
-					  "qcom,mdss-dsi-max-refresh-rate",
-					  &val);
-		if (rc) {
-			pr_debug("[%s] Using default refresh rate\n", name);
-			rc = of_property_read_u32(of_node,
-						"qcom,mdss-dsi-panel-framerate",
-						&val);
-			if (rc) {
-				pr_err("[%s] max refresh rate is not defined\n",
-				       name);
-				rc = -EINVAL;
-				goto error;
-			}
-		}
-		dfps_caps->max_refresh_rate = val;
-
-		if (dfps_caps->min_refresh_rate > dfps_caps->max_refresh_rate) {
-			pr_err("[%s] min rate > max rate\n", name);
-			rc = -EINVAL;
-		}
-
-		pr_debug("[%s] DFPS is supported %d-%d, mode %d\n", name,
-				dfps_caps->min_refresh_rate,
-				dfps_caps->max_refresh_rate,
-				dfps_caps->type);
-		dfps_caps->dfps_support = true;
+		return rc;
 	}
 
+	type = of_get_property(of_node,
+			       "qcom,mdss-dsi-pan-fps-update",
+			       NULL);
+	if (!type) {
+		pr_err("[%s] dfps type not defined\n", name);
+		rc = -EINVAL;
+		goto error;
+	} else if (!strcmp(type, "dfps_suspend_resume_mode")) {
+		dfps_caps->type = DSI_DFPS_SUSPEND_RESUME;
+	} else if (!strcmp(type, "dfps_immediate_clk_mode")) {
+		dfps_caps->type = DSI_DFPS_IMMEDIATE_CLK;
+	} else if (!strcmp(type, "dfps_immediate_porch_mode_hfp")) {
+		dfps_caps->type = DSI_DFPS_IMMEDIATE_HFP;
+	} else if (!strcmp(type, "dfps_immediate_porch_mode_vfp")) {
+		dfps_caps->type = DSI_DFPS_IMMEDIATE_VFP;
+	} else {
+		pr_err("[%s] dfps type is not recognized\n", name);
+		rc = -EINVAL;
+		goto error;
+	}
+
+	of_find_property(of_node, "qcom,dsi-supported-dfps-list",
+			 &dfps_caps->dfps_list_len);
+	dfps_caps->dfps_list_len /= sizeof(u32);
+	if (dfps_caps->dfps_list_len < 1) {
+		pr_err("[%s] dfps refresh list not present\n", name);
+		rc = -EINVAL;
+		goto error;
+	}
+
+	dfps_caps->dfps_list = kcalloc(dfps_caps->dfps_list_len, sizeof(u32),
+				       GFP_KERNEL);
+	if (!dfps_caps->dfps_list) {
+		rc = -ENOMEM;
+		goto error;
+	}
+
+	rc = of_property_read_u32_array(of_node, "qcom,dsi-supported-dfps-list",
+					dfps_caps->dfps_list,
+					dfps_caps->dfps_list_len);
+	if (rc) {
+		pr_err("[%s] dfps refresh rate list parse failed\n", name);
+		rc = -EINVAL;
+		goto error;
+	}
+
+	dfps_caps->dfps_support = true;
+
+	/* calculate max and min fps */
+	dfps_caps->max_refresh_rate = dfps_caps->dfps_list[0];
+	dfps_caps->min_refresh_rate = dfps_caps->dfps_list[0];
+
+	for (i = 1; i < dfps_caps->dfps_list_len; i++) {
+		if (dfps_caps->dfps_list[i] < dfps_caps->min_refresh_rate)
+			dfps_caps->min_refresh_rate = dfps_caps->dfps_list[i];
+		else if (dfps_caps->dfps_list[i] > dfps_caps->max_refresh_rate)
+			dfps_caps->max_refresh_rate = dfps_caps->dfps_list[i];
+	}
 error:
 	return rc;
 }
@@ -2450,6 +2489,7 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel,
 {
 	int rc = 0;
 	const char *bl_type;
+	const char *data;
 	u32 val = 0;
 
 	bl_type = of_get_property(of_node,
@@ -2467,6 +2507,17 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel,
 		pr_debug("[%s] bl-pmic-control-type unknown-%s\n",
 			 panel->name, bl_type);
 		panel->bl_config.type = DSI_BACKLIGHT_UNKNOWN;
+	}
+
+	data = of_get_property(of_node, "qcom,bl-update-flag", NULL);
+	if (!data) {
+		panel->bl_config.bl_update = BL_UPDATE_NONE;
+	} else if (!strcmp(data, "delay_until_first_frame")) {
+		panel->bl_config.bl_update = BL_UPDATE_DELAY_UNTIL_FIRST_FRAME;
+	} else {
+		pr_debug("[%s] No valid bl-update-flag: %s\n",
+						panel->name, data);
+		panel->bl_config.bl_update = BL_UPDATE_NONE;
 	}
 
 	panel->bl_config.bl_scale = MAX_BL_SCALE_LEVEL;
@@ -2579,7 +2630,7 @@ int dsi_dsc_populate_static_param(struct msm_display_dsc_info *dsc)
 	int target_bpp_x16;
 	int data;
 	int final_value, final_scale;
-	int ratio_index;
+	int ratio_index, mod_offset;
 
 	dsc->rc_model_size = 8192;
 
@@ -2651,7 +2702,20 @@ int dsi_dsc_populate_static_param(struct msm_display_dsc_info *dsc)
 		dsc->quant_incr_limit1 = 19;
 	}
 
-	dsc->slice_last_group_size = 3 - (dsc->slice_width % 3);
+	mod_offset = dsc->slice_width % 3;
+	switch (mod_offset) {
+	case 0:
+		dsc->slice_last_group_size = 2;
+		break;
+	case 1:
+		dsc->slice_last_group_size = 0;
+		break;
+	case 2:
+		dsc->slice_last_group_size = 1;
+		break;
+	default:
+		break;
+	}
 
 	dsc->det_thresh_flatness = 7 + 2*(bpc - 8);
 
@@ -3413,6 +3477,14 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 			pr_err("failed to parse dfps configuration, rc=%d\n",
 				rc);
 
+		if (panel->panel_mode == DSI_OP_VIDEO_MODE) {
+			rc = dsi_panel_parse_dyn_clk_caps(&panel->dyn_clk_caps,
+				of_node, panel->name);
+			if (rc)
+				pr_err("failed to parse dynamic clk config, rc=%d\n",
+				       rc);
+		}
+
 		rc = dsi_panel_parse_phy_props(&panel->phy_props,
 			of_node, panel->name);
 		if (rc) {
@@ -3898,7 +3970,7 @@ int dsi_panel_get_host_cfg_for_mode(struct dsi_panel *panel,
 	if (mode->priv_info) {
 		config->video_timing.dsc_enabled = mode->priv_info->dsc_enabled;
 		config->video_timing.dsc = &mode->priv_info->dsc;
-		config->bit_clk_rate_hz = mode->priv_info->clk_rate_hz;
+		config->bit_clk_rate_hz = mode->timing.clk_rate_hz;
 	}
 	config->esc_clk_rate_hz = 19200000;
 
@@ -4075,6 +4147,13 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	mutex_unlock(&panel->panel_lock);
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	ss_set_exclusive_tx_lock_from_qct(panel->panel_private, false);
+
+	{// AOD, open folder, should wait it exits AOD and then switch panel
+		struct samsung_display_driver_data *vdd = panel->panel_private;
+		if (vdd->support_hall_ic && vdd->folder_com->folder_flipping) {
+			ss_noti_hal_to_flip();
+		}
+	}
 #endif
 
 	return rc;
@@ -4084,7 +4163,7 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 {
 	int rc = 0;
 #if defined(CONFIG_DISPLAY_SAMSUNG)
-	struct samsung_display_driver_data *vdd = panel->panel_private, * vdd_old;
+	struct samsung_display_driver_data *vdd, *vdd_old;
 #endif
 
 	if (!panel) {
@@ -4092,17 +4171,25 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 #if defined(CONFIG_DISPLAY_SAMSUNG)
-	if (vdd->support_hall_ic) {
-		gpio_set_value(vdd->select_panel_gpio, vdd->hall_ic_status);
-		vdd->folder_sel_status = vdd->hall_ic_status;
-		ss_selected_panel_set((vdd->hall_ic_status == HALL_IC_OPEN) ? PRIMARY_DISPLAY_NDX : SECONDARY_DISPLAY_NDX);
-		vdd_old = vdd;
-		vdd = samsung_get_vdd();
-		ss_sync_panels_vdd(vdd_old, vdd);
-		pr_info("[FOLDER] vdd ndx %d\n", vdd->ndx);
-	}
+	vdd_old = vdd = (struct samsung_display_driver_data *) panel->panel_private;
+	// backlight, mdnie thread or sysfs may be running. be careful use this lock.
+	ss_set_exclusive_tx_lock_from_qct(vdd_old, true);
 
-	ss_set_exclusive_tx_lock_from_qct(panel->panel_private, true);
+	if (vdd->support_hall_ic) {
+		mutex_lock(&vdd->folder_com->folder_com_data_lock);
+		if (vdd->folder_com->folder_flipping) {
+			gpio_set_value(vdd->select_panel_gpio, vdd->folder_com->hall_ic_status);
+			vdd->folder_com->folder_flipping = false;
+			vdd->folder_com->folder_sel_status = vdd->folder_com->hall_ic_status;
+			ss_selected_panel_set((vdd->folder_com->hall_ic_status == HALL_IC_OPEN) ? PRIMARY_DISPLAY_NDX : SECONDARY_DISPLAY_NDX);
+			// vdd_old = vdd;
+			vdd = samsung_get_vdd();// switch vdd
+			ss_sync_panels_vdd(vdd_old, vdd);
+			vdd->folder_need_delay_disp_on = true;
+		}
+		pr_info("%s [FOLDER] vdd ndx %d\n", __func__, vdd->ndx);
+		mutex_unlock(&vdd->folder_com->folder_com_data_lock);
+	}
 #endif
 
 	if (panel->type == EXT_BRIDGE)
@@ -4137,7 +4224,7 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 error:
 	mutex_unlock(&panel->panel_lock);
 #if defined(CONFIG_DISPLAY_SAMSUNG)
-	ss_set_exclusive_tx_lock_from_qct(panel->panel_private, false);
+	ss_set_exclusive_tx_lock_from_qct(vdd_old, false);
 #endif
 
 	return rc;
@@ -4333,6 +4420,10 @@ int dsi_panel_post_switch(struct dsi_panel *panel)
 int dsi_panel_enable(struct dsi_panel *panel)
 {
 	int rc = 0;
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	static bool first_boot = true;
+	struct samsung_display_driver_data *vdd = NULL;
+#endif
 
 	if (!panel) {
 		pr_err("Invalid params\n");
@@ -4345,6 +4436,14 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	pr_err("++\n");
 	mutex_lock(&panel->panel_lock);
 #if defined(CONFIG_DISPLAY_SAMSUNG)
+	vdd = panel->panel_private;
+	/*folder model concept: read both panels id when booting*/
+	if (vdd->support_hall_ic && first_boot) {
+		vdd = ss_folder_panel_flip(vdd);
+		ss_panel_on_pre(vdd);
+		vdd = ss_folder_panel_flip(vdd);
+	}
+
 	ss_panel_on_pre(panel->panel_private);
 #endif
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
@@ -4355,6 +4454,10 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	panel->panel_initialized = true;
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	ss_panel_on_post(panel->panel_private);
+	if (vdd->support_hall_ic && first_boot) {
+		first_boot = false;
+		vdd->folder_com->folder_flipping = false;
+	}
 #endif
 	mutex_unlock(&panel->panel_lock);
 

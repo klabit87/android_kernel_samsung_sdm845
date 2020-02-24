@@ -140,6 +140,7 @@ void max77705_muic_qc_hv_set(struct max77705_muic_data *muic_data, int voltage)
 	max77705_usbc_opcode_write(usbc_pdata, &write_data);
 }
 
+#if !defined(CONFIG_MACH_CROWNQLTE_KDI) && !defined(CONFIG_MACH_CROWNQLTE_DCM)
 static void max77705_muic_handle_detect_dev_mpnack(struct max77705_muic_data *muic_data)
 {
 	struct max77705_usbc_platform_data *usbc_pdata = muic_data->usbc_pdata;
@@ -154,6 +155,7 @@ static void max77705_muic_handle_detect_dev_mpnack(struct max77705_muic_data *mu
 
 	max77705_usbc_opcode_write(usbc_pdata, &write_data);
 }
+#endif
 
 void max77705_muic_handle_detect_dev_afc(struct max77705_muic_data *muic_data, unsigned char *data)
 {
@@ -205,7 +207,11 @@ void max77705_muic_handle_detect_dev_afc(struct max77705_muic_data *muic_data, u
 		break;
 	case 4:
 		pr_info("%s:%s MPing NACK\n", MUIC_DEV_NAME, __func__);
+#if !defined(CONFIG_MACH_CROWNQLTE_KDI) && !defined(CONFIG_MACH_CROWNQLTE_DCM)
 		max77705_muic_handle_detect_dev_mpnack(muic_data);
+#else
+		pr_info("%s:%s No QC2.0 at JPN, just return!\n", MUIC_DEV_NAME, __func__);
+#endif
 		break;
 	case 5:
 		pr_info("%s:%s Unsupported TX data\n", MUIC_DEV_NAME, __func__);

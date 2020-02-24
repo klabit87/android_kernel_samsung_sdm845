@@ -123,6 +123,10 @@ int stmpe_remove(struct stmpe *stmpe);
 #define STMPE801_REG_GPIO_SET_PIN	0x11
 #define STMPE801_REG_GPIO_DIR		0x12
 
+#define STMPE801_REG_SYS_CTRL_RESET	(1 << 7)
+#define STMPE801_REG_SYS_CTRL_INT_EN	(1 << 2)
+#define STMPE801_REG_SYS_CTRL_INT_HI	(1 << 0)
+
 /*
  * STMPE811
  */
@@ -280,6 +284,8 @@ int stmpe_remove(struct stmpe *stmpe);
 #define STMPE1801_REG_GPIO_PULL_UP_LOW		0x22
 #define STMPE1801_REG_GPIO_PULL_UP_MID		0x23
 #define STMPE1801_REG_GPIO_PULL_UP_HIGH		0x24
+
+#define STMPE1801_MSK_SYS_CTRL_RESET		(1 << 7)
 
 #define STMPE1801_MSK_INT_EN_KPC		(1 << 1)
 #define STMPE1801_MSK_INT_EN_GPIO		(1 << 3)

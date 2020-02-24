@@ -1364,7 +1364,7 @@ config NETFILTER_XT_MATCH_PKTTYPE
 	  iptables -A INPUT -m pkttype --pkt-type broadcast -j LOG
 
 	  To compile it as a module, choose M here.  If unsure, say N.
-
+	  
 config NETFILTER_XT_MATCH_QTAGUID
 	bool '"quota, tag, owner" match and stats support'
         depends on NETFILTER_XT_MATCH_SOCKET

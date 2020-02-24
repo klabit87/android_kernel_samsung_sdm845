@@ -22,7 +22,7 @@
 
 #include "secdp_unit_test.h"
 
-#define BUF_SIZE	SZ_32K
+#define BUF_SIZE	SZ_64K
 #define MAX_STR_LEN	128
 #define PROC_FILE_NAME	"dplog"
 #define LOG_PREFIX		"secdp"

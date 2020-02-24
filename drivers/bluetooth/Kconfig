@@ -390,6 +390,13 @@ config BT_BCM4361
 	  Adds BCM43XX RFKILL driver for Broadcom BCM4361 chipset
 	  default is n.
 
+config BT_BCM4359
+	bool "Enable BCM4359 driver"
+	default n
+	help
+	  Adds BCM43XX RFKILL driver for Broadcom BCM4359 chipset
+	  default is n.
+
 config BT_BLUESLEEP
 	bool "Enable BlUESLEEP driver"
 	default n

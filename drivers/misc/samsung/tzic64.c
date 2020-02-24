@@ -53,7 +53,8 @@ typedef enum {
     OEMFLAG_TZ_DRM,
     OEMFLAG_FIDD,
     OEMFLAG_CC,
-    OEMFLAG_SYSSCOPE,
+    OEMFLAG_ETC,
+    OEMFLAG_CUSTOM_KERNEL,
     OEMFLAG_NUM_OF_FLAG,
 } Sec_OemFlagID_t;
 
@@ -320,7 +321,7 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 			ret = get_tamper_fuse_cmd_new(param.name);
 			LOG(KERN_INFO "[oemflag]tamper_fuse before = %x\n", ret);
 			LOG(KERN_INFO "[oemflag]ioctl set_fuse\n");
-#ifdef SAMSUNG_PRODUCT_SHIP
+#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 			//Qualcomm DRM oemflag only support HLOS_IMG_TAMPER_FUSE
 			if (param.name == OEMFLAG_TZ_DRM) {
 				mutex_lock(&tzic_mutex);
@@ -357,7 +358,7 @@ static long tzic_ioctl(struct file *file, unsigned int cmd,
 				ret = get_tamper_fuse_cmd_new(param.name);
 				LOG(KERN_INFO "[oemflag]tamper_fuse before = %x\n", ret);
 				LOG(KERN_INFO "[oemflag]ioctl set_fuse\n");
-#ifdef SAMSUNG_PRODUCT_SHIP
+#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 				//Qualcomm DRM oemflag only support HLOS_IMG_TAMPER_FUSE
 				if (param.name == OEMFLAG_TZ_DRM) {
 					mutex_lock(&tzic_mutex);

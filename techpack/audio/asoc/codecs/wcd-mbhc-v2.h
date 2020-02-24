@@ -434,6 +434,9 @@ struct wcd_mbhc_config {
 	u32 enable_usbc_analog;
 	struct usbc_ana_audio_config usbc_analog_cfg;
 	bool mbhc_spl_headset;
+#if defined(CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK)
+	u32 enable_usbc_analog_v2;
+#endif
 };
 
 struct wcd_mbhc_intr {
@@ -600,6 +603,13 @@ struct wcd_mbhc {
 #if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
 	int default_impedance_offset;
 	bool slow_insertion;
+#endif
+
+#if defined(CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK)
+	bool usbc_ear_out_enable;
+	int usbc_ana_en_gpio;
+	int usbc_ana_sel_gpio;
+	int usbc_jack_ctr_gpio;
 #endif
 };
 

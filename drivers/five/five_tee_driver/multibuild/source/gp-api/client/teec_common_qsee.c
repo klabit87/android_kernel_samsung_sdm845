@@ -88,7 +88,7 @@ static TEEC_Result TeecUuidToQseeUuid(const TEEC_UUID *uuid, char *qsee_uuid)
 	qsee_uuid[i++] = (uuid->timeHiAndVersion & 0xFF00) >> 8;
 	qsee_uuid[i++] = (uuid->timeHiAndVersion & 0xFF);
 
-	for (j = 0; j < sizeof(uuid->clockSeqAndNode); j++)
+	for (j = 0; j < (uint32_t)sizeof(uuid->clockSeqAndNode); j++)
 		qsee_uuid[i++] = uuid->clockSeqAndNode[j];
 
 exit:

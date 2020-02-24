@@ -554,7 +554,7 @@ static int muic_handle_ccic_ATTACH(muic_data_t *pmuic, CC_NOTI_ATTACH_TYPEDEF *p
 		/* To prevent damage by RP0 Cable, AFC should be progress after ccic_attach */
 		pmuic->is_ccic_attach = true;
 
-#if !defined(CONFIG_SUPPORT_QC30)
+#if defined(CONFIG_MUIC_HV) && !defined(CONFIG_SUPPORT_QC30)
 		/* W/A for late ccic attach */
 		if (pmuic->retry_afc) {
 			pmuic->retry_afc = false;

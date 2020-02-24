@@ -19,6 +19,15 @@ config LSM6DSL_FACTORY
 	  request selftest to adsp_factory.
 	  receive test result from adsp_factory.
 
+config LSM6DSO_FACTORY
+	tristate "factory test for SSC - LSM6DSO"
+	default n
+	help
+	  lsm6dso factory driver.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
 config AK09916C_FACTORY
 	tristate "factory test for SSC - ak09916c"
 	default n

@@ -364,6 +364,8 @@ struct hfi_buffer_info {
 	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x014)
 #define HFI_PROPERTY_CONFIG_HEIC_GRID_ENABLE			\
 	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x015)
+#define HFI_PROPERTY_CONFIG_VENC_FRAME_QP_RANGE			\
+	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x016)
 
 #define HFI_PROPERTY_PARAM_VPE_COMMON_START				\
 	(HFI_DOMAIN_BASE_VPE + HFI_ARCH_COMMON_OFFSET + 0x7000)
@@ -655,7 +657,6 @@ struct hfi_bit_depth {
 };
 
 struct hfi_picture_type {
-	u32 is_sync_frame;
 	u32 picture_type;
 };
 

@@ -69,6 +69,7 @@
 
 #define ECRYPTFS_BASE_PATH_SIZE 1024
 #define ECRYPTFS_LABEL_SIZE 1024
+#define SEC_ECRYPTFS_HMAC_KEY_SIZE   32
 #ifdef CONFIG_SDP
 #define PKG_NAME_SIZE 16
 #endif
@@ -283,6 +284,7 @@ struct ecryptfs_crypt_stat {
 #ifdef CONFIG_DLP
 #define ECRYPTFS_DLP_ENABLED		  0x04000000
 #endif
+#define ECRYPTFS_SUPPORT_HMAC_KEY     0x00010000
 
 	u32 flags;
 	unsigned int file_version;

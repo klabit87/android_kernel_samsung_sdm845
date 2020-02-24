@@ -28,6 +28,8 @@
 #include <asm/virt.h>
 
 	.text
+	.pushsection	.hyp.text, "ax"
+
 	.align 11
 
 #ifdef CONFIG_RKP_CFP_JOPP

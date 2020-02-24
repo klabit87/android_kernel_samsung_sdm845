@@ -219,7 +219,7 @@ static struct usb_ss_ep_comp_descriptor mtpg_superspeed_bulk_comp_desc = {
 	.bDescriptorType =      USB_DT_SS_ENDPOINT_COMP,
 
 	/* the following 2 values can be tweaked if necessary */
-	.bMaxBurst =         4,
+	.bMaxBurst =         15,
 	/* .bmAttributes =      0, */
 };
 
@@ -1198,17 +1198,24 @@ static long  mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 		struct work_struct *work;
 		struct file *file = NULL;
 
+		if (_lock(&dev->ioctl_excl)){
+			status = -EBUSY;
+			goto exit;
+		}
+
 		pr_info("[%s]SEND_FILE_WITH_HEADER line=[%d]\n",
 							__func__, __LINE__);
 
 		if (copy_from_user(&info, (void __user *)arg, sizeof(info))) {
 			status = -EFAULT;
+			_unlock(&dev->ioctl_excl);
 			goto exit;
 		}
 
 		file = fget(info.Fd);
 		if (!file) {
 			status = -EBADF;
+			_unlock(&dev->ioctl_excl);
 			pr_info("[%s] line=[%d] bad file number\n",
 							__func__, __LINE__);
 			goto exit;
@@ -1229,6 +1236,7 @@ static long  mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 
 		smp_rmb();
 		status = dev->read_send_result;
+		_unlock(&dev->ioctl_excl);
 		break;
 	}
 	case MTP_VBUS_DISABLE:

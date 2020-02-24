@@ -209,9 +209,11 @@ source security/yama/Kconfig
 source security/mstdrv/Kconfig
 
 source security/integrity/Kconfig
+source security/samsung/five/Kconfig
+source security/proca/Kconfig
 source security/tz_iccc/Kconfig
-source security/defex_lsm/Kconfig
-source security/dsms/Kconfig
+source security/samsung/defex_lsm/Kconfig
+source security/samsung/dsms/Kconfig
 
 choice
 	prompt "Default security module"

@@ -66,6 +66,29 @@
 			bias-disable;
 			};
 	};
+
+	usb_det_default: usb_det_default {
+		usb_id_det_default: usb_id_det_default {
+			mux {
+				pins = "gpio131";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio131";
+				drive-strength = <2>;
+				bias-pull-down;
+				output-enable;
+			};
+		};
+		usb_vbus_det_default: usb_vbus_det_default {
+			config {
+				pins = "gpio26";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+	};
 };
 
 &sdhc_2 {
@@ -83,14 +106,20 @@
 	status = "ok";
 };
 
-&usb0 {
-	dwc3@a600000 {
-		dr_mode = "host";
+&soc {
+	extcon_usb1: extcon_usb1 {
+		compatible = "linux,extcon-usb-gpio";
+		id-gpio = <&tlmm 26 0x1>;
+		trig-gpio = <&tlmm 131 0x0>;
+		gpio-names = "gpio131";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb_vbus_det_default &usb_id_det_default>;
 	};
 };
 
-&icnss {
-	status = "disabled";
+&usb0 {
+	extcon = <&extcon_usb1>;
 };
 
 &msm_sdw_codec {
@@ -156,23 +185,34 @@
 &tavil_snd {
 	status = "okay";
 	compatible = "qcom,qcs605-asoc-snd-tavil";
-	qcom,model = "qcs605-tavil-snd-card";
+	qcom,model = "qcs605-ipc-tavil-snd-card";
 	qcom,audio-routing =
 		"AIF4 VI", "MCLK",
 		"RX_BIAS", "MCLK",
 		"MADINPUT", "MCLK",
+		"AMIC1", "MIC BIAS1",
+		"MIC BIAS1", "Handset Mic",
+		"AMIC2", "MIC BIAS2",
+		"MIC BIAS2", "Headset Mic",
 		"DMIC0", "MIC BIAS1",
 		"MIC BIAS1", "Digital Mic0",
 		"DMIC1", "MIC BIAS1",
 		"MIC BIAS1", "Digital Mic1",
-		"DMIC2", "MIC BIAS3",
-		"MIC BIAS3", "Digital Mic2",
-		"DMIC3", "MIC BIAS3",
-		"MIC BIAS3", "Digital Mic3",
+		"DMIC2", "MIC BIAS1",
+		"MIC BIAS1", "Digital Mic2",
+		"DMIC3", "MIC BIAS1",
+		"MIC BIAS1", "Digital Mic3",
 		"SpkrLeft IN", "SPK1 OUT";
 	qcom,wsa-max-devs = <1>;
 	qcom,wsa-devs = <&wsa881x_0211>, <&wsa881x_0213>;
 	qcom,wsa-aux-dev-prefix = "SpkrLeft", "SpkrLeft";
+	qcom,linein-det-swh = <1>;
+	qcom,lineout-det-swh = <1>;
+	qcom,linein-det-gpio = <&tlmm 124 0>;
+	qcom,lineout-det-gpio = <&tlmm 125 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&jack_det_linein_default
+		     &jack_det_lineout_default>;
 };
 
 &soc {

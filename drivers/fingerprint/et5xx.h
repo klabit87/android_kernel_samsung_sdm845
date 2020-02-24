@@ -110,7 +110,10 @@
 #define FP_SET_WAKE_UP_SIGNAL				0x17
 #endif
 #define FP_POWER_CONTROL_ET5XX				0x18
-#define FP_IOCTL_RESERVED_01				0x19
+#define FP_SENSOR_ORIENT				0x19
+#define FP_SPI_VALUE					0x1a
+#define FP_IOCTL_RESERVED_01				0x1b
+#define FP_IOCTL_RESERVED_02				0x1c
 
 /* trigger signal initial routine */
 #define INT_TRIGGER_INIT				0xa4
@@ -183,7 +186,10 @@ struct etspi_data {
 	struct workqueue_struct *wq_dbg;
 	struct timer_list dbg_timer;
 	int sensortype;
+	u32 spi_value;
 	struct device *fp_device;
+	int reset_count;
+	int interrupt_count;
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	bool enabled_clk;
 	bool isGpio_cfgDone;
@@ -195,6 +201,7 @@ struct etspi_data {
 	int detect_threshold;
 	bool finger_on;
 	const char *chipid;
+	unsigned int orient;
 	struct pinctrl *p;
 	struct pinctrl_state *pins_sleep;
 	struct pinctrl_state *pins_idle;

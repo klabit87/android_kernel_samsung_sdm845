@@ -46,7 +46,9 @@ dtb-$(CONFIG_SEC_LYKANLTE_PROJECT) += sdm845-sec-lykanlte-r00.dtb	\
 			sdm845-sec-lykanlte-r02.dtb			\
 			sdm845-sec-lykanlte-r03.dtb			\
 			sdm845-sec-lykanlte-r04.dtb			\
-			sdm845-sec-lykanlte-r05.dtb
+			sdm845-sec-lykanlte-r05.dtb			\
+			sdm845-sec-lykanlte-r06.dtb			\
+			sdm845-sec-lykanlte-r07.dtb
 
 ifeq ($(filter y,$(CONFIG_MACH_STARQLTE_CHNZC) $(CONFIG_MACH_STARQLTE_CHNZM) $(CONFIG_MACH_STARQLTE_CHN_LDU)),y)
 dtb-y = sdm845-sec-starqlte-chn-r02.dtb		\
@@ -170,7 +172,9 @@ dtb-y =	sdm845-sec-lykanlte-chn-r00.dtb		\
 	sdm845-sec-lykanlte-chn-r02.dtb		\
 	sdm845-sec-lykanlte-chn-r03.dtb		\
 	sdm845-sec-lykanlte-chn-r04.dtb		\
-	sdm845-sec-lykanlte-chn-r05.dtb
+	sdm845-sec-lykanlte-chn-r05.dtb		\
+	sdm845-sec-lykanlte-chn-r06.dtb		\
+	sdm845-sec-lykanlte-chn-r07.dtb
 endif
 
 ifeq ($(CONFIG_ARM64),y)

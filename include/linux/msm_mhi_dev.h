@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -67,7 +67,7 @@ struct mhi_req {
 	u32                             snd_cmpl;
 	void                            *context;
 	size_t                          len;
-	size_t                          actual_len;
+	size_t                          transfer_len;
 	uint32_t                        rd_offset;
 	struct mhi_dev_client           *client;
 	struct list_head                list;
@@ -132,9 +132,12 @@ enum mhi_client_channel {
 	MHI_CLIENT_RESERVED_1_UPPER = 99,
 	MHI_CLIENT_IP_HW_0_OUT = 100,
 	MHI_CLIENT_IP_HW_0_IN = 101,
-	MHI_CLIENT_RESERVED_2_LOWER = 102,
+	MHI_CLIENT_ADPL_IN = 102,
+	MHI_CLIENT_IP_HW_1_OUT = 105,
+	MHI_CLIENT_IP_HW_1_IN = 106,
+	MHI_CLIENT_RESERVED_2_LOWER = 107,
 	MHI_CLIENT_RESERVED_2_UPPER = 127,
-	MHI_MAX_CHANNELS = 102,
+	MHI_MAX_CHANNELS = 107,
 	MHI_CLIENT_INVALID = 0xFFFFFFFF
 };
 

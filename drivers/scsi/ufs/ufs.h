@@ -529,6 +529,7 @@ struct ufs_dev_info {
 	u16	w_manufacturer_id;
 	u16	w_manufacturer_date;
 	u8	i_product_name;
+	u16	w_spec_version;
 	u8	i_lt;
 
 	/* query flags */

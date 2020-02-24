@@ -291,7 +291,7 @@
 		 * Add flash lock for each cmd set.
 		 */
 
-		samsung,poc_erase_delay_us = <400000>;	/* 400ms */
+		samsung,poc_erase_delay_us = <1000000>;	/* 400ms */
 		samsung,poc_erase_sector_addr_idx = <3 4 5>;
 
 		samsung,poc_pre_erase_sector_tx_cmds_revA = [
@@ -305,7 +305,7 @@
 		samsung,poc_erase_sector_tx_cmds_revA = [
 			29 01 00 00 00 00 0B C1 00 06 00 00 00 00 00 00 00 04
 			29 01 00 00 01 00 02 C0 03				/* EXE_INST + 1ms */
-			29 01 00 00 00 00 0B C1 00 20 00 00 00 00 00 00 18 04	/* Flash Sector Address : 0xXX*/
+			29 01 00 00 00 00 0B C1 00 D8 00 00 00 00 00 00 18 04	/* Flash Sector Address : 0xXX*/
 			29 01 00 00 00 00 02 C0 03				/* EXE_INST + 400ms */
 		];
 

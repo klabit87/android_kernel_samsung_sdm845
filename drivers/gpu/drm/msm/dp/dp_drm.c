@@ -658,7 +658,7 @@ static enum mon_aspect_ratio_t secdp_get_aspect_ratio(struct drm_display_mode *m
 	return aspect_ratio;
 }
 
-static bool secdp_check_supported_resolution(struct drm_display_mode *mode)
+static bool secdp_check_supported_resolution(struct drm_display_mode *mode, bool supported)
 {
 	int i, fps_diff;
 	int res_cnt = ARRAY_SIZE(secdp_supported_resolution);
@@ -679,6 +679,9 @@ static bool secdp_check_supported_resolution(struct drm_display_mode *mode)
 #endif
 		}
 	}
+	
+	if (!supported)
+		return false;
 
 	for (i = 0; i < res_cnt; i++) {
 		bool ret = false;
@@ -781,14 +784,12 @@ enum drm_mode_status dp_connector_mode_valid(struct drm_connector *connector,
 		goto end;
 	}
 
-	if (ret == MODE_OK && !secdp_check_supported_resolution(mode)) {
-		ret = MODE_BAD;
-		goto end;
-	}
-
 	ret = dp_disp->validate_mode(dp_disp, mode->clock);
 
 end:
+	if (!secdp_check_supported_resolution(mode, ret == MODE_OK))
+		ret = MODE_BAD;
+
 	pr_info("%s@%dhz | %s | max_pclk: %d | cur_pclk: %d\n", mode->name,
 		drm_mode_vrefresh(mode), ret == MODE_BAD ? "not supported" : "supported",
 		dp_disp->max_pclk_khz, mode->clock);

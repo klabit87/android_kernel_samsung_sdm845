@@ -133,6 +133,7 @@ extern bool enable_pr_debug;
 #define OTHERLINE_WORKQ_CNT 70
 
 //#define DYNAMIC_DSI_CLK
+#define USE_CURRENT_BL_LEVEL 0xFFFFFF
 
 extern int poweroff_charging;
 
@@ -141,6 +142,12 @@ enum PANEL_LEVEL_KEY {
 	LEVEL0_KEY = BIT(0),
 	LEVEL1_KEY = BIT(1),
 	LEVEL2_KEY = BIT(2),
+};
+
+enum backlight_origin {
+	BACKLIGHT_NORMAL,
+	BACKLIGHT_FINGERMASK_ON,
+	BACKLIGHT_FINGERMASK_OFF,
 };
 
 enum mipi_samsung_cmd_map_list {
@@ -251,6 +258,7 @@ struct panel_lpm_info {
 };
 
 struct samsung_display_driver_data *samsung_get_vdd(void);
+struct samsung_display_driver_data *ss_get_vdd_by_ndx(int ndx);
 
 struct clk_timing_table {
 	int tab_size;
@@ -478,6 +486,19 @@ struct esd_recovery {
 	void (*esd_irq_enable)(bool enable, bool nosync, void *data);
 };
 
+struct folder_common_data {
+	int selected_panel;
+	bool hall_ic_status;
+	bool folder_sel_status;
+	bool folder_flipping;
+	bool folder_flip_add_more_delay;
+	bool secure_display_mode;
+	struct workqueue_struct *folder_common_workq;
+	struct delayed_work delay_disp_on_work;
+	struct mutex folder_com_data_lock;
+	struct completion secure_display_done;
+};
+
 /* Panel LPM(ALPM/HLPM) status flag */
 // TODO: how about to use vdd->panel_state instaed of  below..???
 enum {
@@ -620,7 +641,7 @@ struct panel_func {
 	void (*samsung_cover_control)(struct samsung_display_driver_data *vdd);
 
 	/* POC */
-	int (*samsung_poc_ctrl)(struct samsung_display_driver_data *vdd, u32 cmd);
+	int (*samsung_poc_ctrl)(struct samsung_display_driver_data *vdd, u32 cmd, const char *buf);
 
 	/* Gram Checksum Test */
 	int (*samsung_gct_read)(struct samsung_display_driver_data *vdd);
@@ -767,7 +788,7 @@ struct POC {
 	u32 erase_delay_us; /* usleep */
 	int erase_sector_addr_idx[3];
 
-		/* WRITE */
+	/* WRITE */
 	u32 write_delay_us; /* usleep */
 	int write_loop_cnt;
 	int write_data_size;
@@ -784,7 +805,7 @@ struct POC {
 	/* POC Function */
 	int (*poc_write)(struct samsung_display_driver_data *vdd, u8 *data, u32 pos, u32 size);
 	int (*poc_read)(struct samsung_display_driver_data *vdd, u8 *buf, u32 pos, u32 size);
-	int (*poc_erase)(struct samsung_display_driver_data *vdd, u32 pos, u32 size);
+	int (*poc_erase)(struct samsung_display_driver_data *vdd, u32 erase_pos, u32 erase_size, u32 target_pos);
 
 	void (*poc_comp)(struct samsung_display_driver_data *vdd);
 };
@@ -826,6 +847,12 @@ struct ss_exclusive_mipi_tx {
 		Please be careful & Check exclusive cmds allow 2C&3C or othere value at frame header.
 	*/
 	int permit_frame_update;
+};
+
+struct brightness_info {
+	/* SAMSUNG_FINGERPRINT */
+	int finger_mask_bl_level;
+	int finger_mask_hbm_on;
 };
 
 /*
@@ -875,6 +902,13 @@ struct samsung_display_driver_data {
 	int panel_revision;
 
 	char *panel_vendor;
+
+	/* SAMSUNG_FINGERPRINT */
+	bool support_optical_fingerprint;
+	bool finger_mask_updated;
+	int finger_mask;
+	int panel_hbm_entry_delay; //hbm entry delay/ unit = vsync
+	struct lcd_device *lcd_dev;
 
 	int recovery_boot_mode;
 
@@ -1086,14 +1120,12 @@ struct samsung_display_driver_data {
 
 	/* folder hall ic */
 	bool support_hall_ic;
-	bool hall_ic_status;
-	bool folder_sel_status;
-	int hall_ic_mode_change_trigger;
+	bool folder_need_delay_disp_on;
 	struct notifier_block hall_ic_notifier_display;
 	bool lcd_flip_not_refresh;
 	u32 lcd_flip_delay_ms;
-	struct delayed_work delay_disp_on_work;
 	struct mutex folder_switch_lock;
+	struct folder_common_data *folder_com;
 
 	enum ss_panel_pwr_state panel_state;
 
@@ -1125,6 +1157,9 @@ struct samsung_display_driver_data {
 	struct ss_interpolation flash_itp;
 	struct ss_interpolation table_itp;
 	int table_interpolation_loaded;
+
+	/* Brightness */
+	struct brightness_info br;
 };
 
 extern struct list_head vdds_list;
@@ -1193,6 +1228,8 @@ int samsung_display_hall_ic_status(struct notifier_block *nb,
 void ss_sync_panels_vdd(struct samsung_display_driver_data *vdd_old, struct samsung_display_driver_data *vdd);
 void ss_selected_panel_set(int ndx);
 int ss_selected_panel_get(void);
+struct samsung_display_driver_data * ss_folder_panel_flip(struct samsung_display_driver_data * vdd);
+void ss_noti_hal_to_flip(void);
 
 /* CORP CALC */
 void ss_copr_calc_work(struct work_struct *work);
@@ -1225,7 +1262,7 @@ int read_line(char *src, char *buf, int *pos, int len);
 #define HBM_CE_MODE 9
 
 /* BRIGHTNESS RELATED FUNCTION */
-int ss_brightness_dcs(struct samsung_display_driver_data *vdd, int level);
+int ss_brightness_dcs(struct samsung_display_driver_data *vdd, int level, int backlight_origin);
 void ss_brightness_tft_pwm(struct samsung_display_driver_data *vdd, int level);
 void update_packet_level_key_enable(struct samsung_display_driver_data *vdd,
 		struct dsi_cmd_desc *packet, int *cmd_cnt, int level_key);
@@ -1235,6 +1272,9 @@ int ss_single_transmission_packet(struct dsi_panel_cmd_set *cmds);
 
 int ss_set_backlight(struct samsung_display_driver_data *vdd, u32 bl_lvl);
 bool is_hbm_level(struct samsung_display_driver_data *vdd);
+
+/* SAMSUNG_FINGERPRINT */
+void ss_send_hbm_fingermask_image_tx(struct samsung_display_driver_data *vdd, bool on);
 
 /* HMT BRIGHTNESS */
 int ss_brightness_dcs_hmt(struct samsung_display_driver_data *vdd, int level);
@@ -1490,7 +1530,7 @@ static inline struct samsung_display_driver_data *ss_check_hall_ic_get_vdd(
 	if (!vdd->support_hall_ic)
 		return vdd;
 
-	if (vdd->hall_ic_status == HALL_IC_OPEN)
+	if (vdd->folder_com->hall_ic_status == HALL_IC_OPEN)
 		ndx = PRIMARY_DISPLAY_NDX;
 	else
 		ndx = SECONDARY_DISPLAY_NDX;

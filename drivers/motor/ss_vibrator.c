@@ -33,6 +33,7 @@
 /* default timeout */
 #define VIB_DEFAULT_TIMEOUT 10000
 #define PACKET_MAX_SIZE		1000
+#define MAX_LEN_VIB_TYPE 32
 
 struct pm_qos_request pm_qos_req;
 static struct wake_lock vib_wake_lock;
@@ -78,6 +79,7 @@ struct ss_vib {
 	unsigned int vib_power_gpio;	/* gpio number of vibrator boost */
 	unsigned int flag_en_gpio;
 	enum driver_chip chip_model;
+	char vib_type[MAX_LEN_VIB_TYPE];
 	unsigned int gp_clk;
 	unsigned int m_default;
 	unsigned int n_default;
@@ -486,6 +488,7 @@ static SIMPLE_DEV_PM_OPS(vibrator_pm_ops, ss_vibrator_suspend, ss_vibrator_resum
 static int vibrator_parse_dt(struct ss_vib *vib)
 {
 	struct device_node *np = vib->dev->of_node;
+	const char *type;
 	int rc;
 
 	vib->vib_pwm_gpio = of_get_named_gpio(np, "samsung,vib_pwm", 0);
@@ -512,6 +515,15 @@ static int vibrator_parse_dt(struct ss_vib *vib)
 		vib->chip_model = CHIP_MAX77705;
 	} else
 		pr_info("There isn't any chip model\n");
+
+	rc = of_property_read_string(np, "samsung,vib_type", &type);
+	if (rc) {
+		pr_info("%s: motor type not specified\n", __func__);
+		snprintf(vib->vib_type, sizeof(vib->vib_type), "%s", "NONE");
+		rc = 0;
+	} else {
+		snprintf(vib->vib_type, sizeof(vib->vib_type), "%s", type);
+	}
 
 	rc = of_property_read_u32(np, "samsung,gp_clk", &vib->gp_clk);
 	if (rc) {
@@ -872,6 +884,17 @@ static ssize_t enable_store(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR(enable, 0660, enable_show, enable_store);
 
+static ssize_t motor_type_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct ss_vib *vib = dev_get_drvdata(dev);
+
+	pr_info("%s: %s\n", __func__, vib->vib_type);
+	return snprintf(buf, MAX_LEN_VIB_TYPE, "%s\n", vib->vib_type);
+}
+
+static DEVICE_ATTR(motor_type, 0660, motor_type_show, NULL);
+
 #if defined(CONFIG_MOTOR_DRV_MAX77854) || defined(CONFIG_MOTOR_DRV_SM5720) || defined(CONFIG_MOTOR_DRV_MAX77705)
 #if !defined(CONFIG_BOOST_POWER_SHARE)
 static void regulator_power_onoff(int onoff)
@@ -1077,6 +1100,10 @@ static int ss_vibrator_probe(struct platform_device *pdev)
 	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_intensity.attr);
 	if (rc < 0)
 		pr_err("[VIB]: Failed to register sysfs intensity: %d\n", rc);
+
+	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_motor_type.attr);
+	if (rc < 0)
+		pr_err("[VIB]: Failed to register sysfs motor type: %d\n", rc);
 
 	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_force_touch_intensity.attr);
 	if (rc < 0)

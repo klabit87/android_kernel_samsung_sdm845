@@ -29,8 +29,12 @@
 #define NETLINK_CRYPTO		21	/* Crypto layer */
 #define NETLINK_SOCKEV          22      /* Socket Administrative Events */
 #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
+
+#ifdef CONFIG_SAMSUNG_FREECESS
 #define NETLINK_KFREECESS       27
-#define MAX_LINKS 32		
+#endif
+
+#define MAX_LINKS 32
 
 struct sockaddr_nl {
 	__kernel_sa_family_t	nl_family;	/* AF_NETLINK	*/

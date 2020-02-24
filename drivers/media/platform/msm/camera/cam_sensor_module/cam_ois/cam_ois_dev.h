@@ -224,6 +224,8 @@ struct cam_ois_ctrl_t {
 	sysboot_info_type info;
 	uint32_t reset_ctrl_gpio;
 	uint32_t boot0_ctrl_gpio;	
+	long x_gyro_axis;
+	long y_gyro_axis;
 #endif
 };
 

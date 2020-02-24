@@ -4,6 +4,8 @@ ifeq ($(filter y,$(CONFIG_SEC_STARQLTE_PROJECT) $(CONFIG_SEC_STAR2QLTE_PROJECT))
 include $(srctree)/techpack/audio/config/sdm845_starq.conf
 else ifeq ($(CONFIG_SEC_CROWNQLTE_PROJECT), y)
 include $(srctree)/techpack/audio/config/sdm845_crownq.conf
+else ifeq ($(CONFIG_SEC_LYKANLTE_PROJECT), y)
+include $(srctree)/techpack/audio/config/sdm845_lykan.conf
 else
 include $(srctree)/techpack/audio/config/sdm845auto.conf
 endif
@@ -35,6 +37,9 @@ LINUXINCLUDE    += \
 else ifeq ($(CONFIG_SEC_CROWNQLTE_PROJECT), y)
 LINUXINCLUDE	+= \
                 -include $(srctree)/techpack/audio/config/sdm845_crownqconf.h
+else ifeq ($(CONFIG_SEC_LYKANLTE_PROJECT), y)
+LINUXINCLUDE	+= \
+                -include $(srctree)/techpack/audio/config/sdm845_lykanconf.h
 else
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/sdm845autoconf.h

@@ -623,6 +623,10 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 		hphlocp_off_report(mbhc, SND_JACK_OC_HPHL);
 		mbhc->current_plug = MBHC_PLUG_TYPE_NONE;
 		mbhc->force_linein = false;
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+		/* Disable headset output when headset removal */
+		MBHC_enable_jack_output_ctr(mbhc, false);
+#endif
 	} else {
 		/*
 		 * Report removal of current jack type.
@@ -929,6 +933,10 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 			mbhc->mbhc_cb->enable_mb_source(mbhc, true);
 		mbhc->btn_press_intr = false;
 		mbhc->is_btn_press = false;
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+		/* enable headset output when headset insert */
+		MBHC_enable_jack_output_ctr(mbhc, true);
+#endif
 		if (mbhc->mbhc_fn)
 			mbhc->mbhc_fn->wcd_mbhc_detect_plug_type(mbhc);
 	} else if ((mbhc->current_plug != MBHC_PLUG_TYPE_NONE)
@@ -998,6 +1006,10 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 		/* Disable HW FSM */
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 0);
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+		/* Elect detect: gender only remove */
+		MBHC_enable_jack_output_ctr(mbhc, false);
+#endif
 		mbhc->extn_cable_hph_rem = false;
 	}
 
@@ -1702,6 +1714,29 @@ static int wcd_mbhc_usb_c_analog_deinit(struct wcd_mbhc *mbhc)
 	return 0;
 }
 
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+void MBHC_enable_jack_output_ctr(struct wcd_mbhc *mbhc, bool enable)
+{
+	if (!mbhc->mbhc_cfg->enable_usbc_analog_v2
+		|| mbhc->usbc_ear_out_enable == enable)
+		return;
+
+	pr_debug("%s: jack L/R & MIC switch %s\n", __func__,
+		enable ? "enable" : "disable");
+
+	mbhc->usbc_ear_out_enable = enable;
+	if (enable) {
+		gpio_direction_output(mbhc->usbc_jack_ctr_gpio, 1);
+		gpio_direction_output(mbhc->usbc_ana_en_gpio, 0);
+		gpio_direction_output(mbhc->usbc_ana_sel_gpio, 0);
+	} else {
+		gpio_direction_output(mbhc->usbc_jack_ctr_gpio, 0);
+		gpio_direction_output(mbhc->usbc_ana_en_gpio, 1);
+		gpio_direction_output(mbhc->usbc_ana_sel_gpio, 0);
+	}
+}
+#endif
+
 static int wcd_mbhc_init_gpio(struct wcd_mbhc *mbhc,
 			      struct wcd_mbhc_config *mbhc_cfg,
 			      const char *gpio_dt_str,
@@ -1735,6 +1770,9 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc, struct wcd_mbhc_config *mbhc_cfg)
 	struct snd_soc_codec *codec;
 	struct snd_soc_card *card;
 	const char *usb_c_dt = "qcom,msm-mbhc-usbc-audio-supported";
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+	const char *usb_c_v2_dt = "qcom,msm-mbhc-usbc-jack-v2-supported";
+#endif
 
 	if (!mbhc || !mbhc_cfg)
 		return -EINVAL;
@@ -1761,6 +1799,15 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc, struct wcd_mbhc_config *mbhc_cfg)
 		dev_info(card->dev,
 			"%s: skipping USB c analog configuration\n", __func__);
 	}
+
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+	/* check if new USBC analog is defined on device tree for lykan*/
+	mbhc_cfg->enable_usbc_analog_v2 = 0;
+	if (of_find_property(card->dev->of_node, usb_c_v2_dt, NULL)) {
+		rc = of_property_read_u32(card->dev->of_node, usb_c_v2_dt,
+				&mbhc_cfg->enable_usbc_analog_v2);
+	}
+#endif
 
 	/* initialize GPIOs */
 	if (mbhc_cfg->enable_usbc_analog) {
@@ -1812,6 +1859,39 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc, struct wcd_mbhc_config *mbhc_cfg)
 				 __func__, mbhc->mbhc_fw, mbhc->mbhc_cal);
 	}
 
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+	mbhc->usbc_ana_en_gpio =
+			of_get_named_gpio(card->dev->of_node,
+				"qcom,usbc-ana-en-gpios", 0);
+
+	if (!gpio_is_valid(mbhc->usbc_ana_en_gpio)) {
+		pr_err("fail to get usb usbc-ana-sw-gpios\n");
+		goto err;
+	}
+	mbhc->usbc_ana_sel_gpio =
+			of_get_named_gpio(card->dev->of_node,
+			    "qcom,usbc-ana-sel-gpios", 0);
+
+	if (!gpio_is_valid(mbhc->usbc_ana_sel_gpio)) {
+		pr_err("fail to get usbc_ana_sel_gpio\n");
+		goto err;
+	}
+	if (mbhc->mbhc_cfg->enable_usbc_analog_v2) {
+		mbhc->usbc_jack_ctr_gpio =
+				of_get_named_gpio(card->dev->of_node,
+					"qcom,usbc-jack-cont_gpio", 0);
+
+		if (!gpio_is_valid(mbhc->usbc_jack_ctr_gpio)) {
+			pr_err("fail to get usb usbc_jack_ctr_gpio\n");
+			goto err;
+		}
+		gpio_direction_output(mbhc->usbc_jack_ctr_gpio, 0);
+	}
+
+	gpio_direction_output(mbhc->usbc_ana_en_gpio, 1);
+	gpio_direction_output(mbhc->usbc_ana_sel_gpio, 0);
+#endif
+
 	return rc;
 err:
 	if (config->usbc_en1_gpio > 0) {
@@ -1830,6 +1910,15 @@ err:
 		of_node_put(config->usbc_en1_gpio_p);
 	if (config->usbc_force_gpio_p)
 		of_node_put(config->usbc_force_gpio_p);
+
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+	if (mbhc->usbc_ana_en_gpio)
+		gpio_free(mbhc->usbc_ana_en_gpio);
+	if (mbhc->usbc_ana_sel_gpio)
+		gpio_free(mbhc->usbc_ana_sel_gpio);
+	if (mbhc->usbc_jack_ctr_gpio)
+		gpio_free(mbhc->usbc_jack_ctr_gpio);
+#endif
 	dev_dbg(mbhc->codec->dev, "%s: leave %d\n", __func__, rc);
 	return rc;
 }
@@ -1876,6 +1965,15 @@ void wcd_mbhc_stop(struct wcd_mbhc *mbhc)
 		if (config->usbc_force_gpio_p)
 			of_node_put(config->usbc_force_gpio_p);
 	}
+	
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+	if (mbhc->usbc_ana_en_gpio)
+		gpio_free(mbhc->usbc_ana_en_gpio);
+	if (mbhc->usbc_ana_sel_gpio)
+		gpio_free(mbhc->usbc_ana_sel_gpio);
+	if (mbhc->usbc_jack_ctr_gpio)
+		gpio_free(mbhc->usbc_jack_ctr_gpio);
+#endif
 
 	pr_debug("%s: leave\n", __func__);
 }

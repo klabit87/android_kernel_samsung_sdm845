@@ -1049,11 +1049,9 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 
 			sprintf(temp_buf+strlen(temp_buf), "%d %d",
 				PAD_INDEX_VALUE, pcisd->pad_count);
-			while (((pad_data = pad_data->next) != NULL) &&
-					(pad_data->id < MAX_PAD_ID) &&
-					(j++ < pcisd->pad_count))
+			while ((pad_data != NULL) && ((pad_data = pad_data->next) != NULL) &&
+					(pad_data->id < MAX_PAD_ID) && (j++ < pcisd->pad_count))
 				sprintf(temp_buf+strlen(temp_buf), " 0x%02x:%d", pad_data->id, pad_data->count);
-
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", temp_buf);
 		}
 		break;
@@ -1066,9 +1064,8 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 
 			sprintf(temp_buf+strlen(temp_buf), "\"%s\":\"%d\"",
 					PAD_INDEX_STRING, PAD_INDEX_VALUE);
-			while (((pad_data = pad_data->next) != NULL) &&
-					(pad_data->id < MAX_PAD_ID) &&
-					(j++ < pcisd->pad_count))
+			while ((pad_data != NULL) && ((pad_data = pad_data->next) != NULL) &&
+					(pad_data->id < MAX_PAD_ID) && (j++ < pcisd->pad_count))
 				sprintf(temp_buf+strlen(temp_buf), ",\"%s%02x\":\"%d\"",
 					PAD_JSON_STRING, pad_data->id, pad_data->count);
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", temp_buf);
@@ -1319,6 +1316,13 @@ ssize_t sec_bat_store_attrs(
 	case FG_CAPACITY:
 		break;
 	case FG_ASOC:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			if (x >= 0 && x <= 100) {
+				battery->batt_asoc = x;
+				sec_bat_check_battery_health(battery);
+			}
+			ret = count;
+		}
 		break;
 	case AUTH:
 		break;
@@ -1756,6 +1760,7 @@ ssize_t sec_bat_store_attrs(
 				if (prev_battery_cycle < 0) {
 					sec_bat_aging_check(battery);
 				}
+				sec_bat_check_battery_health(battery);
 			}
 			ret = count;
 		}

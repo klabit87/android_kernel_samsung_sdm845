@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -998,6 +998,13 @@ int msm_adsp_inform_mixer_ctl(struct snd_soc_pcm_runtime *rtd,
 	}
 
 	event_data = (struct msm_adsp_event_data *)payload;
+	if (event_data->payload_len < sizeof(struct msm_adsp_event_data)) {
+		pr_err("%s: event_data size of %x is less than expected.\n",
+			__func__, event_data->payload_len);
+		ret = -EINVAL;
+		goto done;
+	}
+
 	kctl->info(kctl, &kctl_info);
 
 	if (event_data->payload_len >
@@ -1077,7 +1084,7 @@ int msm_adsp_stream_callback_get(struct snd_kcontrol *kcontrol,
 	kctl_prtd = (struct dsp_stream_callback_prtd *)
 			kcontrol->private_data;
 	if (kctl_prtd == NULL) {
-		pr_err("%s: ASM Stream PP event queue is not initialized.\n",
+		pr_debug("%s: ASM Stream PP event queue is not initialized.\n",
 			__func__);
 		ret = -EINVAL;
 		goto done;

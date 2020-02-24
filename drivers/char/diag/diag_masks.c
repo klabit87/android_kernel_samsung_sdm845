@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -809,7 +809,6 @@ static int diag_cmd_set_msg_mask(unsigned char *src_buf, int src_len,
 		mutex_unlock(&driver->md_session_lock);
 		return -EINVAL;
 	}
-
 	msg_mask_tbl_count = (info) ? info->msg_mask_tbl_count :
 			driver->msg_mask_tbl_count;
 	for (i = 0; i < msg_mask_tbl_count; i++, mask++) {
@@ -870,7 +869,7 @@ static int diag_cmd_set_msg_mask(unsigned char *src_buf, int src_len,
 		mask_size = mask_size * sizeof(uint32_t);
 		if (mask_size && src_len >= header_len + mask_size)
 			memcpy(mask->ptr + offset, src_buf + header_len,
-			mask_size);
+				mask_size);
 		mutex_unlock(&mask->lock);
 		mask_info->status = DIAG_CTRL_MASK_VALID;
 		break;
@@ -1082,7 +1081,7 @@ static int diag_cmd_update_event_mask(unsigned char *src_buf, int src_len,
 
 	mutex_lock(&mask_info->lock);
 	if (src_len >= header_len + mask_len)
-		memcpy(event_mask.ptr, src_buf + header_len, mask_len);
+		memcpy(mask_info->ptr, src_buf + header_len, mask_len);
 	mask_info->status = DIAG_CTRL_MASK_VALID;
 	mutex_unlock(&mask_info->lock);
 	mutex_unlock(&driver->md_session_lock);
@@ -1196,7 +1195,7 @@ static int diag_cmd_get_log_mask(unsigned char *src_buf, int src_len,
 	int rsp_header_len = sizeof(struct diag_log_config_rsp_t);
 	uint32_t mask_size = 0;
 	struct diag_log_mask_t *log_item = NULL;
-	struct diag_log_config_req_t *req;
+	struct diag_log_config_get_req_t *req;
 	struct diag_log_config_rsp_t rsp;
 	struct diag_mask_info *mask_info = NULL;
 	struct diag_md_session_t *info = NULL;
@@ -1206,7 +1205,7 @@ static int diag_cmd_get_log_mask(unsigned char *src_buf, int src_len,
 
 	mask_info = (!info) ? &log_mask : info->log_mask;
 	if (!src_buf || !dest_buf || dest_len <= 0 || !mask_info ||
-		src_len < sizeof(struct diag_log_config_req_t)) {
+		src_len < sizeof(struct diag_log_config_get_req_t)) {
 		pr_err("diag: Invalid input in %s, src_buf: %pK, src_len: %d, dest_buf: %pK, dest_len: %d, mask_info: %pK\n",
 		       __func__, src_buf, src_len, dest_buf, dest_len,
 		       mask_info);
@@ -1225,7 +1224,7 @@ static int diag_cmd_get_log_mask(unsigned char *src_buf, int src_len,
 		return 0;
 	}
 
-	req = (struct diag_log_config_req_t *)src_buf;
+	req = (struct diag_log_config_get_req_t *)src_buf;
 	read_len += req_header_len;
 
 	rsp.cmd_code = DIAG_CMD_LOG_CONFIG;
@@ -1777,6 +1776,7 @@ static int __diag_mask_init(struct diag_mask_info *mask_info, int mask_len,
 		mask_info->update_buf = kzalloc(update_buf_len, GFP_KERNEL);
 		if (!mask_info->update_buf) {
 			kfree(mask_info->ptr);
+			mask_info->ptr = NULL;
 			return -ENOMEM;
 		}
 		kmemleak_not_leak(mask_info->update_buf);
@@ -2139,7 +2139,6 @@ int diag_copy_to_user_msg_mask(char __user *buf, size_t count,
 		mutex_unlock(&mask_info->lock);
 		return -EINVAL;
 	}
-
 	msg_mask_tbl_count = (info) ? info->msg_mask_tbl_count :
 			driver->msg_mask_tbl_count;
 	for (i = 0; i < msg_mask_tbl_count; i++, mask++) {
@@ -2303,6 +2302,8 @@ int diag_process_apps_masks(unsigned char *buf, int len, int pid)
 		return -EINVAL;
 
 	if (*buf == DIAG_CMD_LOG_CONFIG) {
+		if (len < (2 * sizeof(int)))
+			return -EINVAL;
 		sub_cmd = *(int *)(buf + sizeof(int));
 		switch (sub_cmd) {
 		case DIAG_CMD_OP_LOG_DISABLE:
@@ -2320,6 +2321,8 @@ int diag_process_apps_masks(unsigned char *buf, int len, int pid)
 			break;
 		}
 	} else if (*buf == DIAG_CMD_MSG_CONFIG) {
+		if (len < (2 * sizeof(uint8_t)))
+			return -EINVAL;
 		sub_cmd = *(uint8_t *)(buf + sizeof(uint8_t));
 		switch (sub_cmd) {
 		case DIAG_CMD_OP_GET_SSID_RANGE:

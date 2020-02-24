@@ -260,4 +260,16 @@ struct tsp_dump_callbacks {
 };
 #endif
 
+#ifdef CONFIG_SEC_DEBUG_PWDT
+#define SEC_DEBUG_MAX_PWDT_RESTART_CNT 20	//200 seconds
+#define SEC_DEBUG_MAX_PWDT_SYNC_CNT 40	//400 seconds
+#define SEC_DEBUG_MAX_PWDT_INIT_CNT 200	//2000 seconds
+extern void sec_debug_check_pwdt(void);
+extern unsigned int is_verifiedboot_state(void);
+#endif
+
+extern unsigned int is_boot_recovery(void);
+extern unsigned int is_boot_lpm(void);
+extern int set_reduced_sdi_mode(void);
+
 #endif	/* SEC_DEBUG_H */

@@ -78,6 +78,8 @@ static u8 mem_enable_values[] = {
 };
 
 #ifdef CONFIG_DEBUG_FS
+static int wdsp_reset_cnt = 0;
+
 #define WCD_CNTL_SET_ERR_IRQ_FLAG(cntl)\
 	atomic_cmpxchg(&cntl->err_irq_flag, 0, 1)
 #define WCD_CNTL_CLR_ERR_IRQ_FLAG(cntl)\
@@ -160,6 +162,17 @@ static void wcd_cntl_collect_debug_dumps(struct wcd_dsp_cntl *cntl,
 		      ~((cntl->irqs.fatal_irqs >> 8) & 0xFF));
 
 	WCD_CNTL_CLR_ERR_IRQ_FLAG(cntl);
+}
+
+static void wcd_cntl_reset_wdsp(struct wcd_dsp_cntl *cntl)
+{
+	struct snd_soc_codec *codec = cntl->codec;
+
+	snd_soc_write(codec, WCD934X_CPE_SS_BACKUP_INT, 0x02);
+	wdsp_reset_cnt++;
+
+	pr_info("%s: reset wdsp. count : %d\n",
+		__func__, wdsp_reset_cnt);
 }
 #else
 #define WCD_CNTL_SET_ERR_IRQ_FLAG(cntl) 0
@@ -757,7 +770,8 @@ static int wcd_cntl_do_boot(struct wcd_dsp_cntl *cntl)
 	if (!ret) {
 		dev_err(codec->dev, "%s: WDSP boot timed out\n",
 			__func__);
-		wcd_cntl_collect_debug_dumps(cntl, true);
+		if (cntl->dbg_dmp_enable)
+			wcd_cntl_collect_debug_dumps(cntl, true);
 		ret = -ETIMEDOUT;
 		goto err_boot;
 	} else {
@@ -976,10 +990,11 @@ static void wcd_cntl_debugfs_init(char *dir, struct wcd_dsp_cntl *cntl)
 			   cntl->entry, &cntl->debug_mode);
 	debugfs_create_bool("ramdump_enable", 0644,
 			    cntl->entry, &cntl->ramdump_enable);
+	debugfs_create_bool("debug_dump_enable", 0644,
+			    cntl->entry, &cntl->dbg_dmp_enable);
 
-#ifdef CONFIG_SEC_SND_DEBUG
-	cntl->ramdump_enable = 1;	
-#endif /* CONFIG_SEC_SND_DEBUG */
+	cntl->ramdump_enable = 1;
+	cntl->dbg_dmp_enable = 1;
 done:
 	return;
 }
@@ -1042,16 +1057,24 @@ static ssize_t wcd_miscdev_write(struct file *filep, const char __user *ubuf,
 	} else if (val[0] == '0') {
 		if (cntl->boot_reqs == 0) {
 			dev_err(cntl->codec->dev,
-				"%s: WDSP already disabled\n", __func__);
+				"%s: WDSP already disabled\n",
+				__func__);
 			ret = -EINVAL;
 			goto done;
 		}
 		cntl->boot_reqs--;
 		vote = false;
 	} else if (!strcmp(val, "DEBUG_DUMP")) {
-		dev_dbg(cntl->codec->dev,
-			"%s: Collect dumps for debug use\n", __func__);
-		wcd_cntl_collect_debug_dumps(cntl, false);
+		if (cntl->dbg_dmp_enable) {
+			dev_dbg(cntl->codec->dev,
+				"%s: Collect dumps for debug use\n", __func__);
+			/* wcd_cntl_collect_debug_dumps(cntl, false); */
+			wcd_cntl_reset_wdsp(cntl);
+		}
+		/*
+		 * simply ignore the request from userspace
+		 * if dbg_dump_enable is not set from debugfs
+		 */
 		goto done;
 	} else {
 		dev_err(cntl->codec->dev, "%s: Invalid value %s\n",

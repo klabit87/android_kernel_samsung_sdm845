@@ -731,6 +731,9 @@ static void test_ahash_speed_common(const char *algo, unsigned int secs,
 			break;
 		}
 
+		if (speed[i].klen)
+			crypto_ahash_setkey(tfm, tvmem[0], speed[i].klen);
+
 		pr_info("test%3u "
 			"(%5u byte blocks,%5u bytes per update,%4u updates): ",
 			i, speed[i].blen, speed[i].plen, speed[i].blen / speed[i].plen);
@@ -1609,6 +1612,16 @@ static int do_test(const char *alg, u32 type, u32 mask, int m)
 				  speed_template_32);
 		break;
 
+	case 219:
+		test_cipher_speed("adiantum(xchacha12,aes)", ENCRYPT, sec, NULL,
+				  0, speed_template_32);
+		test_cipher_speed("adiantum(xchacha12,aes)", DECRYPT, sec, NULL,
+				  0, speed_template_32);
+		test_cipher_speed("adiantum(xchacha20,aes)", ENCRYPT, sec, NULL,
+				  0, speed_template_32);
+		test_cipher_speed("adiantum(xchacha20,aes)", DECRYPT, sec, NULL,
+				  0, speed_template_32);
+		break;
 
 	case 300:
 		if (alg) {
@@ -2052,7 +2065,7 @@ static int do_test(const char *alg, u32 type, u32 mask, int m)
 		ret += alg_test("ecb(aes-generic)", "ecb(aes)", 0, 0);
 		ret += alg_test("cbc(aes-generic)", "cbc(aes)", 0, 0);
 	#ifdef CONFIG_CRYPTO_GCM
-		ret += alg_test("gcm(aes-generic)", "gcm(aes)", 0, 0);
+		ret += alg_test("gcm_base(ctr(aes-generic),ghash-generic)", "gcm(aes)", 0, 0);
 	#endif
 #endif
 
@@ -2060,7 +2073,7 @@ static int do_test(const char *alg, u32 type, u32 mask, int m)
 		ret += alg_test("ecb(aes-ce)", "ecb(aes)", 0, 0);
 		ret += alg_test("cbc(aes-ce)", "cbc(aes)", 0, 0);
 	#ifdef CONFIG_CRYPTO_GCM
-		ret += alg_test("gcm(aes-ce)", "gcm(aes)", 0, 0);
+		ret += alg_test("gcm_base(ctr(aes-ce),ghash-generic)", "gcm(aes)", 0, 0);
 	#endif
 #endif
 

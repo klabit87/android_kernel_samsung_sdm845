@@ -1,6 +1,6 @@
 #@file Makefile
 #@brief Makefile for MST drivers
-#Copyright (c) 2015, Samsung Electronics Corporation. All rights reserved.
+#Copyright (c) 2015-2019, Samsung Electronics Corporation. All rights reserved.
 #
 #This program is free software; you can redistribute it and/or modify
 #it under the terms of the GNU General Public License version 2 and

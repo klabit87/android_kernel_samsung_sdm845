@@ -32,9 +32,11 @@ static u64 cfq_slice_async = NSEC_PER_SEC / 25;
 static const int cfq_slice_async_rq = 2;
 static u64 cfq_slice_idle = NSEC_PER_SEC / 125;
 static u64 cfq_group_idle = NSEC_PER_SEC / 125;
+/* IOPP-cfq_rt_idle_only-v1.0.4.4 */
 static int cfq_rt_idle_only = 1;
 static const u64 cfq_target_latency = (u64)NSEC_PER_SEC * 3/10; /* 300 ms */
 static const int cfq_hist_divisor = 4;
+/* IOPP-cfq_max_async_dispatch-v1.0.4.4 */
 static int cfq_max_async_dispatch = 4;
 
 /*
@@ -224,6 +226,7 @@ struct cfq_group_data {
 
 	unsigned int weight;
 	unsigned int leaf_weight;
+	u64 group_idle;
 };
 
 /* This is per cgroup per device grouping structure */
@@ -309,6 +312,7 @@ struct cfq_group {
 	struct cfq_queue *async_cfqq[2][IOPRIO_BE_NR];
 	struct cfq_queue *async_idle_cfqq;
 
+	u64 group_idle;
 };
 
 struct cfq_io_cq {
@@ -807,6 +811,17 @@ static inline void cfqg_stats_update_completion(struct cfq_group *cfqg,
 
 #endif	/* CONFIG_CFQ_GROUP_IOSCHED */
 
+static inline u64 get_group_idle(struct cfq_data *cfqd)
+{
+#ifdef CONFIG_CFQ_GROUP_IOSCHED
+	struct cfq_queue *cfqq = cfqd->active_queue;
+
+	if (cfqq && cfqq->cfqg)
+		return cfqq->cfqg->group_idle;
+#endif
+	return cfqd->cfq_group_idle;
+}
+
 #define cfq_log(cfqd, fmt, args...)	\
 	blk_add_trace_msg((cfqd)->queue, "cfq " fmt, ##args)
 
@@ -827,7 +842,7 @@ static inline bool cfq_io_thinktime_big(struct cfq_data *cfqd,
 	if (!sample_valid(ttime->ttime_samples))
 		return false;
 	if (group_idle)
-		slice = cfqd->cfq_group_idle;
+		slice = get_group_idle(cfqd);
 	else
 		slice = cfqd->cfq_slice_idle;
 	return ttime->ttime_mean > slice;
@@ -1630,6 +1645,7 @@ static void cfq_cpd_init(struct blkcg_policy_data *cpd)
 
 	cgd->weight = weight;
 	cgd->leaf_weight = weight;
+	cgd->group_idle = cfq_group_idle;
 }
 
 static void cfq_cpd_free(struct blkcg_policy_data *cpd)
@@ -1674,6 +1690,7 @@ static void cfq_pd_init(struct blkg_policy_data *pd)
 
 	cfqg->weight = cgd->weight;
 	cfqg->leaf_weight = cgd->leaf_weight;
+	cfqg->group_idle = cgd->group_idle;
 }
 
 static void cfq_pd_offline(struct blkg_policy_data *pd)
@@ -1792,6 +1809,19 @@ static int cfq_print_leaf_weight(struct seq_file *sf, void *v)
 		val = cgd->leaf_weight;
 
 	seq_printf(sf, "%u\n", val);
+	return 0;
+}
+
+static int cfq_print_group_idle(struct seq_file *sf, void *v)
+{
+	struct blkcg *blkcg = css_to_blkcg(seq_css(sf));
+	struct cfq_group_data *cgd = blkcg_to_cfqgd(blkcg);
+	u64 val = 0;
+
+	if (cgd)
+		val = cgd->group_idle;
+
+	seq_printf(sf, "%llu\n", div_u64(val, NSEC_PER_USEC));
 	return 0;
 }
 
@@ -1914,6 +1944,37 @@ static int cfq_set_leaf_weight(struct cgroup_subsys_state *css,
 			       struct cftype *cft, u64 val)
 {
 	return __cfq_set_weight(css, val, false, false, true);
+}
+
+static int cfq_set_group_idle(struct cgroup_subsys_state *css,
+			       struct cftype *cft, u64 val)
+{
+	struct blkcg *blkcg = css_to_blkcg(css);
+	struct cfq_group_data *cfqgd;
+	struct blkcg_gq *blkg;
+	int ret = 0;
+
+	spin_lock_irq(&blkcg->lock);
+	cfqgd = blkcg_to_cfqgd(blkcg);
+	if (!cfqgd) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	cfqgd->group_idle = val * NSEC_PER_USEC;
+
+	hlist_for_each_entry(blkg, &blkcg->blkg_list, blkcg_node) {
+		struct cfq_group *cfqg = blkg_to_cfqg(blkg);
+
+		if (!cfqg)
+			continue;
+
+		cfqg->group_idle = cfqgd->group_idle;
+	}
+
+out:
+	spin_unlock_irq(&blkcg->lock);
+	return ret;
 }
 
 static int cfqg_print_stat(struct seq_file *sf, void *v)
@@ -2060,6 +2121,11 @@ static struct cftype cfq_blkcg_legacy_files[] = {
 		.name = "leaf_weight",
 		.seq_show = cfq_print_leaf_weight,
 		.write_u64 = cfq_set_leaf_weight,
+	},
+	{
+		.name = "group_idle",
+		.seq_show = cfq_print_group_idle,
+		.write_u64 = cfq_set_group_idle,
 	},
 
 	/* statistics, covers only the tasks in the cfqg */
@@ -2959,7 +3025,7 @@ static void cfq_arm_slice_timer(struct cfq_data *cfqd)
 	 * otherwise we still have a problem with sync vs async workloads.
 	 */
 	if (blk_queue_nonrot(cfqd->queue) && cfqd->hw_tag &&
-		!cfqd->cfq_group_idle)
+		!get_group_idle(cfqd))
 		return;
 
 	WARN_ON(!RB_EMPTY_ROOT(&cfqq->sort_list));
@@ -2970,9 +3036,8 @@ static void cfq_arm_slice_timer(struct cfq_data *cfqd)
 	 */
 	if (!cfq_should_idle(cfqd, cfqq)) {
 		/* no queue idling. Check for group idling */
-		if (cfqd->cfq_group_idle)
-			group_idle = cfqd->cfq_group_idle;
-		else
+		group_idle = get_group_idle(cfqd);
+		if (!group_idle)
 			return;
 	}
 
@@ -3013,7 +3078,7 @@ static void cfq_arm_slice_timer(struct cfq_data *cfqd)
 	cfq_mark_cfqq_wait_request(cfqq);
 
 	if (group_idle)
-		sl = cfqd->cfq_group_idle;
+		sl = group_idle;
 	else
 		sl = cfqd->cfq_slice_idle;
 
@@ -3362,7 +3427,7 @@ static struct cfq_queue *cfq_select_queue(struct cfq_data *cfqd)
 	 * this group, wait for requests to complete.
 	 */
 check_group_idle:
-	if (cfqd->cfq_group_idle && cfqq->cfqg->nr_cfqq == 1 &&
+	if (get_group_idle(cfqd) && cfqq->cfqg->nr_cfqq == 1 &&
 	    cfqq->cfqg->dispatched &&
 	    !cfq_io_thinktime_big(cfqd, &cfqq->cfqg->ttime, true)) {
 		cfqq = NULL;
@@ -3932,7 +3997,7 @@ cfq_update_io_thinktime(struct cfq_data *cfqd, struct cfq_queue *cfqq,
 			cfqd->cfq_slice_idle);
 	}
 #ifdef CONFIG_CFQ_GROUP_IOSCHED
-	__cfq_update_io_thinktime(&cfqq->cfqg->ttime, cfqd->cfq_group_idle);
+	__cfq_update_io_thinktime(&cfqq->cfqg->ttime, get_group_idle(cfqd));
 #endif
 }
 
@@ -4335,7 +4400,7 @@ static void cfq_completed_request(struct request_queue *q, struct request *rq)
 		if (cfq_should_wait_busy(cfqd, cfqq)) {
 			u64 extend_sl = cfqd->cfq_slice_idle;
 			if (!cfqd->cfq_slice_idle)
-				extend_sl = cfqd->cfq_group_idle;
+				extend_sl = get_group_idle(cfqd);
 			cfqq->slice_end = now + extend_sl;
 			cfq_mark_cfqq_wait_busy(cfqq);
 			cfq_log_cfqq(cfqd, cfqq, "will busy wait");

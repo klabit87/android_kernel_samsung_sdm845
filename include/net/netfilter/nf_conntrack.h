@@ -178,6 +178,11 @@ struct nf_conn {
 	char interface_name[IFNAMSIZ];
 	/* Atomic variable indicating start of flow */
 	atomic_t startFlow;
+	/* The value at which this ct is considered timed-out for intermediate flows */
+	/* Use 'u32 npa_timeout' if struct nf_conn->timeout is of type u32;  Use 'struct timer_list npa_timeout' if struct nf_conn->timeout is of type struct timer_list;*/
+	u32 npa_timeout;
+	/* Atomic variable indicating end of intermediate flow */
+	atomic_t intermediateFlow;
 	// KNOX NPA - END
 };
 

@@ -1431,7 +1431,7 @@ static int cam_icp_mgr_handle_frame_process(uint32_t *msg_ptr, int flag)
 		CAM_ERR(CAM_ICP, "Invalid Context");
 		return -EINVAL;
 	}
-	CAM_DBG(CAM_ICP, "ctx : %p, request_id :%lld",
+	CAM_DBG(CAM_ICP, "ctx : %pK, request_id :%lld",
 		(void *)ctx_data->context_priv, request_id);
 
 	clk_type = ICP_DEV_TYPE_TO_CLK_TYPE(ctx_data->icp_dev_acquire_info->
@@ -2882,7 +2882,7 @@ static int cam_icp_mgr_enqueue_config(struct cam_icp_hw_mgr *hw_mgr,
 
 	request_id = *(uint64_t *)config_args->priv;
 	hw_update_entries = config_args->hw_update_entries;
-	CAM_DBG(CAM_ICP, "req_id = %lld %p", request_id, config_args->priv);
+	CAM_DBG(CAM_ICP, "req_id = %lld %pK", request_id, config_args->priv);
 
 	task = cam_req_mgr_workq_get_task(icp_hw_mgr.cmd_work);
 	if (!task) {
@@ -2972,7 +2972,7 @@ static int cam_icp_mgr_prepare_frame_process_cmd(
 	hfi_cmd->user_data1 = (uint64_t)ctx_data;
 	hfi_cmd->user_data2 = request_id;
 
-	CAM_DBG(CAM_ICP, "ctx_data : %p, request_id :%lld cmd_buf %x",
+	CAM_DBG(CAM_ICP, "ctx_data : %pK, request_id :%lld cmd_buf %x",
 		(void *)ctx_data->context_priv, request_id,
 		fw_cmd_buf_iova_addr);
 

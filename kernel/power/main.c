@@ -846,15 +846,7 @@ static ssize_t rtc_status_show(struct kobject *kobj,
 	poff_status = 0;
 	return sprintf(buf, "%d\n", status);
 }
-
-static ssize_t rtc_status_store(struct kobject *kobj,
-				   struct kobj_attribute *attr,
-				   const char *buf, size_t n)
-{
-	pr_warn("not support\n");
-	return n;
-}
-power_attr(rtc_status);
+power_attr_ro(rtc_status);
 #endif /* CONFIG_SEC_PM */
 
 #if defined(CONFIG_FOTA_LIMIT)

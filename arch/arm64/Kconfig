@@ -802,6 +802,13 @@ config XEN
 	help
 	  Say Y if you want to run Linux in a Virtual Machine on Xen on ARM64.
 
+config OKL4_GUEST
+	bool "OKL4 Hypervisor guest support"
+	depends on ARM64 && OF
+	default n
+	help
+	  Say Y if you want to run Linux as a guest of the OKL4 hypervisor
+
 config FORCE_MAX_ZONEORDER
 	int
 	default "14" if (ARM64_64K_PAGES && TRANSPARENT_HUGEPAGE)
@@ -864,6 +871,15 @@ config PSCI_BP_HARDENING
 	  branch prediction attacks.
 
 	  If unsure, say N.
+
+config ARM64_SSBD
+	bool "Speculative Store Bypass Disable" if EXPERT
+	default y
+	help
+	  This enables mitigation of the bypassing of previous stores
+	  by speculative loads.
+
+	  If unsure, say Y.
 
 menuconfig ARMV8_DEPRECATED
 	bool "Emulate deprecated/obsolete ARMv8 instructions"
@@ -1385,6 +1401,10 @@ config SYSVIPC_COMPAT
 	def_bool y
 	depends on COMPAT && SYSVIPC
 
+config KEYS_COMPAT
+	def_bool y
+	depends on COMPAT && KEYS
+
 endmenu
 
 config SEC_STARQLTE_PROJECT
@@ -1548,6 +1568,13 @@ config SEC_CROWNQLTE_PROJECT
 	help
 	  Support for Samsung CROWNQLTE Project
 
+config SEC_LYKANLTE_PROJECT
+	depends on ARCH_SDM845
+	default n
+	bool "Samsung LYKANLTE Project"
+	help
+	  Support for Samsung LYKANLTE Project
+
 config MACH_CROWNQLTE_USA_SINGLE
 	depends on SEC_CROWNQLTE_PROJECT
 	default n
@@ -1618,6 +1645,12 @@ config MACH_CROWNQLTE_KDI
         help
           Support for Samsung CROWNQLTE JPN KDI device.
 
+config MACH_LYKANLTE_CHNZC
+        depends on SEC_LYKANLTE_PROJECT
+        default n
+        bool "Samsung LYKANLTE CHN OPEN"
+        help
+          Support for Samsung LYKANLTE CHN OPEN device.
 config LOD_SEC
 	bool "kernel security re-enforcement for Linux On Dex, including cap re-check and seccomp report"
 	default n

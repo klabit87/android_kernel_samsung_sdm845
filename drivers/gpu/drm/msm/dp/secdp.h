@@ -130,6 +130,8 @@ struct secdp_attention_node {
 	struct list_head list;
 };
 
+bool secdp_get_clk_status(enum dp_pm_type type);
+
 int secdp_ccic_noti_register_ex(struct secdp_misc *sec, bool retry);
 int secdp_init(struct platform_device *pdev);
 void secdp_deinit(struct platform_device *pdev);
@@ -137,6 +139,8 @@ bool secdp_get_power_status(void);
 bool secdp_get_cable_status(void);
 bool secdp_get_hpd_irq_status(void);
 int secdp_get_hpd_status(void);
+bool secdp_get_poor_connection_status(void);
+bool secdp_get_link_train_status(void);
 struct dp_panel *secdp_get_panel_info(void);
 struct drm_connector *secdp_get_connector(void);
 

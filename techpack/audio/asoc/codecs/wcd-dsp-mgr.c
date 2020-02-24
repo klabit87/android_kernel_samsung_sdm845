@@ -1067,9 +1067,7 @@ static void wdsp_mgr_debugfs_init(struct wdsp_mgr_priv *wdsp)
 	debugfs_create_bool("panic_on_error", 0644,
 			    wdsp->entry, &wdsp->panic_on_error);
 
-#ifdef CONFIG_SEC_SND_DEBUG
 	wdsp->panic_on_error = 1;
-#endif /* CONFIG_SEC_SND_DEBUG */
 }
 
 static void wdsp_mgr_debugfs_remove(struct wdsp_mgr_priv *wdsp)

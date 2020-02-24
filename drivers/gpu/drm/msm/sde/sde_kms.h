@@ -312,6 +312,7 @@ struct sde_kms {
 	atomic_t detach_sec_cb;
 	atomic_t detach_all_cb;
 	struct mutex secure_transition_lock;
+	struct mutex vblank_ctl_global_lock;
 	struct sde_kms_status *status_data;
 
 	bool first_kickoff;

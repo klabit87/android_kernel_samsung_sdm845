@@ -19,6 +19,13 @@ config SAMSUNG_OIS_MCU_STM32
 	---help---
 	Enables support for external ois module.
 
+config SAMSUNG_REAR_DUAL
+        tristate "External rear dual camid support"
+	depends on SPECTRA_CAMERA
+	default n
+	---help---
+	Enables support for external rear dual camid.
+
 config SAMSUNG_MULTI_CAMERA
 	tristate "Multi camera support"
 	depends on SPECTRA_CAMERA

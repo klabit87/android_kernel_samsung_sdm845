@@ -1,4 +1,4 @@
-/* Copyright (c) 2018 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -774,6 +774,9 @@ static void smblib_uusb_removal(struct smb_charger *chg)
 
 	cancel_delayed_work_sync(&chg->pl_enable_work);
 
+	if (chg->wa_flags & CHG_TERMINATION_WA)
+		alarm_cancel(&chg->chg_termination_alarm);
+
 	if (chg->wa_flags & BOOST_BACK_WA) {
 		data = chg->irq_info[SWITCHER_POWER_OK_IRQ].irq_data;
 		if (data) {
@@ -793,6 +796,7 @@ static void smblib_uusb_removal(struct smb_charger *chg)
 	vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
 			is_flash_active(chg) ? SDP_CURRENT_UA : SDP_100_MA);
 	vote(chg->usb_icl_votable, SW_QC3_VOTER, false, 0);
+	vote(chg->usb_icl_votable, CHG_TERMINATION_VOTER, false, 0);
 
 	/* reconfigure allowed voltage for HVDCP */
 	rc = smblib_set_adapter_allowance(chg,
@@ -800,6 +804,11 @@ static void smblib_uusb_removal(struct smb_charger *chg)
 	if (rc < 0)
 		smblib_err(chg, "Couldn't set USBIN_ADAPTER_ALLOW_5V_OR_9V_TO_12V rc=%d\n",
 			rc);
+
+	/* reset USBOV votes and cancel work */
+	cancel_delayed_work_sync(&chg->usbov_dbc_work);
+	vote(chg->awake_votable, USBOV_DBC_VOTER, false, 0);
+	chg->dbc_usbov = false;
 
 	chg->voltage_min_uv = MICRO_5V;
 	chg->voltage_max_uv = MICRO_5V;
@@ -1393,7 +1402,32 @@ int smblib_get_prop_batt_status(struct smb_charger *chg,
 	union power_supply_propval pval = {0, };
 	bool usb_online, dc_online;
 	u8 stat;
-	int rc;
+	int rc, suspend = 0;
+
+	if (chg->dbc_usbov) {
+		rc = smblib_get_prop_usb_present(chg, &pval);
+		if (rc < 0) {
+			smblib_err(chg,
+				"Couldn't get usb present prop rc=%d\n", rc);
+			return rc;
+		}
+
+		rc = smblib_get_usb_suspend(chg, &suspend);
+		if (rc < 0) {
+			smblib_err(chg,
+				"Couldn't get usb suspend rc=%d\n", rc);
+			return rc;
+		}
+
+		/*
+		 * Report charging as long as USBOV is not debounced and
+		 * charging path is un-suspended.
+		 */
+		if (pval.intval && !suspend) {
+			val->intval = POWER_SUPPLY_STATUS_CHARGING;
+			return 0;
+		}
+	}
 
 	rc = smblib_get_prop_usb_online(chg, &pval);
 	if (rc < 0) {
@@ -1450,6 +1484,16 @@ int smblib_get_prop_batt_status(struct smb_charger *chg,
 	default:
 		val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
 		break;
+	}
+
+	/*
+	 * If charge termination WA is active and has suspended charging, then
+	 * continue reporting charging status as FULL.
+	 */
+	if (is_client_vote_enabled_locked(chg->usb_icl_votable,
+						CHG_TERMINATION_VOTER)) {
+		val->intval = POWER_SUPPLY_STATUS_FULL;
+		return 0;
 	}
 
 	if (val->intval != POWER_SUPPLY_STATUS_CHARGING)
@@ -1958,6 +2002,12 @@ int smblib_get_prop_usb_online(struct smb_charger *chg,
 
 	if (get_client_vote_locked(chg->usb_icl_votable, USER_VOTER) == 0) {
 		val->intval = false;
+		return rc;
+	}
+
+	if (is_client_vote_enabled(chg->usb_icl_votable,
+					CHG_TERMINATION_VOTER)) {
+		rc = smblib_get_prop_usb_present(chg, val);
 		return rc;
 	}
 
@@ -2730,6 +2780,42 @@ irqreturn_t default_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+#define CHG_TERM_WA_ENTRY_DELAY_MS		300000		/* 5 min */
+#define CHG_TERM_WA_EXIT_DELAY_MS		60000		/* 1 min */
+static void smblib_eval_chg_termination(struct smb_charger *chg, u8 batt_status)
+{
+	union power_supply_propval pval = {0, };
+	int rc = 0;
+
+	rc = smblib_get_prop_from_bms(chg,
+				POWER_SUPPLY_PROP_REAL_CAPACITY, &pval);
+	if (rc < 0) {
+		smblib_err(chg, "Couldn't read SOC value, rc=%d\n", rc);
+		return;
+	}
+
+	/*
+	 * Post charge termination, switch to BSM mode triggers the risk of
+	 * over charging as BATFET opening may take some time post the necessity
+	 * of staying in supplemental mode, leading to unintended charging of
+	 * battery. Trigger the charge termination WA once charging is completed
+	 * to prevent overcharing.
+	 */
+	if ((batt_status == TERMINATE_CHARGE) && (pval.intval == 100)) {
+		chg->cc_soc_ref = 0;
+		chg->last_cc_soc = 0;
+		alarm_start_relative(&chg->chg_termination_alarm,
+			ms_to_ktime(CHG_TERM_WA_ENTRY_DELAY_MS));
+	} else if (pval.intval < 100) {
+		/*
+		 * Reset CC_SOC reference value for charge termination WA once
+		 * we exit the TERMINATE_CHARGE state and soc drops below 100%
+		 */
+		chg->cc_soc_ref = 0;
+		chg->last_cc_soc = 0;
+	}
+}
+
 irqreturn_t chg_state_change_irq_handler(int irq, void *data)
 {
 	struct smb_irq_data *irq_data = data;
@@ -2747,6 +2833,10 @@ irqreturn_t chg_state_change_irq_handler(int irq, void *data)
 	}
 
 	stat = stat & BATTERY_CHARGER_STATUS_MASK;
+
+	if (chg->wa_flags & CHG_TERMINATION_WA)
+		smblib_eval_chg_termination(chg, stat);
+
 	power_supply_changed(chg->batt_psy);
 	return IRQ_HANDLED;
 }
@@ -2764,7 +2854,6 @@ irqreturn_t batt_temp_changed_irq_handler(int irq, void *data)
 		return IRQ_HANDLED;
 	}
 
-	rerun_election(chg->fcc_votable);
 	power_supply_changed(chg->batt_psy);
 	return IRQ_HANDLED;
 }
@@ -2939,7 +3028,11 @@ void smblib_usb_plugin_hard_reset_locked(struct smb_charger *chg)
 
 	vbus_rising = (bool)(stat & USBIN_PLUGIN_RT_STS_BIT);
 
-	if (!vbus_rising) {
+	if (vbus_rising) {
+		/* Remove FCC_STEPPER 1.5A init vote to allow FCC ramp up */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER, false, 0);
+	} else {
 		if (chg->wa_flags & BOOST_BACK_WA) {
 			data = chg->irq_info[SWITCHER_POWER_OK_IRQ].irq_data;
 			if (data) {
@@ -2952,6 +3045,11 @@ void smblib_usb_plugin_hard_reset_locked(struct smb_charger *chg)
 						false, 0);
 			}
 		}
+
+		/* Force 1500mA FCC on USB removal if fcc stepper is enabled */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER,
+							true, 1500000);
 	}
 
 	power_supply_changed(chg->usb_psy);
@@ -2982,6 +3080,10 @@ void smblib_usb_plugin_locked(struct smb_charger *chg)
 		rc = smblib_request_dpdm(chg, true);
 		if (rc < 0)
 			smblib_err(chg, "Couldn't to enable DPDM rc=%d\n", rc);
+
+		/* Remove FCC_STEPPER 1.5A init vote to allow FCC ramp up */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER, false, 0);
 
 		/* Schedule work to enable parallel charger */
 		vote(chg->awake_votable, PL_DELAY_VOTER, true, 0);
@@ -3027,6 +3129,11 @@ void smblib_usb_plugin_locked(struct smb_charger *chg)
 			vote(chg->usb_icl_votable, AICL_THRESHOLD_VOTER,
 					false, 0);
 		}
+
+		/* Force 1500mA FCC on removal if fcc stepper is enabled */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER,
+							true, 1500000);
 
 		rc = smblib_request_dpdm(chg, false);
 		if (rc < 0)
@@ -3421,6 +3528,9 @@ static void typec_src_removal(struct smb_charger *chg)
 
 	cancel_delayed_work_sync(&chg->pl_enable_work);
 
+	if (chg->wa_flags & CHG_TERMINATION_WA)
+		alarm_cancel(&chg->chg_termination_alarm);
+
 	/* reset input current limit voters */
 	vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
 			is_flash_active(chg) ? SDP_CURRENT_UA : SDP_100_MA);
@@ -3431,6 +3541,7 @@ static void typec_src_removal(struct smb_charger *chg)
 	vote(chg->usb_icl_votable, SW_QC3_VOTER, false, 0);
 	vote(chg->usb_icl_votable, OTG_VOTER, false, 0);
 	vote(chg->usb_icl_votable, CTM_VOTER, false, 0);
+	vote(chg->usb_icl_votable, CHG_TERMINATION_VOTER, false, 0);
 
 	/* reset usb irq voters */
 	vote(chg->usb_irq_enable_votable, PD_VOTER, false, 0);
@@ -3442,6 +3553,11 @@ static void typec_src_removal(struct smb_charger *chg)
 	vote(chg->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
 	vote(chg->pl_enable_votable_indirect, USBIN_V_VOTER, false, 0);
 	vote(chg->awake_votable, PL_DELAY_VOTER, false, 0);
+
+	/* reset USBOV votes and cancel work */
+	cancel_delayed_work_sync(&chg->usbov_dbc_work);
+	vote(chg->awake_votable, USBOV_DBC_VOTER, false, 0);
+	chg->dbc_usbov = false;
 
 	chg->pulse_cnt = 0;
 	chg->usb_icl_delta_ua = 0;
@@ -3724,6 +3840,51 @@ irqreturn_t wdog_bark_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static void smblib_usbov_dbc_work(struct work_struct *work)
+{
+	struct smb_charger *chg = container_of(work, struct smb_charger,
+						usbov_dbc_work.work);
+
+	smblib_dbg(chg, PR_MISC, "Resetting USBOV debounce\n");
+	chg->dbc_usbov = false;
+	vote(chg->awake_votable, USBOV_DBC_VOTER, false, 0);
+}
+
+irqreturn_t usbin_ov_irq_handler(int irq, void *data)
+{
+	struct smb_irq_data *irq_data = data;
+	struct smb_charger *chg = irq_data->parent_data;
+	u8 stat;
+	int rc;
+
+	if (!(chg->wa_flags & USBIN_OV_WA))
+		goto out;
+
+	rc = smblib_read(chg, USBIN_BASE + INT_RT_STS_OFFSET, &stat);
+	if (rc < 0) {
+		smblib_err(chg, "Couldn't read USB_INT_RT_STS rc=%d\n", rc);
+		goto out;
+	}
+	smblib_dbg(chg, PR_INTERRUPT, "IRQ: %s stat=%x\n", irq_data->name,
+				!!stat);
+
+	if (stat & USBIN_OV_RT_STS_BIT) {
+		chg->dbc_usbov = true;
+		vote(chg->awake_votable, USBOV_DBC_VOTER, true, 0);
+		schedule_delayed_work(&chg->usbov_dbc_work,
+				msecs_to_jiffies(1000));
+	} else {
+		cancel_delayed_work_sync(&chg->usbov_dbc_work);
+		chg->dbc_usbov = false;
+		vote(chg->awake_votable, USBOV_DBC_VOTER, true, 0);
+	}
+
+out:
+	smblib_dbg(chg, PR_MISC, "USBOV debounce status %d\n",
+				chg->dbc_usbov);
+	return IRQ_HANDLED;
+}
+
 /**************
  * Additional USB PSY getters/setters
  * that call interrupt functions
@@ -3898,6 +4059,12 @@ static void smblib_moisture_protection_work(struct work_struct *work)
 	u8 stat;
 
 	/*
+	 * Hold awake votable to prevent pm_relax being called prior to
+	 * completion of this work.
+	 */
+	vote(chg->awake_votable, MOISTURE_VOTER, true, 0);
+
+	/*
 	 * Disable 1% duty cycle on CC_ID pin and enable uUSB factory mode
 	 * detection to track any change on RID, as interrupts are disable.
 	 */
@@ -3959,6 +4126,7 @@ static void smblib_moisture_protection_work(struct work_struct *work)
 	}
 
 out:
+	vote(chg->awake_votable, MOISTURE_VOTER, false, 0);
 	pm_relax(chg->dev);
 }
 
@@ -3974,6 +4142,106 @@ static enum alarmtimer_restart moisture_protection_alarm_cb(struct alarm *alarm,
 	/* Atomic context, cannot use voter */
 	pm_stay_awake(chg->dev);
 	schedule_work(&chg->moisture_protection_work);
+
+	return ALARMTIMER_NORESTART;
+}
+
+static void smblib_chg_termination_work(struct work_struct *work)
+{
+	struct smb_charger *chg = container_of(work, struct smb_charger,
+						chg_termination_work);
+	union power_supply_propval pval;
+	int rc, delay = CHG_TERM_WA_ENTRY_DELAY_MS;
+
+	/*
+	 * Hold awake votable to prevent pm_relax being called prior to
+	 * completion of this work.
+	 */
+	vote(chg->awake_votable, CHG_TERMINATION_VOTER, true, 0);
+
+	rc = smblib_get_prop_usb_present(chg, &pval);
+	if (rc < 0 || !pval.intval)
+		goto out;
+
+	rc = smblib_get_prop_from_bms(chg,
+			POWER_SUPPLY_PROP_REAL_CAPACITY, &pval);
+	if (rc < 0 || (pval.intval < 100)) {
+		vote(chg->usb_icl_votable, CHG_TERMINATION_VOTER, false, 0);
+		goto out;
+	}
+
+	rc = smblib_get_prop_from_bms(chg, POWER_SUPPLY_PROP_CHARGE_FULL,
+					&pval);
+	if (rc < 0)
+		goto out;
+
+	/*
+	 * On change in the value of learned capacity, re-initialize the
+	 * reference cc_soc value due to change in cc_soc characteristic value
+	 * at full capacity. Also, in case cc_soc_ref value is reset,
+	 * re-initialize it.
+	 */
+	if ((pval.intval != chg->charge_full_cc) || !chg->cc_soc_ref) {
+		chg->charge_full_cc = pval.intval;
+		rc = smblib_get_prop_from_bms(chg, POWER_SUPPLY_PROP_CC_SOC,
+					&pval);
+		if (rc < 0)
+			goto out;
+
+		chg->cc_soc_ref = pval.intval;
+	} else {
+		rc = smblib_get_prop_from_bms(chg, POWER_SUPPLY_PROP_CC_SOC,
+					&pval);
+		if (rc < 0)
+			goto out;
+	}
+
+	/*
+	 * In BSM a sudden jump in CC_SOC is not expected. If seen, its a
+	 * good_ocv or updated capacity, reject it.
+	 */
+	if (chg->last_cc_soc && pval.intval > (chg->last_cc_soc + 100)) {
+		/* CC_SOC has increased by 1% from last time */
+		chg->cc_soc_ref = pval.intval;
+		smblib_dbg(chg, PR_MISC, "cc_soc jumped(%d->%d), reset cc_soc_ref\n",
+				chg->last_cc_soc, pval.intval);
+	}
+	chg->last_cc_soc = pval.intval;
+
+	/*
+	 * Suspend/Unsuspend USB input to keep cc_soc within the 0.5% to 0.75%
+	 * overshoot range of the cc_soc value at termination, to prevent
+	 * overcharging.
+	 */
+	if (pval.intval < DIV_ROUND_CLOSEST(chg->cc_soc_ref * 10050, 10000)) {
+		vote(chg->usb_icl_votable, CHG_TERMINATION_VOTER, false, 0);
+		delay = CHG_TERM_WA_ENTRY_DELAY_MS;
+	} else if (pval.intval > DIV_ROUND_CLOSEST(chg->cc_soc_ref * 10075,
+								10000)) {
+		vote(chg->usb_icl_votable, CHG_TERMINATION_VOTER, true, 0);
+		delay = CHG_TERM_WA_EXIT_DELAY_MS;
+	}
+
+	smblib_dbg(chg, PR_MISC, "Chg Term WA readings: cc_soc: %d, cc_soc_ref: %d, delay: %d\n",
+			pval.intval, chg->cc_soc_ref, delay);
+	alarm_start_relative(&chg->chg_termination_alarm, ms_to_ktime(delay));
+out:
+	vote(chg->awake_votable, CHG_TERMINATION_VOTER, false, 0);
+	pm_relax(chg->dev);
+}
+
+static enum alarmtimer_restart chg_termination_alarm_cb(struct alarm *alarm,
+							ktime_t now)
+{
+	struct smb_charger *chg = container_of(alarm, struct smb_charger,
+						chg_termination_alarm);
+
+	smblib_dbg(chg, PR_MISC, "Charge termination WA alarm triggered %lld\n",
+			ktime_to_ms(now));
+
+	/* Atomic context, cannot use voter */
+	pm_stay_awake(chg->dev);
+	schedule_work(&chg->chg_termination_work);
 
 	return ALARMTIMER_NORESTART;
 }
@@ -4188,6 +4456,20 @@ int smblib_init(struct smb_charger *chg)
 	INIT_DELAYED_WORK(&chg->pl_enable_work, smblib_pl_enable_work);
 	INIT_DELAYED_WORK(&chg->uusb_otg_work, smblib_uusb_otg_work);
 	INIT_DELAYED_WORK(&chg->bb_removal_work, smblib_bb_removal_work);
+	INIT_DELAYED_WORK(&chg->usbov_dbc_work, smblib_usbov_dbc_work);
+
+	if (chg->wa_flags & CHG_TERMINATION_WA) {
+		INIT_WORK(&chg->chg_termination_work,
+					smblib_chg_termination_work);
+
+		if (alarmtimer_get_rtcdev()) {
+			alarm_init(&chg->chg_termination_alarm, ALARM_BOOTTIME,
+						chg_termination_alarm_cb);
+		} else {
+			smblib_err(chg, "Couldn't get rtc device\n");
+			return -ENODEV;
+		}
+	}
 
 	if (chg->moisture_protection_enabled &&
 				(chg->wa_flags & MOISTURE_PROTECTION_WA)) {
@@ -4269,6 +4551,10 @@ int smblib_deinit(struct smb_charger *chg)
 			alarm_cancel(&chg->moisture_protection_alarm);
 			cancel_work_sync(&chg->moisture_protection_work);
 		}
+		if (chg->wa_flags & CHG_TERMINATION_WA) {
+			alarm_cancel(&chg->chg_termination_alarm);
+			cancel_work_sync(&chg->chg_termination_work);
+		}
 		cancel_work_sync(&chg->bms_update_work);
 		cancel_work_sync(&chg->jeita_update_work);
 		cancel_work_sync(&chg->pl_update_work);
@@ -4277,6 +4563,7 @@ int smblib_deinit(struct smb_charger *chg)
 		cancel_delayed_work_sync(&chg->pl_enable_work);
 		cancel_delayed_work_sync(&chg->uusb_otg_work);
 		cancel_delayed_work_sync(&chg->bb_removal_work);
+		cancel_delayed_work_sync(&chg->usbov_dbc_work);
 		power_supply_unreg_notifier(&chg->nb);
 		smblib_destroy_votables(chg);
 		qcom_step_chg_deinit();

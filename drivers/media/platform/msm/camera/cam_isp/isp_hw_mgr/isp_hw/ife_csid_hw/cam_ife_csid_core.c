@@ -1019,7 +1019,7 @@ static int cam_ife_csid_disable_hw(struct cam_ife_csid_hw *csid_hw)
 	struct cam_hw_soc_info             *soc_info;
 	struct cam_ife_csid_reg_offset     *csid_reg;
 
-	CAM_INFO(CAM_ISP, "%s:Enter RefCnt: %d, csid_hw: 0x%p\n", __func__, csid_hw->hw_info->open_count, csid_hw->hw_info);
+	CAM_INFO(CAM_ISP, "%s:Enter RefCnt: %d, csid_hw: 0x%pK\n", __func__, csid_hw->hw_info->open_count, csid_hw->hw_info);
 	/*  Decrement ref Count */
 	if (csid_hw->hw_info->open_count)
 		csid_hw->hw_info->open_count--;

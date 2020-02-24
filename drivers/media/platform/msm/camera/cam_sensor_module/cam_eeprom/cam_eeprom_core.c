@@ -51,6 +51,11 @@ char front_cam_cal_check[SYSFS_FW_VER_SIZE] = "NULL";
 
 int board_rev;
 
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+uint8_t ois_wide_data[DUAL_OIS_CAL_DATA_SIZE+1] = "\0";
+uint8_t ois_tele_data[DUAL_OIS_CAL_DATA_SIZE+1] = "\0";
+uint8_t ois_center_shift[DUAL_OIS_CAL_DATA_SIZE+1] = "\0";
+#endif
 
 #ifdef CAM_EEPROM_DBG_DUMP
 static int cam_eeprom_dump(uint32_t subdev_id, uint8_t *mapdata, uint32_t addr, uint32_t size)
@@ -132,12 +137,14 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 			front_module_id[4], front_module_id[5], front_module_id[6], front_module_id[7],
 			front_module_id[8], front_module_id[9]);
 #endif
+
+#if !defined(CONFIG_SEC_LYKANLTE_PROJECT)
 		/* front af cal*/
 		front_af_cal_pan = *((uint32_t *)&e_ctrl->cal_data.mapdata[FROM_FRONT_AF_CAL_PAN_ADDR]);
 		front_af_cal_macro = *((uint32_t *)&e_ctrl->cal_data.mapdata[FROM_FRONT_AF_CAL_MACRO_ADDR]);
 		CAM_DBG(CAM_EEPROM, "front_af_cal_pan: %d, front_af_cal_macro: %d",
 			front_af_cal_pan, front_af_cal_macro);
-
+#endif
 		/* front mtf exif */
 		memcpy(front_mtf_exif, &e_ctrl->cal_data.mapdata[FROM_FRONT_MTF_ADDR], FROM_MTF_SIZE);
 		front_mtf_exif[FROM_MTF_SIZE] = '\0';
@@ -503,6 +510,23 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 		memset(data, 0, sizeof(data));
 		memcpy(data, &e_ctrl->cal_data.mapdata[FROM_F2_PAF_CAL_DATA_START_ADDR + FROM_PAF_CAL_ERR_CHECK_OFFSET], 4);
 		f2_paf_err_data_result = *data | ( *(data + 1) << 8) | ( *(data + 2) << 16) | (*(data + 3) << 24);
+
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+		if(0 == e_ctrl->soc_info.index && e_ctrl->cal_data.num_map > 1){
+		    CAM_DBG(CAM_EEPROM, "extract ois cal data cal_data.num_map=%d", e_ctrl->cal_data.num_map);
+		    memset(ois_wide_data, 0, sizeof(ois_wide_data));
+		    memcpy(ois_wide_data, &e_ctrl->cal_data.mapdata[WIDE_OIS_XYGG_START_ADDR], DUAL_OIS_CAL_DATA_SIZE);
+                    ois_wide_data[DUAL_OIS_CAL_DATA_SIZE] = '\0';
+
+		    memset(ois_tele_data, 0, sizeof(ois_tele_data));
+		    memcpy(ois_tele_data, &e_ctrl->cal_data.mapdata[TELE_OIS_XYGG_START_ADDR], DUAL_OIS_CAL_DATA_SIZE);
+                    ois_tele_data[DUAL_OIS_CAL_DATA_SIZE] = '\0';
+
+		    memset(ois_center_shift, 0, sizeof(ois_center_shift));
+		    memcpy(ois_center_shift, &e_ctrl->cal_data.mapdata[DUAL_OIS_CENTER_SHIFT_START_ADDR], DUAL_OIS_CAL_DATA_SIZE);
+                    ois_center_shift[DUAL_OIS_CAL_DATA_SIZE] = '\0';
+		}
+#endif
 	}
 
 	/*rear cal check*/
@@ -888,6 +912,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_eeprom_soc_private     *eb_info;
 	uint8_t                           *memptr = NULL;
 	uint32_t                          total_size, read_size, addr;
+	int                               retry = 3;
 
 	if (!e_ctrl) {
 		CAM_ERR(CAM_EEPROM, "e_ctrl is NULL");
@@ -961,7 +986,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 			addr = emap[j].mem.addr;
 			memptr = block->mapdata + addr;
 
-			CAM_DBG(CAM_EEPROM, "[%d / %d] memptr = %p, addr = 0x%X, size = 0x%X, subdev = %d",
+			CAM_DBG(CAM_EEPROM, "[%d / %d] memptr = %pK, addr = 0x%X, size = 0x%X, subdev = %d",
 				j, block->num_map, memptr, emap[j].mem.addr, emap[j].mem.valid_size, e_ctrl->soc_info.index);
 
 			CAM_DBG(CAM_EEPROM, "addr_type = %d, data_type = %d, device_type = %d",
@@ -997,7 +1022,22 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 						read_size);
 				if (rc < 0) {
 					CAM_ERR(CAM_EEPROM, "read failed rc %d", rc);
-					return rc;
+					for(retry = 0; retry < 3 ; retry++){
+						rc = camera_io_dev_read_seq(&e_ctrl->io_master_info,
+								addr, memptr,
+								emap[j].mem.addr_type,
+								read_size);
+						if(rc < 0){
+							CAM_ERR(CAM_EEPROM, "retry %d times read failed rc %d",retry, rc);
+							mdelay(10);
+						}else{
+							CAM_ERR(CAM_EEPROM, "retry %d times success read ",retry);
+							break;
+						}
+					}
+					if(rc < 0){
+						return rc;
+					}
 				}
 
 				addr += read_size;
@@ -2421,7 +2461,7 @@ int32_t cam_eeprom_driver_cmd(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 			&eeprom_cap,
 			sizeof(struct cam_eeprom_query_cap_t))) {
 			CAM_ERR(CAM_EEPROM, "Failed Copy to User");
-			return -EFAULT;
+			rc = -EFAULT;
 			goto release_mutex;
 		}
 		CAM_DBG(CAM_EEPROM, "eeprom_cap: ID: %d", eeprom_cap.slot_info);

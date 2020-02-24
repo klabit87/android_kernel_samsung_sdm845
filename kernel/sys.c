@@ -51,6 +51,7 @@
 #include <linux/binfmts.h>
 
 #include <linux/sched.h>
+#include <linux/sched/loadavg.h>
 #include <linux/rcupdate.h>
 #include <linux/uidgid.h>
 #include <linux/cred.h>
@@ -137,54 +138,6 @@ int fs_overflowgid = DEFAULT_FS_OVERFLOWUID;
 
 EXPORT_SYMBOL(fs_overflowuid);
 EXPORT_SYMBOL(fs_overflowgid);
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-int sec_check_execpath(struct mm_struct *mm, char *denypath);
-#if defined CONFIG_SEC_RESTRICT_ROOTING_LOG
-#define PRINT_LOG(...)printk(KERN_ERR __VA_ARGS__)
-#else
-#define PRINT_LOG(...)
-#endif// End of CONFIG_SEC_RESTRICT_ROOTING_LOG
-
-static int sec_restrict_uid(void)
-{
-  int ret = 0;
-  struct task_struct *parent_tsk;
-  const struct cred *parent_cred;
-
-  read_lock(&tasklist_lock);
-  parent_tsk = current->parent;
-  if (!parent_tsk) {
-    read_unlock(&tasklist_lock);
-    return 0;
-  }
-
-  get_task_struct(parent_tsk);
-  /* holding on to the task struct is enough so just release
-   * the tasklist lock here */
-  read_unlock(&tasklist_lock);
-
-  parent_cred = get_task_cred(parent_tsk);
-  if (!parent_cred)
-    goto out;
-  if (parent_cred->euid.val == 0 || parent_tsk->pid == 1) {
-    ret = 0;
-  } else if (sec_check_execpath(current->mm, "/system/bin/pppd")) {
-    PRINT_LOG("VPN allowed to use root permission");
-    ret = 0;
-  } else {
-    PRINT_LOG("Restricted changing UID. PID = %d(%s) PPID = %d(%s)\n",
-	      current->pid, current->comm,
-	      parent_tsk->pid, parent_tsk->comm);
-    ret = 1;
-  }
-  put_cred(parent_cred);
- out:
-  put_task_struct(parent_tsk);
-
-  return ret;
-}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 /*
  * Returns true if current's euid is same as p's uid or euid,
@@ -402,13 +355,6 @@ SYSCALL_DEFINE2(setregid, gid_t, rgid, gid_t, egid)
 	if ((egid != (gid_t) -1) && !gid_valid(kegid))
 		return -EINVAL;
 
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (krgid.val == 0 || kegid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
 #ifdef CONFIG_LOD_SEC
 	if (current_is_LOD()) {
 		if (!gid_is_LOD(krgid.val))
@@ -471,13 +417,6 @@ SYSCALL_DEFINE1(setgid, gid_t, gid)
 	kgid = make_kgid(ns, gid);
 	if (!gid_valid(kgid))
 		return -EINVAL;
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kgid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 #ifdef CONFIG_LOD_SEC
 	if (current_is_LOD()) {
@@ -566,13 +505,6 @@ SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
 	if ((euid != (uid_t) -1) && !uid_valid(keuid))
 		return -EINVAL;
 
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kruid.val == 0 || keuid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
 #ifdef CONFIG_LOD_SEC
 	if (current_is_LOD()) {
 		if (!uid_is_LOD(kruid.val))
@@ -650,13 +582,6 @@ SYSCALL_DEFINE1(setuid, uid_t, uid)
 	if (!uid_valid(kuid))
 		return -EINVAL;
 
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kuid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
 #ifdef CONFIG_LOD_SEC
 	if (current_is_LOD()) {
 		if (!uid_is_LOD(kuid.val))
@@ -732,13 +657,6 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 
 	if ((suid != (uid_t) -1) && !uid_valid(ksuid))
 		return -EINVAL;
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kruid.val == 0 || keuid.val == 0 || ksuid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 	new = prepare_creds();
 	if (!new)
@@ -824,13 +742,6 @@ SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
 		return -EINVAL;
 	if ((sgid != (gid_t) -1) && !gid_valid(ksgid))
 		return -EINVAL;
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (krgid.val == 0 || kegid.val == 0 || ksgid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 #ifdef CONFIG_LOD_SEC
 	if (current_is_LOD()) {
@@ -926,13 +837,6 @@ SYSCALL_DEFINE1(setfsuid, uid_t, uid)
 	}
 #endif
 
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kuid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
 #ifdef CONFIG_SECURITY_DEFEX
 	if (task_defex_enforce(current, NULL, -__NR_setfsuid))
 		return old_fsuid;
@@ -983,13 +887,6 @@ SYSCALL_DEFINE1(setfsgid, gid_t, gid)
 			return -EACCES;
 	}
 #endif
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kgid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 #ifdef CONFIG_SECURITY_DEFEX
 	if (task_defex_enforce(current, NULL, -__NR_setfsgid))
@@ -1340,18 +1237,19 @@ static int override_release(char __user *release, size_t len)
 
 SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 {
-	int errno = 0;
+	struct new_utsname tmp;
 
 	down_read(&uts_sem);
-	if (copy_to_user(name, utsname(), sizeof *name))
-		errno = -EFAULT;
+	memcpy(&tmp, utsname(), sizeof(tmp));
 	up_read(&uts_sem);
+	if (copy_to_user(name, &tmp, sizeof(tmp)))
+		return -EFAULT;
 
-	if (!errno && override_release(name->release, sizeof(name->release)))
-		errno = -EFAULT;
-	if (!errno && override_architecture(name))
-		errno = -EFAULT;
-	return errno;
+	if (override_release(name->release, sizeof(name->release)))
+		return -EFAULT;
+	if (override_architecture(name))
+		return -EFAULT;
+	return 0;
 }
 
 #ifdef __ARCH_WANT_SYS_OLD_UNAME
@@ -1360,55 +1258,46 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
  */
 SYSCALL_DEFINE1(uname, struct old_utsname __user *, name)
 {
-	int error = 0;
+	struct old_utsname tmp;
 
 	if (!name)
 		return -EFAULT;
 
 	down_read(&uts_sem);
-	if (copy_to_user(name, utsname(), sizeof(*name)))
-		error = -EFAULT;
+	memcpy(&tmp, utsname(), sizeof(tmp));
 	up_read(&uts_sem);
+	if (copy_to_user(name, &tmp, sizeof(tmp)))
+		return -EFAULT;
 
-	if (!error && override_release(name->release, sizeof(name->release)))
-		error = -EFAULT;
-	if (!error && override_architecture(name))
-		error = -EFAULT;
-	return error;
+	if (override_release(name->release, sizeof(name->release)))
+		return -EFAULT;
+	if (override_architecture(name))
+		return -EFAULT;
+	return 0;
 }
 
 SYSCALL_DEFINE1(olduname, struct oldold_utsname __user *, name)
 {
-	int error;
+	struct oldold_utsname tmp = {};
 
 	if (!name)
 		return -EFAULT;
-	if (!access_ok(VERIFY_WRITE, name, sizeof(struct oldold_utsname)))
-		return -EFAULT;
 
 	down_read(&uts_sem);
-	error = __copy_to_user(&name->sysname, &utsname()->sysname,
-			       __OLD_UTS_LEN);
-	error |= __put_user(0, name->sysname + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->nodename, &utsname()->nodename,
-				__OLD_UTS_LEN);
-	error |= __put_user(0, name->nodename + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->release, &utsname()->release,
-				__OLD_UTS_LEN);
-	error |= __put_user(0, name->release + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->version, &utsname()->version,
-				__OLD_UTS_LEN);
-	error |= __put_user(0, name->version + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->machine, &utsname()->machine,
-				__OLD_UTS_LEN);
-	error |= __put_user(0, name->machine + __OLD_UTS_LEN);
+	memcpy(&tmp.sysname, &utsname()->sysname, __OLD_UTS_LEN);
+	memcpy(&tmp.nodename, &utsname()->nodename, __OLD_UTS_LEN);
+	memcpy(&tmp.release, &utsname()->release, __OLD_UTS_LEN);
+	memcpy(&tmp.version, &utsname()->version, __OLD_UTS_LEN);
+	memcpy(&tmp.machine, &utsname()->machine, __OLD_UTS_LEN);
 	up_read(&uts_sem);
+	if (copy_to_user(name, &tmp, sizeof(tmp)))
+		return -EFAULT;
 
-	if (!error && override_architecture(name))
-		error = -EFAULT;
-	if (!error && override_release(name->release, sizeof(name->release)))
-		error = -EFAULT;
-	return error ? -EFAULT : 0;
+	if (override_architecture(name))
+		return -EFAULT;
+	if (override_release(name->release, sizeof(name->release)))
+		return -EFAULT;
+	return 0;
 }
 #endif
 
@@ -1422,17 +1311,18 @@ SYSCALL_DEFINE2(sethostname, char __user *, name, int, len)
 
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
-	down_write(&uts_sem);
 	errno = -EFAULT;
 	if (!copy_from_user(tmp, name, len)) {
-		struct new_utsname *u = utsname();
+		struct new_utsname *u;
 
+		down_write(&uts_sem);
+		u = utsname();
 		memcpy(u->nodename, tmp, len);
 		memset(u->nodename + len, 0, sizeof(u->nodename) - len);
 		errno = 0;
 		uts_proc_notify(UTS_PROC_HOSTNAME);
+		up_write(&uts_sem);
 	}
-	up_write(&uts_sem);
 	return errno;
 }
 
@@ -1440,8 +1330,9 @@ SYSCALL_DEFINE2(sethostname, char __user *, name, int, len)
 
 SYSCALL_DEFINE2(gethostname, char __user *, name, int, len)
 {
-	int i, errno;
+	int i;
 	struct new_utsname *u;
+	char tmp[__NEW_UTS_LEN + 1];
 
 	if (len < 0)
 		return -EINVAL;
@@ -1450,11 +1341,11 @@ SYSCALL_DEFINE2(gethostname, char __user *, name, int, len)
 	i = 1 + strlen(u->nodename);
 	if (i > len)
 		i = len;
-	errno = 0;
-	if (copy_to_user(name, u->nodename, i))
-		errno = -EFAULT;
+	memcpy(tmp, u->nodename, i);
 	up_read(&uts_sem);
-	return errno;
+	if (copy_to_user(name, tmp, i))
+		return -EFAULT;
+	return 0;
 }
 
 #endif
@@ -1473,17 +1364,18 @@ SYSCALL_DEFINE2(setdomainname, char __user *, name, int, len)
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
 
-	down_write(&uts_sem);
 	errno = -EFAULT;
 	if (!copy_from_user(tmp, name, len)) {
-		struct new_utsname *u = utsname();
+		struct new_utsname *u;
 
+		down_write(&uts_sem);
+		u = utsname();
 		memcpy(u->domainname, tmp, len);
 		memset(u->domainname + len, 0, sizeof(u->domainname) - len);
 		errno = 0;
 		uts_proc_notify(UTS_PROC_DOMAINNAME);
+		up_write(&uts_sem);
 	}
-	up_write(&uts_sem);
 	return errno;
 }
 
@@ -1965,7 +1857,7 @@ static int validate_prctl_map(struct prctl_mm_map *prctl_map)
 	((unsigned long)prctl_map->__m1 __op				\
 	 (unsigned long)prctl_map->__m2) ? 0 : -EINVAL
 	error  = __prctl_check_order(start_code, <, end_code);
-	error |= __prctl_check_order(start_data, <, end_data);
+	error |= __prctl_check_order(start_data,<=, end_data);
 	error |= __prctl_check_order(start_brk, <=, brk);
 	error |= __prctl_check_order(arg_start, <=, arg_end);
 	error |= __prctl_check_order(env_start, <=, env_end);

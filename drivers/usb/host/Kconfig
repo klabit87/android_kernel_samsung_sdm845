@@ -805,6 +805,12 @@ config USB_HCD_TEST_MODE
 	  their USB hardware designs.  It is not needed for normal use.  If
 	  unsure, say N.
 
+config USB_UPD720X
+	tristate "Support for Renesas UPD720X XHCI USB controller"
+	---help---
+	  Enables support for the USB Host controller present on the
+	  Renesas UPD720X chipsets.
+
 config USB_HOST_L1_SUPPORT
 	boolean "USB2.0 Host Driver support L1 mode"
 	depends on USB_XHCI_HCD && USB

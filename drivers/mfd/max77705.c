@@ -23,7 +23,15 @@
 #include <linux/muic/max77705-muic.h>
 #include <linux/ccic/max77705_usbc.h>
 #include <linux/ccic/max77705_pass2.h>
+#if defined(CONFIG_MACH_STARQLTE_DCM) || defined(CONFIG_MACH_STARQLTE_KDI) ||	\
+	defined(CONFIG_MACH_STAR2QLTE_DCM) || defined(CONFIG_MACH_STAR2QLTE_KDI) ||	\
+	defined(CONFIG_MACH_CROWNQLTE_DCM) || defined(CONFIG_MACH_CROWNQLTE_KDI)
+#include <linux/ccic/max77705_pass3_PID04.h>
+#elif defined(CONFIG_SEC_LYKANLTE_PROJECT)
+#include <linux/ccic/max77705_lykan_pass3.h>
+#else
 #include <linux/ccic/max77705_pass3.h>
+#endif
 #include <linux/usb_notify.h>
 #if defined(CONFIG_OF)
 #include <linux/of_device.h>

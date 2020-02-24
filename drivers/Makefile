@@ -10,6 +10,8 @@ obj-y				+= bus/
 
 obj-$(CONFIG_GENERIC_PHY)	+= phy/
 
+obj-$(CONFIG_VSERVICES_SUPPORT)	+= vservices/
+
 # GPIO must come after pinctrl as gpios may need to mux pins etc
 obj-$(CONFIG_PINCTRL)		+= pinctrl/
 obj-$(CONFIG_GPIOLIB)		+= gpio/
@@ -184,6 +186,7 @@ obj-$(CONFIG_SAMSUNG_NFC)		+= nfc/
 obj-$(CONFIG_SENSORS_SSC)		+= sensors/
 obj-$(CONFIG_SENSORS_HRMSENSOR)	+= optics/
 obj-$(CONFIG_SENSORS_MAX86915)	+= optics/
+obj-$(CONFIG_SENSORS_TCS3407)	+= optics/
 obj-$(CONFIG_TEE)		+= tee/
 obj-$(CONFIG_ADSP_FACTORY)      += adsp_factory/
 
@@ -213,6 +216,7 @@ obj-y				+= debug/
 
 # FIVE TEE driver
 obj-$(CONFIG_FIVE_TEE_DRIVER)	+= five/
+obj-$(CONFIG_ICD)		+= security/samsung/icdrv/
 
 # MPSD driver
 obj-$(CONFIG_MPSD)	+= mpsd/
@@ -222,7 +226,4 @@ ifeq ($(CONFIG_GATOR), y)
 	obj-$(CONFIG_GATOR)				+= gator/
 endif
 
-#$(info kpermon_CURDIR="$(shell pwd)")
-ifeq (exist, $(shell [ -e ../../../../../../../system/core/liblog/include/log/perflog.h ] && echo exist))
-	obj-y				+= kperfmon/
-endif
+obj-y				+= kperfmon/

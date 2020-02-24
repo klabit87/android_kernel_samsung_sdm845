@@ -978,6 +978,11 @@ static int rtc6213n_vidioc_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_AUDIO_VOLUME:
 		dev_info(&radio->videodev->dev, "V4L2_CID_AUDIO_VOLUME : MPXCFG=0x%4.4hx POWERCFG=0x%4.4hx\n",
 			radio->registers[MPXCFG], radio->registers[POWERCFG]);
+		if ((ctrl->value > 15) || (ctrl->value < 0)) {
+			dev_err(&radio->videodev->dev, "Invalid volume index\n");
+			retval = -EINVAL;
+			goto done;
+		}
 	#ifdef New_VolumeControl
 		/* Volume Setting No1 - 20160714 */
 		global_volume = ctrl->value;

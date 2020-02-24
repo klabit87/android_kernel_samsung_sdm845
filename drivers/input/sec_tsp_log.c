@@ -439,9 +439,6 @@ static int __init __init_sec_tsp_log(void)
 	sec_tsp_log_size = SEC_TSP_LOG_BUF_SIZE;
 	vaddr = kmalloc(sec_tsp_log_size, GFP_KERNEL);
 
-	pr_info("%s: vaddr=0x%lx size=0x%x\n", __func__,
-		(unsigned long)vaddr, sec_tsp_log_size);
-
 	if (!vaddr) {
 		pr_info("%s: ERROR! init failed!\n", __func__);
 		return -ENOMEM;
@@ -461,9 +458,6 @@ static int __init __init_sec_tsp_raw_data(void)
 
 	sec_tsp_raw_data_size = SEC_TSP_RAW_DATA_BUF_SIZE;
 	vaddr = kmalloc(sec_tsp_raw_data_size, GFP_KERNEL);
-
-	pr_info("%s: vaddr=0x%lx size=0x%x\n", __func__,
-		(unsigned long)vaddr, sec_tsp_raw_data_size);
 
 	if (!vaddr) {
 		pr_info("%s: ERROR! init failed!\n", __func__);

@@ -402,6 +402,10 @@ static void pet_watchdog(struct msm_watchdog_data *wdog_dd)
 	       __raw_readl(wdog_dd->base + WDT0_BARK_TIME),
 	       __raw_readl(wdog_dd->base + WDT0_BITE_TIME));
 	sec_debug_save_last_pet(time_ns);
+
+#ifdef CONFIG_SEC_DEBUG_PWDT
+	sec_debug_check_pwdt();
+#endif
 }
 
 static void keep_alive_response(void *info)
@@ -577,6 +581,15 @@ static irqreturn_t wdog_bark_handler(int irq, void *dev_id)
 			(unsigned long) wdog_dd->last_pet, nanosec_rem / 1000);
 	if (wdog_dd->do_ipi_ping)
 		dump_cpu_alive_mask(wdog_dd);
+	emerg_pet_watchdog();
+	/* to see wdog_dd->watchdog_task status */
+	sched_show_task(wdog_dd->watchdog_task);
+	/* send stop IPI to see what happens on other cores */
+	smp_send_stop();
+
+	dev_info(wdog_dd->dev, "Watchdog pet_timer expires = 0x%lx, jiffies = 0x%lx\n",
+			wdog_dd->pet_timer.expires, jiffies);
+
 	msm_trigger_wdog_bite();
 	panic("Failed to cause a watchdog bite! - Falling back to kernel panic!");
 	return IRQ_HANDLED;
@@ -979,7 +992,7 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 	md_entry.virt_addr = (uintptr_t)wdog_dd;
 	md_entry.phys_addr = virt_to_phys(wdog_dd);
 	md_entry.size = sizeof(*wdog_dd);
-	if (msm_minidump_add_region(&md_entry))
+	if (msm_minidump_add_region(&md_entry) < 0)
 		pr_info("Failed to add Watchdog data in Minidump\n");
 
 	return 0;

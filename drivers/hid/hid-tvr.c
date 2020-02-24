@@ -11,19 +11,53 @@
 
 #include <linux/cdev.h>
 #include <linux/poll.h>
-#include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/usb.h>
 #include <linux/hidraw.h>
-#include <linux/netdevice.h>
 #include <linux/interrupt.h>
 #include "hid-ids.h"
 
-#define TVR_INTERFACE_PROTOCOL	0
+#define TVR_PROTOCOL_SENSOR		0
+#define TVR_PROTOCOL_CONTROL	5
 
 /* number of reports to buffer */
 #define TVR_HIDRAW_BUFFER_SIZE 64
 #define TVR_HIDRAW_MAX_DEVICES 64
+
+#define TVR_CONNECTED		(1)
+#define TVR_DISCONNECTED	(0)
+static int isTvrConnected	= TVR_DISCONNECTED;
+
+#define SUPPORT_TVR_NONE				(0x0000)
+#define SUPPORT_TVR_KEY_DEVICE			(0x0001)
+#define SUPPORT_TVR_KEY_INJECTION		(0x0002)
+#define SUPPORT_TVR_GEARVR_DEVICE		(0x0010)
+#define SUPPORT_TVR_GEARVR_DATA_RELAY	(0x0020)
+#define SUPPORT_TVR_GEARVR_DATA_TVR		(0x0100)
+static int tvr_data_on 		= (SUPPORT_TVR_KEY_DEVICE |		\
+								SUPPORT_TVR_KEY_INJECTION |	\
+                                SUPPORT_TVR_GEARVR_DEVICE |	\
+								SUPPORT_TVR_GEARVR_DATA_RELAY);
+
+#define TVR_KEY_REPORTID	0x3d
+
+#define TVR_KEY_VOLUMEUP	0xe9
+#define TVR_KEY_VOLUMEDOWN	0xea
+#define TVR_KEY_MEDIA		0xeb
+#define TVR_KEY_MAX			3
+
+#define TVR_KEY_PRESSED		0x1
+#define TVR_KEY_RELEASED	0x0
+
+static int tvr_keys[TVR_KEY_MAX][3] = { 
+	{KEY_VOLUMEUP, TVR_KEY_RELEASED, TVR_KEY_VOLUMEUP}, 
+	{KEY_VOLUMEDOWN, TVR_KEY_RELEASED, TVR_KEY_VOLUMEDOWN}, 
+	{KEY_MEDIA, TVR_KEY_RELEASED, TVR_KEY_MEDIA}
+};
+
+static struct workqueue_struct *tvr_wq;
+static void tvr_input_work(struct work_struct *work);
+static DECLARE_DELAYED_WORK(tvr_work, tvr_input_work);
 
 static struct class *tvr_class;
 static struct hidraw *tvr_hidraw_table[TVR_HIDRAW_MAX_DEVICES];
@@ -32,13 +66,21 @@ static DEFINE_SPINLOCK(list_lock);
 
 static int tvr_major;
 static struct cdev tvr_cdev;
-static int tvr_data_on = 0;
 static struct kobject *virtual_dir = NULL;
 extern struct kobject *virtual_device_parent(struct device *dev);
 
+struct input_dev *tvr_input_dev = NULL;
 static int tvr_report_event(struct hid_device *hid, u8 *data, int len);
 static int tvr_connect(struct hid_device *hid);
 static void tvr_disconnect(struct hid_device *hid);
+
+struct hidraw *tvrraw = NULL;
+
+#ifdef CONFIG_HID_OVR
+extern int ovr_connect(struct hid_device *hid, int mode);
+extern void ovr_disconnect(struct hid_device *hid);
+extern int ovr_raw_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size);
+#endif
 
 static ssize_t tvr_hidraw_read(struct file *file, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -123,14 +165,14 @@ static ssize_t tvr_hidraw_send_report(struct file *file, const char __user *buff
 	}
 
 	if (count > HID_MAX_BUFFER_SIZE) {
-		hid_warn(dev, "tvr - pid %d passed too large report\n",
+		hid_warn(dev, "TVR: pid %d passed too large report\n",
 			 task_pid_nr(current));
 		ret = -EINVAL;
 		goto out;
 	}
 
 	if (count < 2) {
-		hid_warn(dev, "tvr - pid %d passed too short report\n",
+		hid_warn(dev, "TVR: pid %d passed too short report\n",
 			 task_pid_nr(current));
 		ret = -EINVAL;
 		goto out;
@@ -204,14 +246,14 @@ static ssize_t tvr_hidraw_get_report(struct file *file, char __user *buffer, siz
 	}
 
 	if (count > HID_MAX_BUFFER_SIZE) {
-		printk(KERN_WARNING "tvr - hidraw: pid %d passed too large report\n",
+		printk(KERN_WARNING "TVR: hidraw: pid %d passed too large report\n",
 				task_pid_nr(current));
 		ret = -EINVAL;
 		goto out;
 	}
 
 	if (count < 2) {
-		printk(KERN_WARNING "tvr - hidraw: pid %d passed too short report\n",
+		printk(KERN_WARNING "TVR: hidraw: pid %d passed too short report\n",
 				task_pid_nr(current));
 		ret = -EINVAL;
 		goto out;
@@ -361,12 +403,13 @@ unlock:
 
 static int tvr_report_event(struct hid_device *hid, u8 *data, int len)
 {
-	struct hidraw *dev;
+	struct hidraw *dev = hid->hidtvr;
 	struct hidraw_list *list;
 	int ret = 0;
 	unsigned long flags;
 
-	dev = tvr_hidraw_table[hid->minor];
+	if (!dev)
+		return -EPERM;
 
 	spin_lock_irqsave(&list_lock, flags);
 	list_for_each_entry(list, &dev->list, node) {
@@ -439,7 +482,6 @@ static int tvr_connect(struct hid_device *hid)
 
 	printk("TVR: connect <<<\n");
 
-	mutex_unlock(&minors_lock);
 	init_waitqueue_head(&dev->wait);
 	INIT_LIST_HEAD(&dev->list);
 
@@ -447,16 +489,17 @@ static int tvr_connect(struct hid_device *hid)
 	dev->minor = minor;
 
 	dev->exist = 1;
+	hid->hidtvr = dev;
+	tvrraw = dev;
 
+	mutex_unlock(&minors_lock);
 out:
 	return result;
 }
 
 static void tvr_disconnect(struct hid_device *hid)
 {
-	struct hidraw *hidraw;
-
-	hidraw = tvr_hidraw_table[hid->minor];
+	struct hidraw *hidraw = hid->hidtvr;
 
 	mutex_lock(&minors_lock);
 
@@ -539,6 +582,7 @@ static long tvr_hidraw_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		default:
 			{
 				struct hid_device *hid = dev->hid;
+
 				if (_IOC_TYPE(cmd) != 'H') {
 					ret = -EINVAL;
 					break;
@@ -594,6 +638,116 @@ out:
 	return ret;
 }
 
+static int gearvr_raw_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size) {
+	if (tvr_data_on&(SUPPORT_TVR_GEARVR_DEVICE|SUPPORT_TVR_GEARVR_DATA_RELAY)) {
+#ifdef CONFIG_HID_OVR
+		return ovr_raw_event(hdev, report, data, size);
+#endif		
+	}
+	return 0;
+}
+static int gearvr_connect(struct hid_device *hid, int mode) {
+	if (tvr_data_on&(SUPPORT_TVR_GEARVR_DEVICE)) {
+#ifdef CONFIG_HID_OVR
+		return ovr_connect(hid, mode);
+#endif
+	}
+	return 0;
+}
+
+static void gearvr_disconnect(struct hid_device *hid) {
+	if (tvr_data_on&(SUPPORT_TVR_GEARVR_DEVICE)) {
+#ifdef CONFIG_HID_OVR
+		ovr_disconnect(hid);
+#endif
+	}
+}
+
+static void tvr_input_work(struct work_struct *work)
+{
+	if (tvr_input_dev){
+		input_sync(tvr_input_dev);
+	}
+}
+
+static void check_input_event(u8 *data, int size)
+{
+	int i;
+
+	if (tvr_data_on&(SUPPORT_TVR_KEY_DEVICE|SUPPORT_TVR_KEY_INJECTION)) {
+		if (tvr_input_dev && size >= 3 && data[0] == TVR_KEY_REPORTID) {
+			for (i=0; i<TVR_KEY_MAX; i++) {
+				if (tvr_keys[i][2] == data[2]) {
+					tvr_keys[i][1] = data[1];
+					printk("TVR: keyevent %d(%s)", tvr_keys[i][0], tvr_keys[i][1]?"pressed":"released");
+					input_report_key(tvr_input_dev, tvr_keys[i][0], tvr_keys[i][1]);
+					if (tvr_wq) {
+						queue_delayed_work(tvr_wq, &tvr_work, 0);
+					}
+					break;
+				}
+			}
+		}
+	}
+}
+
+static int tvr_init_keys(struct hid_device *hdev)
+{
+	int error, i;
+
+	if (tvr_data_on&(SUPPORT_TVR_KEY_DEVICE)) {
+		tvr_input_dev = input_allocate_device();
+		if (tvr_input_dev == NULL) {
+			printk("TVR: failed to allocate input device\n");
+			return -ENOMEM;
+		}
+
+		tvr_input_dev->name = "TVR input device";
+		tvr_input_dev->evbit[0] = BIT(EV_KEY);
+
+		for (i=0; i<TVR_KEY_MAX; i++) {
+			input_set_capability(tvr_input_dev, EV_KEY, tvr_keys[i][0]);
+			tvr_keys[i][1] = TVR_KEY_RELEASED;
+		}
+
+		error = input_register_device(tvr_input_dev);
+		if (error) {
+			printk("TVR: error registering the input device\n");
+			input_free_device(tvr_input_dev);
+			return error;
+		}
+
+		tvr_wq = create_workqueue("tvr_work");
+	}
+
+	return 0;
+}
+
+static void tvr_exit_keys(void)
+{
+	int i;
+
+	if (tvr_input_dev) {
+
+		if (tvr_wq) {
+			flush_workqueue(tvr_wq);
+			destroy_workqueue(tvr_wq);
+			tvr_wq = NULL;
+		}
+
+		for (i=0; i<TVR_KEY_MAX; i++) {
+			if (tvr_keys[i][1] != TVR_KEY_RELEASED) {
+				input_report_key(tvr_input_dev, tvr_keys[i][0], TVR_KEY_RELEASED);
+				input_sync(tvr_input_dev);
+				tvr_keys[i][1] = TVR_KEY_RELEASED;
+			}
+		}
+
+		input_unregister_device(tvr_input_dev);
+		tvr_input_dev = NULL;
+	}
+}
+
 static const struct file_operations tvr_ops = {
 	.owner = THIS_MODULE,
 	.read = tvr_hidraw_read,
@@ -612,105 +766,142 @@ static const struct file_operations tvr_ops = {
 static int tvr_probe(struct hid_device *hdev, const struct hid_device_id *id)
 {
 	int retval;
+	u8 ifproto;
 
 	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
+	ifproto = intf->cur_altsetting->desc.bInterfaceProtocol;
+	printk("TVR: probe ifproto %d\n", ifproto);
+	if (ifproto == TVR_PROTOCOL_SENSOR) {
+
+		retval = tvr_connect(hdev);
+		if (retval) {
+			hid_err(hdev, "TVR: Couldn't connect\n");
+			return -EFAULT;
+		}
+
+		retval = gearvr_connect(hdev, 1);
+		if (retval) {
+			hid_err(hdev, "TVR: Couldn't connect Gearvr\n");
+			tvr_disconnect(hdev);
+			return -EFAULT;
+		}
+
+		retval = tvr_init_keys(hdev);
+		if (retval) {
+			hid_err(hdev, "TVR: Couldn't register keys\n");
+			gearvr_disconnect(hdev);
+			tvr_disconnect(hdev);
+			return -EFAULT;
+		}
+
+		isTvrConnected = TVR_CONNECTED;
+	} else if (ifproto == TVR_PROTOCOL_CONTROL) {
+		hdev->hidtvr = tvrraw;
+	}
 
 	retval = hid_parse(hdev);
 	if (retval) {
-		hid_err(hdev, "tvr - parse failed\n");
+		hid_err(hdev, "TVR: parse failed\n");
 		goto exit;
 	}
 
 	retval = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
 	if (retval) {
-		hid_err(hdev, "tvr - hw start failed\n");
+		hid_err(hdev, "TVR: hw start failed\n");
 		goto exit;
-	}
-
-	if (!intf || intf->cur_altsetting->desc.bInterfaceProtocol
-			!= TVR_INTERFACE_PROTOCOL) {
-		return 0;
-	}
-	retval = tvr_connect(hdev);
-
-	if (retval) {
-		hid_err(hdev, "tvr - Couldn't connect\n");
-		goto exit_stop;
 	}
 
 	retval = hid_hw_power(hdev, PM_HINT_FULLON);
 	if (retval < 0) {
-		hid_err(hdev, "tvr - Couldn't feed power\n");
-		tvr_disconnect(hdev);
-		goto exit_stop;
+		hid_err(hdev, "TVR: Couldn't feed power\n");
+		hid_hw_stop(hdev);
+		goto exit;
 	}
 
 	retval = hid_hw_open(hdev);
 	if (retval < 0) {
-		hid_err(hdev, "tvr - Couldn't open hid\n");
+		hid_err(hdev, "TVR: Couldn't open hid\n");
 		hid_hw_power(hdev, PM_HINT_NORMAL);
-		tvr_disconnect(hdev);
-		goto exit_stop;
+		hid_hw_stop(hdev);
+		goto exit;
 	}
 
 	return 0;
 
-exit_stop:
-	hid_hw_stop(hdev);
 exit:
+    if (ifproto == TVR_PROTOCOL_SENSOR) {
+		isTvrConnected = TVR_DISCONNECTED;
+        tvr_exit_keys();
+        gearvr_disconnect(hdev);
+        tvr_disconnect(hdev);
+    }
+
 	return retval;
 }
 
 static void tvr_remove(struct hid_device *hdev)
 {
+    u8 ifproto;
 	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
-	if (intf->cur_altsetting->desc.bInterfaceProtocol
-			!= TVR_INTERFACE_PROTOCOL) {
-		hid_hw_stop(hdev);
-		return;
+	ifproto = intf->cur_altsetting->desc.bInterfaceProtocol;
+	printk("TVR: remove %d\n", ifproto);	
+	if (ifproto == TVR_PROTOCOL_SENSOR) {
+		isTvrConnected = TVR_DISCONNECTED;
+		tvr_exit_keys();
+		gearvr_disconnect(hdev);
+		tvr_disconnect(hdev);
 	}
 
 	hid_hw_close(hdev);
-
 	hid_hw_power(hdev, PM_HINT_NORMAL);
-
-	tvr_disconnect(hdev);
-
 	hid_hw_stop(hdev);
 }
 
 static int tvr_raw_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size)
 {
-	int retval = 0;
-
+	u8 ifproto = 0;
 	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
-	if (intf->cur_altsetting->desc.bInterfaceProtocol
-			!= TVR_INTERFACE_PROTOCOL) {
+
+	if (size <= 0) {
 		return 0;
 	}
 
-	if (!tvr_data_on) {
-		if (size >= 1 && data[0] == 1)
-			return 0;
+	ifproto = intf->cur_altsetting->desc.bInterfaceProtocol;
+	if (ifproto == TVR_PROTOCOL_SENSOR) {
+		gearvr_raw_event(hdev, report, data, size);
+		if (tvr_data_on&(SUPPORT_TVR_GEARVR_DATA_TVR)) {
+			tvr_report_event(hdev, data, size);
+		}
+	} else if (ifproto == TVR_PROTOCOL_CONTROL) {
+		check_input_event(data, size);
+		tvr_report_event(hdev, data, size);
 	}
 
-	retval = tvr_report_event(hdev, data, size);
-	if (retval < 0)
-		printk("TVR: raw event err %d\n", retval);
-
-	return retval;
+	return 0;
 }
 
 static ssize_t data_on_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d\n", tvr_data_on);
 }
+
 static ssize_t data_on_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	unsigned long val;
 
 	if (kstrtoul(buf, 0, &val))
 		return -EINVAL;
+
+	if (isTvrConnected) {
+		if (val&(SUPPORT_TVR_KEY_DEVICE) && !(tvr_data_on&(SUPPORT_TVR_KEY_DEVICE))) {
+			printk("TVR: error - can't enable key device while TVR is running\n");
+			return -EINVAL;
+		}
+		if (val&(SUPPORT_TVR_GEARVR_DEVICE) && !(tvr_data_on&(SUPPORT_TVR_GEARVR_DEVICE))) {
+			printk("TVR: error - can't enable GearVR device while TVR is running\n");
+			return -EINVAL;
+		}
+	}
 
 	tvr_data_on = val;
 
@@ -723,9 +914,9 @@ static struct device_attribute *tvr_attrs[] = {
 	NULL,
 };
 
-
 static const struct hid_device_id tvr_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_SAMSUNG_ELECTRONICS, USB_DEVICE_ID_SAMSUNG_TVR_1) },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_SAMSUNG_ELECTRONICS, USB_DEVICE_ID_SAMSUNG_TVR_2) },
 	{ }
 };
 
@@ -751,14 +942,14 @@ static int __init tvr_init(void)
 
 	retval = hid_register_driver(&tvr_driver);
 	if (retval < 0) {
-		pr_warn("tvr_init - Can't register drive.\n");
+		pr_warn("TVR: Can't register drive.\n");
 		goto out_class;
 	}
 
 	retval = alloc_chrdev_region(&dev_id, 0,
 			TVR_HIDRAW_MAX_DEVICES, "tvr");
 	if (retval < 0) {
-		pr_warn("tvr_init - Can't allocate chrdev region.\n");
+		pr_warn("TVR: Can't allocate chrdev region.\n");
 		goto out_register;
 	}
 
@@ -768,14 +959,15 @@ static int __init tvr_init(void)
 
 	virtual_dir = virtual_device_parent(NULL);
 	if (virtual_dir) {
-    	retval = sysfs_create_file(virtual_dir, &tvr_attrs[0]->attr);
-    	if (retval) {
-    		pr_warn("tvr_init - failed sysfs_create_file\n");
-    		kobject_put(virtual_dir);
-    		virtual_dir = NULL;
-    	}
-	} else {
-		pr_warn("tvr_init - failed virtual_device_parent\n");
+		retval = sysfs_create_file(virtual_dir, &tvr_attrs[0]->attr);
+		if (retval) {
+			pr_warn("TVR: failed sysfs_create_file\n");
+			kobject_put(virtual_dir);
+			virtual_dir = NULL;
+		}
+	} 
+	else {
+		pr_warn("TVR: failed virtual_device_parent\n");
 	}
 
 	return 0;

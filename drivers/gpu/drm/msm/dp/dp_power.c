@@ -708,6 +708,23 @@ enum plug_orientation secdp_get_plug_orientation(void)
 	/*cannot be here*/
 	return ORIENTATION_NONE;
 }
+
+bool secdp_get_clk_status(enum dp_pm_type type)
+{
+	struct dp_power_private *power = g_secdp_power;
+	bool ret = false;
+
+	switch (type) {
+	case DP_CORE_PM:
+		ret = power->core_clks_on;
+		break;
+	default:
+		pr_err("invalid type:%d\n", type);
+		break;
+	}
+
+	return ret;
+}
 #endif
 
 static int dp_power_config_gpios(struct dp_power_private *power, bool flip,

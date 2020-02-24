@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -534,6 +534,7 @@ struct msm_pcie_dev_t {
 	struct platform_device	 *pdev;
 	struct pci_dev *dev;
 	struct regulator *gdsc;
+	struct regulator *vreg_pcie;
 	struct regulator *gdsc_smmu;
 	struct msm_pcie_vreg_info_t  vreg[MSM_PCIE_MAX_VREG];
 	struct msm_pcie_gpio_info_t  gpio[MSM_PCIE_MAX_GPIO];
@@ -3753,6 +3754,18 @@ static int msm_pcie_get_resources(struct msm_pcie_dev_t *dev,
 		}
 	}
 
+	dev->vreg_pcie = devm_regulator_get(&pdev->dev, "vreg-pcie");
+
+	if (IS_ERR(dev->vreg_pcie)) {
+		PCIE_ERR(dev, "PCIe: RC%d Failed to get %s VREG_PCIE:%ld\n",
+			dev->rc_idx, dev->pdev->name, PTR_ERR(dev->gdsc));
+		if (PTR_ERR(dev->vreg_pcie) == -EPROBE_DEFER)
+			PCIE_DBG(dev, "PCIe: EPROBE_DEFER for %s VREG_PCIE\n",
+					dev->pdev->name);
+		ret = PTR_ERR(dev->vreg_pcie);
+		goto out;
+	}
+
 	dev->gdsc = devm_regulator_get(&pdev->dev, "gdsc-vdd");
 
 	if (IS_ERR(dev->gdsc)) {
@@ -4643,6 +4656,19 @@ int msm_pcie_enumerate(u32 rc_idx)
 	}
 
 	if (!dev->enumerated) {
+
+		/*Open the PCIE VCC before enable the pcie */
+		if (dev->vreg_pcie) {
+			ret = regulator_enable(dev->vreg_pcie);
+
+			if (ret) {
+				PCIE_ERR(dev,
+					"PCIe: fail to open vcc for RC%d (%s)\n",
+				dev->rc_idx, dev->pdev->name);
+				return ret;
+			}
+		}
+
 		ret = msm_pcie_enable(dev, PM_ALL);
 
 		/* kick start ARM PCI configuration framework */
@@ -6860,6 +6886,15 @@ static int msm_pcie_remove(struct platform_device *pdev)
 	msm_pcie_clk_deinit(&msm_pcie_dev[rc_idx]);
 	msm_pcie_gpio_deinit(&msm_pcie_dev[rc_idx]);
 	msm_pcie_release_resources(&msm_pcie_dev[rc_idx]);
+
+	/*Close the PCIE VCC  when remove the pcie*/
+	if (msm_pcie_dev[rc_idx].vreg_pcie) {
+		ret = regulator_disable(msm_pcie_dev[rc_idx].vreg_pcie);
+
+		if (ret)
+			pr_err("%s: PCIe: fail to close VCC.\n", __func__);
+
+	}
 
 out:
 	mutex_unlock(&pcie_drv.drv_lock);

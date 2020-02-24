@@ -190,7 +190,7 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 		*dst_cpu_addr = temp;
 
 		CAM_DBG(CAM_UTIL,
-			"patch is done for dst %p with src %p value %llx length = %x end_addr = %x",
+			"patch is done for dst %pK with src %pK value %llx length = %x end_addr = %x",
 			dst_cpu_addr, src_buf_iova_addr,
 			*((uint64_t *)dst_cpu_addr), (int)src_buf_size, (int)(temp + src_buf_size));
 

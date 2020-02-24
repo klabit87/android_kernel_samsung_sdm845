@@ -1038,8 +1038,10 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 	return rc;
 free_power_down_settings:
 	kfree(power_info->power_down_setting);
+	power_info->power_down_setting = NULL;
 free_power_settings:
 	kfree(power_info->power_setting);
+	power_info->power_setting = NULL;
 	return rc;
 }
 
@@ -1481,6 +1483,13 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 	for (index = 0; index < ctrl->power_setting_size; index++) {
 		CAM_DBG(CAM_SENSOR, "index: %d", index);
 		power_setting = &ctrl->power_setting[index];
+		if (!power_setting) {
+			CAM_ERR(CAM_SENSOR,
+				"Invalid power up settings for index %d",
+				index);
+ 			return -EINVAL;
+ 		}
+		
 		CAM_DBG(CAM_SENSOR, "seq_type %d", power_setting->seq_type);
 
 		switch (power_setting->seq_type) {
@@ -1558,10 +1567,17 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 			CAM_INFO(CAM_SENSOR, "gpio set val %d",
 				gpio_num_info->gpio_num
 				[power_setting->seq_type]);
-
+			
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+			rc = msm_cam_sensor_handle_reg_gpio(
+				power_setting->seq_type,
+				gpio_num_info, power_setting->config_val);
+#else
 			rc = msm_cam_sensor_handle_reg_gpio(
 				power_setting->seq_type,
 				gpio_num_info, 1);
+#endif
+			
 			if (rc < 0) {
 				CAM_ERR(CAM_SENSOR,
 					"Error in handling VREG GPIO");
@@ -1625,10 +1641,15 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 			else
 				CAM_ERR(CAM_SENSOR, "usr_idx:%d dts_idx:%d",
 					power_setting->seq_val, num_vreg);
-
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+			rc = msm_cam_sensor_handle_reg_gpio(
+				power_setting->seq_type,
+				gpio_num_info, power_setting->config_val);
+#else
 			rc = msm_cam_sensor_handle_reg_gpio(
 				power_setting->seq_type,
 				gpio_num_info, 1);
+#endif
 			if (rc < 0) {
 				CAM_ERR(CAM_SENSOR,
 					"Error in handling VREG GPIO");
@@ -1818,7 +1839,7 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 {
 	int index = 0, ret = 0, num_vreg = 0, i;
 	struct cam_sensor_power_setting *pd = NULL;
-	struct cam_sensor_power_setting *ps;
+	struct cam_sensor_power_setting *ps = NULL;
 	struct msm_camera_gpio_num_info *gpio_num_info = NULL;
 
 	CAM_DBG(CAM_SENSOR, "Enter");
@@ -1838,6 +1859,12 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 	for (index = 0; index < ctrl->power_down_setting_size; index++) {
 		CAM_DBG(CAM_SENSOR, "index %d",  index);
 		pd = &ctrl->power_down_setting[index];
+		if (!pd) {
+			CAM_ERR(CAM_SENSOR,
+				"Invalid power down settings for index %d",
+				index);
+			return -EINVAL;
+		}
 		ps = NULL;
 		CAM_DBG(CAM_SENSOR, "type %d",  pd->seq_type);
 		switch (pd->seq_type) {

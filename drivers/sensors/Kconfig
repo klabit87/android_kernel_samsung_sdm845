@@ -26,6 +26,13 @@ config SENSORS_SYSFS
 	  To compile this driver as a module, choose M here: the
 	  module will be called sensors_core.
 
+config SENSORS_CM36672P_IRIS
+	depends on I2C
+	tristate "CM36672P IRIS driver"
+	default n
+	help
+	  This option enables proximity sensor for iris using CM36672P driver.
+
 config SENSORS_SX9320
 	depends on I2C
 	tristate "SX9320 driver"

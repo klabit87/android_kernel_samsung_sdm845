@@ -333,7 +333,7 @@ static int _disp_tz_general_stats(void)
 {
 	int len = 0;
 
-	len += snprintf(tzdbg.disp_buf + len, debug_rw_buf_size - 1,
+	len += scnprintf(tzdbg.disp_buf + len, debug_rw_buf_size - 1,
 			"   Version        : 0x%x\n"
 			"   Magic Number   : 0x%x\n"
 			"   Number of CPU  : %d\n",
@@ -358,7 +358,7 @@ static int _disp_tz_vmid_stats(void)
 
 	for (i = 0; i < num_vmid; i++) {
 		if (ptr->vmid < 0xFF) {
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"   0x%x        %s\n",
 				(uint32_t)ptr->vmid, (uint8_t *)ptr->desc);
@@ -393,7 +393,7 @@ static int _disp_tz_boot_stats(void)
 
 	for (i = 0; i < tzdbg.diag_buf->cpu_count; i++) {
 		if (tzdbg.tz_version >= QSEE_VERSION_TZ_3_X) {
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 					(debug_rw_buf_size - 1) - len,
 					"  CPU #: %d\n"
 					"     Warmboot jump address : 0x%llx\n"
@@ -420,7 +420,7 @@ static int _disp_tz_boot_stats(void)
 			}
 			ptr_64++;
 		} else {
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 					(debug_rw_buf_size - 1) - len,
 					"  CPU #: %d\n"
 					"     Warmboot jump address     : 0x%x\n"
@@ -456,7 +456,7 @@ static int _disp_tz_reset_stats(void)
 					tzdbg.diag_buf->reset_info_off);
 
 	for (i = 0; i < tzdbg.diag_buf->cpu_count; i++) {
-		len += snprintf(tzdbg.disp_buf + len,
+		len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"  CPU #: %d\n"
 				"     Reset Type (reason)       : 0x%x\n"
@@ -494,7 +494,7 @@ static int _disp_tz_interrupt_stats(void)
 	if (tzdbg.tz_version < QSEE_VERSION_TZ_4_X) {
 		tzdbg_ptr = ptr;
 		for (i = 0; i < (*num_int); i++) {
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"     Interrupt Number          : 0x%x\n"
 				"     Type of Interrupt         : 0x%x\n"
@@ -503,13 +503,13 @@ static int _disp_tz_interrupt_stats(void)
 				(uint32_t)tzdbg_ptr->int_info,
 				(uint8_t *)tzdbg_ptr->int_desc);
 			for (j = 0; j < tzdbg.diag_buf->cpu_count; j++) {
-				len += snprintf(tzdbg.disp_buf + len,
+				len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"     int_count on CPU # %d      : %u\n",
 				(uint32_t)j,
 				(uint32_t)tzdbg_ptr->int_count[j]);
 			}
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 					debug_rw_buf_size - 1, "\n");
 
 			if (len > (debug_rw_buf_size - 1)) {
@@ -522,7 +522,7 @@ static int _disp_tz_interrupt_stats(void)
 	} else {
 		tzdbg_ptr_tz40 = ptr;
 		for (i = 0; i < (*num_int); i++) {
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"     Interrupt Number          : 0x%x\n"
 				"     Type of Interrupt         : 0x%x\n"
@@ -531,13 +531,13 @@ static int _disp_tz_interrupt_stats(void)
 				(uint32_t)tzdbg_ptr_tz40->int_info,
 				(uint8_t *)tzdbg_ptr_tz40->int_desc);
 			for (j = 0; j < tzdbg.diag_buf->cpu_count; j++) {
-				len += snprintf(tzdbg.disp_buf + len,
+				len += scnprintf(tzdbg.disp_buf + len,
 				(debug_rw_buf_size - 1) - len,
 				"     int_count on CPU # %d      : %u\n",
 				(uint32_t)j,
 				(uint32_t)tzdbg_ptr_tz40->int_count[j]);
 			}
-			len += snprintf(tzdbg.disp_buf + len,
+			len += scnprintf(tzdbg.disp_buf + len,
 					debug_rw_buf_size - 1, "\n");
 
 			if (len > (debug_rw_buf_size - 1)) {
@@ -560,7 +560,7 @@ static int _disp_tz_log_stats_legacy(void)
 
 	ptr = (unsigned char *)tzdbg.diag_buf +
 					tzdbg.diag_buf->ring_off;
-	len += snprintf(tzdbg.disp_buf, (debug_rw_buf_size - 1) - len,
+	len += scnprintf(tzdbg.disp_buf, (debug_rw_buf_size - 1) - len,
 							"%s\n", ptr);
 
 	tzdbg.stat[TZDBG_LOG].data = tzdbg.disp_buf;
@@ -750,7 +750,7 @@ static int _disp_hyp_general_stats(size_t count)
 	int i;
 	struct hypdbg_boot_info_t *ptr = NULL;
 
-	len += snprintf((unsigned char *)tzdbg.disp_buf + len,
+	len += scnprintf((unsigned char *)tzdbg.disp_buf + len,
 			tzdbg.hyp_debug_rw_buf_size - 1,
 			"   Magic Number    : 0x%x\n"
 			"   CPU Count       : 0x%x\n"
@@ -761,7 +761,7 @@ static int _disp_hyp_general_stats(size_t count)
 
 	ptr = tzdbg.hyp_diag_buf->boot_info;
 	for (i = 0; i < tzdbg.hyp_diag_buf->cpu_count; i++) {
-		len += snprintf((unsigned char *)tzdbg.disp_buf + len,
+		len += scnprintf((unsigned char *)tzdbg.disp_buf + len,
 				(tzdbg.hyp_debug_rw_buf_size - 1) - len,
 				"  CPU #: %d\n"
 				"     Warmboot entry CPU counter: 0x%x\n"

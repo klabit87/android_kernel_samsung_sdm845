@@ -164,7 +164,8 @@ static int print_mem_entry(void *data, void *ptr)
 						&egl_image_count);
 
 #if defined(CONFIG_DISPLAY_SAMSUNG) && !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
-	seq_printf(s, "%p %p %16llu %5d %9s %10s %16s %5d %16llu %6d %6d",
+	seq_printf(s, m->useraddr ? "%p %p %16llu %5d %9s %10s %16s %5d %16llu %6d %6d" :
+			"%p %pK %16llu %5d %9s %10s %16s %5d %16llu %6d %6d",
 			(uint64_t *)(uintptr_t) m->gpuaddr,
 			(unsigned long *) m->useraddr,
 			m->size, entry->id, flags,

@@ -21,7 +21,10 @@
 #include <linux/mutex.h>
 
 #define POC_IMG_ADDR	(0x000000)
-#define POC_PAGE		(4096)
+#define POC_ERASE_SECTOR	(4096)
+#define POC_ERASE_32KB		(32768)
+#define POC_ERASE_64KB		(65536)
+
 
 /* Register to cnotrol POC */
 #define POC_CTRL_REG	0xEB

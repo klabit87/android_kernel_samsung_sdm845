@@ -259,7 +259,7 @@ int cam_vfe_init_hw(void *hw_priv, void *init_hw_args, uint32_t arg_size)
 
 	mutex_lock(&vfe_hw->hw_mutex);
 	vfe_hw->open_count++;
-	CAM_INFO(CAM_ISP, "%s:Enter RefCnt: %d, vfe_hw: 0x%p\n", __func__, vfe_hw->open_count, vfe_hw);
+	CAM_INFO(CAM_ISP, "%s:Enter RefCnt: %d, vfe_hw: 0x%pK\n", __func__, vfe_hw->open_count, vfe_hw);
 	if (vfe_hw->open_count > 1) {
 		mutex_unlock(&vfe_hw->hw_mutex);
 		CAM_DBG(CAM_ISP, "VFE has already been initialized cnt %d",

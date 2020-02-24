@@ -105,7 +105,7 @@ config ARCH_MSM8909
 	select CPU_FREQ_MSM
 	select PM_DEVFREQ
 	select PM_OPP
-	select MSM_DEVFREQ_DEVBW
+	select QCOM_DEVFREQ_DEVBW
 	select DEVFREQ_SIMPLE_DEV
 	select DEVFREQ_GOV_QCOM_BW_HWMON
 	select QCOM_BIMC_BWMON
@@ -116,6 +116,30 @@ config ARCH_MSM8909
 
 config ARCH_MSM8917
 	bool "Enable support for MSM8917"
+	select CPU_V7
+	select HAVE_ARM_ARCH_TIMER
+	select PINCTRL
+	select QCOM_SCM if SMP
+	select PM_DEVFREQ
+	select CLKDEV_LOOKUP
+	select HAVE_CLK
+	select HAVE_CLK_PREPARE
+	select COMMON_CLK_MSM
+
+config ARCH_QM215
+	bool "Enable support for QM215"
+	select CPU_V7
+	select HAVE_ARM_ARCH_TIMER
+	select PINCTRL
+	select QCOM_SCM if SMP
+	select PM_DEVFREQ
+	select CLKDEV_LOOKUP
+	select HAVE_CLK
+	select HAVE_CLK_PREPARE
+	select COMMON_CLK_MSM
+
+config ARCH_MSM8940
+	bool "Enable support for MSM8940"
 	select CPU_V7
 	select HAVE_ARM_ARCH_TIMER
 	select PINCTRL

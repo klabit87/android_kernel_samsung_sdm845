@@ -1957,7 +1957,7 @@ static void poc_comp(struct samsung_display_driver_data *vdd)
 	return;
 }
 
-static int poc_erase(struct samsung_display_driver_data *vdd, u32 erase_pos, u32 erase_size)
+static int poc_erase(struct samsung_display_driver_data *vdd, u32 erase_pos, u32 erase_size, u32 target_pos)
 {
 	struct dsi_display *display = NULL;
 	struct dsi_panel_cmd_set *poc_erase_sector_tx_cmds = NULL;
@@ -1996,8 +1996,19 @@ static int poc_erase(struct samsung_display_driver_data *vdd, u32 erase_pos, u32
 	image_size = vdd->poc_driver.image_size;
 	delay_us = vdd->poc_driver.erase_delay_us;
 
-	LCD_INFO("[ERASE] erase_pos (%6d / %6d), delay %dus\n",
-		erase_pos, image_size, delay_us);
+	if (erase_size == POC_ERASE_64KB) {
+		delay_us = 1000000; /* 1000ms */
+		poc_erase_sector_tx_cmds->cmds[2].msg.tx_buf[2] = 0xD8;
+	} else if (erase_size == POC_ERASE_32KB) {
+		delay_us = 800000; /* 800ms */
+		poc_erase_sector_tx_cmds->cmds[2].msg.tx_buf[2] = 0x52;
+	} else {
+		delay_us = 400000; /* 400ms */
+		poc_erase_sector_tx_cmds->cmds[2].msg.tx_buf[2] = 0x20;
+	}
+
+	LCD_INFO("[ERASE] (%6d / %6d), erase_size (%d), delay %dus\n",
+			erase_pos, target_pos, erase_size, delay_us);
 
 	/* MAX CPU ON */
 	priv = display->drm_dev->dev_private;
@@ -2038,7 +2049,7 @@ static int poc_erase(struct samsung_display_driver_data *vdd, u32 erase_pos, u32
 
 	usleep_range(delay_us, delay_us);
 
-	if ((erase_pos > image_size - POC_PAGE ) || ret == -EIO) {
+	if ((erase_pos + erase_size >= target_pos) || ret == -EIO) {
 		LCD_INFO("WRITE [TX_POC_POST_ERASE_SECTOR] - cur_erase_pos(%d) image_size(%d) ret(%d)\n",
 			erase_pos, image_size, ret);
 		ss_send_cmd(vdd, TX_POC_POST_ERASE_SECTOR);
@@ -2164,6 +2175,8 @@ static int poc_write(struct samsung_display_driver_data *vdd, u8 *data, u32 writ
 
 		if (pos % loop_cnt == 0) {
 			if (pos > 0) {
+				usleep_range(20, 20);
+
 				LCD_DEBUG("WRITE_LOOP_END pos : %d \n", pos);
 				ss_send_cmd(vdd, TX_POC_WRITE_LOOP_END);
 			}
@@ -2191,7 +2204,11 @@ static int poc_write(struct samsung_display_driver_data *vdd, u8 *data, u32 writ
 
 		ss_send_cmd(vdd, TX_POC_WRITE_LOOP_DATA);
 
-		usleep_range(delay_us, delay_us);
+		/* need 20us delay for 1st and last TX every 256 bytes */
+		if (pos % loop_cnt == 0)
+			usleep_range(20, 20);
+		else
+			usleep_range(delay_us, delay_us);
 
 		pos += tx_size;
 	}
@@ -2204,6 +2221,8 @@ cancel_poc:
 	}
 
 	if (pos == image_size || ret == -EIO) {
+		usleep_range(20, 20);
+
 		LCD_DEBUG("WRITE_LOOP_END pos : %d \n", pos);
 		ss_send_cmd(vdd, TX_POC_WRITE_LOOP_END);
 

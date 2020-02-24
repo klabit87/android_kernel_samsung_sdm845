@@ -91,6 +91,7 @@ static void __simulate_secure_wdog_bite(void)
 				SCM_SVC_SEC_WDOG_TRIG), &desc);
 	/* if we hit, scm_call has failed */
 	pr_emerg("simulation of secure watch dog bite failed\n");
+	__simulate_apps_wdog_bite();
 }
 
 extern void qpnp_pon_pmic_wd_trigger(void);

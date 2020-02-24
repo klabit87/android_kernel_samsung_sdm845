@@ -3021,9 +3021,9 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 		}
 	}
 #undef SKIP_INVALID_PKT
- 
- 	if (local_packet)
- 		kfree(packet);
+
+	if (local_packet)
+		kfree(packet);
 }
 
 static bool __is_session_valid(struct venus_hfi_device *device,
@@ -3281,12 +3281,10 @@ err_no_work:
 
 		if (!__core_in_valid_state(device)) {
 			dprintk(VIDC_ERR,
-				"Ignore responses from %d to %d as device is in invalid state",
+				"Ignore responses from %d to %d as device is in invalid state\n",
 				(i + 1), num_responses);
 			break;
 		}
-		dprintk(VIDC_DBG, "Processing response %d of %d, type %d\n",
-			(i + 1), num_responses, r->response_type);
 		device->callback(r->response_type, &r->response);
 	}
 

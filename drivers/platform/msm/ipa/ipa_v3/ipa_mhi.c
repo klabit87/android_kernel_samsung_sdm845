@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -61,7 +61,7 @@
 	IPA_MHI_DBG("EXIT\n")
 
 #define IPA_MHI_MAX_UL_CHANNELS 1
-#define IPA_MHI_MAX_DL_CHANNELS 1
+#define IPA_MHI_MAX_DL_CHANNELS 2
 
 /* bit #40 in address should be asserted for MHI transfers over pcie */
 #define IPA_MHI_HOST_ADDR_COND(addr) \
@@ -283,8 +283,10 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 	ch_props.ring_base_addr = IPA_MHI_HOST_ADDR_COND(
 			params->ch_ctx_host->rbase);
 
-	if (params->ch_ctx_host->brstmode == IPA_MHI_BURST_MODE_DEFAULT ||
-		params->ch_ctx_host->brstmode == IPA_MHI_BURST_MODE_ENABLE) {
+	/* Burst mode is not supported on DPL pipes */
+	if ((client != IPA_CLIENT_MHI_DPL_CONS) &&
+		(params->ch_ctx_host->brstmode == IPA_MHI_BURST_MODE_DEFAULT ||
+		params->ch_ctx_host->brstmode == IPA_MHI_BURST_MODE_ENABLE)) {
 		burst_mode_enabled = true;
 	}
 
@@ -381,6 +383,7 @@ int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params)
 	int res;
 	struct gsi_device_scratch gsi_scratch;
 	const struct ipa_gsi_ep_config *gsi_ep_info;
+	u32 ipa_mhi_max_ul_channels, ipa_mhi_max_dl_channels;
 
 	IPA_MHI_FUNC_ENTRY();
 
@@ -389,7 +392,16 @@ int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params)
 		return -EINVAL;
 	}
 
-	if ((IPA_MHI_MAX_UL_CHANNELS + IPA_MHI_MAX_DL_CHANNELS) >
+	ipa_mhi_max_ul_channels = IPA_MHI_MAX_UL_CHANNELS;
+	ipa_mhi_max_dl_channels = IPA_MHI_MAX_DL_CHANNELS;
+
+	/* In case of Auto-pcie config, MHI2_PROD and MHI2_CONS is used */
+	if (ipa3_ctx->ipa_config_is_auto == true) {
+		ipa_mhi_max_ul_channels++;
+		ipa_mhi_max_dl_channels++;
+	}
+
+	if ((ipa_mhi_max_ul_channels + ipa_mhi_max_dl_channels) >
 		((ipa3_ctx->mhi_evid_limits[1] -
 		ipa3_ctx->mhi_evid_limits[0]) + 1)) {
 		IPAERR("Not enough event rings for MHI\n");

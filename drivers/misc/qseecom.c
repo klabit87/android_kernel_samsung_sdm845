@@ -56,9 +56,6 @@
 #include <linux/sched_clock.h>
 #endif
 
-#include <linux/sec_debug.h>
-#include <linux/sec_debug_summary.h>
-
 #define QSEECOM_DEV			"qseecom"
 #define QSEOS_VERSION_14		0x14
 #define QSEEE_VERSION_00		0x400000
@@ -117,6 +114,9 @@
 #define DEFAULT_CE_INFO_UNIT 0
 #define DEFAULT_NUM_CE_INFO_UNIT 1
 
+#define FDE_FLAG_POS    4
+#define ENABLE_KEY_WRAP_IN_KS    (1 << FDE_FLAG_POS)
+
 enum qseecom_clk_definitions {
 	CLK_DFAB = 0,
 	CLK_SFPB,
@@ -150,6 +150,11 @@ enum qseecom_listener_unregister_kthread_state {
 	LSNR_UNREG_KT_WAKEUP,
 };
 
+enum qseecom_unload_app_kthread_state {
+	UNLOAD_APP_KT_SLEEP = 0,
+	UNLOAD_APP_KT_WAKEUP,
+};
+
 static struct class *driver_class;
 static dev_t qseecom_device_no;
 
@@ -157,6 +162,7 @@ static DEFINE_MUTEX(qsee_bw_mutex);
 static DEFINE_MUTEX(app_access_lock);
 static DEFINE_MUTEX(clk_access_lock);
 static DEFINE_MUTEX(listener_access_lock);
+static DEFINE_MUTEX(unload_app_pending_list_lock);
 
 
 struct sglist_info {
@@ -301,6 +307,7 @@ struct qseecom_control {
 	unsigned int ce_opp_freq_hz;
 	bool appsbl_qseecom_support;
 	uint32_t qsee_reentrancy_support;
+	bool enable_key_wrap_in_ks;
 
 	uint32_t app_block_ref_cnt;
 	wait_queue_head_t app_block_wq;
@@ -313,6 +320,16 @@ struct qseecom_control {
 	struct task_struct *unregister_lsnr_kthread_task;
 	wait_queue_head_t unregister_lsnr_kthread_wq;
 	atomic_t unregister_lsnr_kthread_state;
+
+	struct list_head  unload_app_pending_list_head;
+	struct task_struct *unload_app_kthread_task;
+	wait_queue_head_t unload_app_kthread_wq;
+	atomic_t unload_app_kthread_state;
+};
+
+struct qseecom_unload_app_pending_list {
+	struct list_head		list;
+	struct qseecom_dev_handle	*data;
 };
 
 struct qseecom_sec_buf_fd_info {
@@ -338,6 +355,7 @@ struct qseecom_client_handle {
 	u32  app_arch;
 	struct qseecom_sec_buf_fd_info sec_buf_fd[MAX_ION_FD];
 	bool from_smcinvoke;
+	bool unload_pending;
 };
 
 struct qseecom_listener_handle {
@@ -415,17 +433,18 @@ static int qseecom_free_ce_info(struct qseecom_dev_handle *data,
 						void __user *argp);
 static int qseecom_query_ce_info(struct qseecom_dev_handle *data,
 						void __user *argp);
-#ifdef CONFIG_QSEECOM_DEBUG
-static unsigned int max_loaded_app_num;
-static unsigned int min_heap_avail = UINT_MAX;
+static int __qseecom_unload_app(struct qseecom_dev_handle *data,
+				uint32_t app_id);
 
-static int check_tzheap_available(void);
+#ifdef CONFIG_QSEECOM_DEBUG
+#define MAX_LOADABLE_APPS 16
+
+static unsigned int max_loaded_app_num;
 
 static int qseecom_debug_show(struct seq_file *s, void *data)
 {
 	unsigned int num = 0;
 	unsigned long flags;
-	int tz_heap_avail;
 
 	struct qseecom_registered_app_list *ptr_app;
 	u64 cur_time = sched_clock();
@@ -444,20 +463,9 @@ static int qseecom_debug_show(struct seq_file *s, void *data)
 		num++;
 	}
 
+	seq_printf(s, "loaded apps : %u/%u\n", num , max_loaded_app_num);
+
 	spin_unlock_irqrestore(&qseecom.registered_app_list_lock, flags);
-
-	tz_heap_avail = check_tzheap_available();
-
-	if (tz_heap_avail < 0) {
-		pr_err("failed to get tzbsp heap available size = %d\n", tz_heap_avail);
-		return -1;
-	}
-
-	if (tz_heap_avail < min_heap_avail)
-		min_heap_avail = tz_heap_avail;
-
-	seq_printf(s, "available : %d (min : %d) loaded apps : %u (max : %u)\n",
-		tz_heap_avail, min_heap_avail, num , max_loaded_app_num);
 
 	return 0;
 }
@@ -478,34 +486,22 @@ static int qseecom_update_info(bool log)
 {
 	unsigned int num = 0;
 	unsigned long flags;
-	int tz_heap_avail;
 	struct qseecom_registered_app_list *ptr_app;
 
 	spin_lock_irqsave(&qseecom.registered_app_list_lock, flags);
 
 	list_for_each_entry(ptr_app, &qseecom.registered_app_list_head, list) {
 		if (log)
-			pr_info("%d : %s (%lld)\n", ptr_app->app_id, ptr_app->app_name, ptr_app->load_time);
+			pr_info("%d : %s (r:%d) (t:%lld)\n", ptr_app->app_id, ptr_app->app_name, ptr_app->ref_cnt, ptr_app->load_time);
 		num++;
 	}
 
 	if (num > max_loaded_app_num)
 		max_loaded_app_num = num;
 
+	pr_info("loaded apps : %u/%u\n", num , max_loaded_app_num);
+
 	spin_unlock_irqrestore(&qseecom.registered_app_list_lock, flags);
-
-	tz_heap_avail = check_tzheap_available();
-
-	if (tz_heap_avail < 0) {
-		pr_err("failed to get tzbsp heap available size = %d\n", tz_heap_avail);
-		return -1;
-	}
-
-	if (tz_heap_avail < min_heap_avail)
-		min_heap_avail = tz_heap_avail;
-
-	pr_info("available : %d (min : %d) loaded apps : %u (max : %u)\n",
-		tz_heap_avail, min_heap_avail, num , max_loaded_app_num);
 
 	return num;
 }
@@ -636,7 +632,7 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 			smc_id = TZ_OS_APP_SHUTDOWN_ID;
 			desc.arginfo = TZ_OS_APP_SHUTDOWN_ID_PARAM_ID;
 			desc.args[0] = req->app_id;
-			ret = __qseecom_scm_call2_locked(smc_id, &desc);
+			ret = scm_call2(smc_id, &desc);
 			break;
 		}
 		case QSEOS_APP_LOOKUP_COMMAND: {
@@ -659,15 +655,6 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 			kzfree(tzbuf);
 			break;
 		}
-#ifdef CONFIG_QSEECOM_DEBUG
-		case QSEOS_GET_TZHEAP_STATUS_COMMAND: {
-			smc_id = TZ_OS_APP_GET_TZHEAP_STATUS_ID;
-			desc.arginfo = TZ_OS_APP_GET_TZHEAP_STATUS_ID_PARAM_ID;
-			__qseecom_reentrancy_check_if_no_app_blocked(smc_id);
-			ret = scm_call2(smc_id, &desc);
-			break;
-		}
-#endif
 		case QSEOS_APP_REGION_NOTIFICATION: {
 			struct qsee_apps_region_info_ireq *req;
 			struct qsee_apps_region_info_64bit_ireq *req_64bit;
@@ -1379,7 +1366,7 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 	new_entry->listener_in_use = false;
 	list_add_tail(&new_entry->list, &qseecom.registered_listener_list_head);
 
-	pr_warn("Service %d is registered\n", rcvd_lstnr.listener_id);
+	pr_debug("Service %d is registered\n", rcvd_lstnr.listener_id);
 	return ret;
 }
 
@@ -1438,7 +1425,7 @@ exit:
 	kzfree(ptr_svc);
 
 	data->released = true;
-	pr_warn("Service %d is unregistered\n", data->listener.id);
+	pr_debug("Service %d is unregistered\n", data->listener.id);
 	return ret;
 }
 
@@ -1607,19 +1594,16 @@ static int __qseecom_decrease_clk_ref_count(enum qseecom_ce_hw_instance ce)
 	else
 		qclk = &qseecom.ce_drv;
 
-	if (qclk->clk_access_cnt > 2) {
+	if (qclk->clk_access_cnt > 0) {
+		qclk->clk_access_cnt--;
+	} else {
 		pr_err("Invalid clock ref count %d\n", qclk->clk_access_cnt);
 		ret = -EINVAL;
-		goto err_dec_ref_cnt;
 	}
-	if (qclk->clk_access_cnt == 2)
-		qclk->clk_access_cnt--;
 
-err_dec_ref_cnt:
 	mutex_unlock(&clk_access_lock);
 	return ret;
 }
-
 
 static int qseecom_scale_bus_bandwidth_timer(uint32_t mode)
 {
@@ -2017,7 +2001,7 @@ err_resp:
 		else
 			*(uint32_t *)cmd_buf =
 				QSEOS_LISTENER_DATA_RSP_COMMAND_WHITELIST;
-		if (ptr_svc) {
+		if (ptr_svc && ptr_svc->ihandle) {
 			ret = msm_ion_do_cache_op(qseecom.ion_clnt,
 					ptr_svc->ihandle,
 					ptr_svc->sb_virt, ptr_svc->sb_length,
@@ -2040,7 +2024,6 @@ err_resp:
 			ptr_svc->listener_in_use = false;
 			__qseecom_clean_listener_sglistinfo(ptr_svc);
 		}
-		pr_err("wake up tasks waiting on listener %d\n", lstnr);
 		if (ret) {
 			pr_err("scm_call() failed with err: %d (app_id = %d)\n",
 				ret, data->client.app_id);
@@ -2119,7 +2102,7 @@ static int __qseecom_process_reentrancy_blocked_on_listener(
 					(char *)data->client.app_name);
 				ret = -ENOENT;
 				goto exit;
- 			}
+			}
 		}
 	}
 
@@ -2200,7 +2183,6 @@ static int __qseecom_process_reentrancy_blocked_on_listener(
 		pr_err("Unexpected unblock resp %d\n", resp->result);
 		ret = -EINVAL;
 	}
-	pr_err("5. success\n");
 exit:
 	return ret;
 }
@@ -2339,7 +2321,7 @@ err_resp:
 		else
 			*(uint32_t *)cmd_buf =
 				QSEOS_LISTENER_DATA_RSP_COMMAND_WHITELIST;
-		if (ptr_svc) {
+		if (ptr_svc && ptr_svc->ihandle) {
 			ret = msm_ion_do_cache_op(qseecom.ion_clnt,
 					ptr_svc->ihandle,
 					ptr_svc->sb_virt, ptr_svc->sb_length,
@@ -2362,8 +2344,6 @@ err_resp:
 			__qseecom_clean_listener_sglistinfo(ptr_svc);
 			wake_up_interruptible(&ptr_svc->listener_block_app_wq);
 		}
-
-		pr_err("wake up tasks waiting on listener %d\n", lstnr);
 
 		if (ret) {
 			pr_err("scm_call() failed with err: %d (app_id = %d)\n",
@@ -2515,51 +2495,6 @@ static int __qseecom_check_app_exists(struct qseecom_check_app_ireq req,
 	}
 }
 
-#ifdef CONFIG_QSEECOM_DEBUG
-static int __qseecom_get_tzbsp_heap_status(struct qseecom_get_tzheap_status_ireq req, uint32_t *data)
-{
-	int32_t ret = 0;
-	struct qseecom_command_scm_resp resp;
-
-	memset((void *)&resp, 0, sizeof(resp));
-
-	/*  SCM_CALL to get tzheap status */
-	ret = qseecom_scm_call(SCM_SVC_TZSCHEDULER, 1, &req,
-				sizeof(struct qseecom_get_tzheap_status_ireq),
-				&resp, sizeof(resp));
-	if (ret) {
-		pr_err("scm_call to get tzheap status failed\n");
-		return -EINVAL;
-	}
-
-	if (resp.result == QSEOS_RESULT_FAILURE)
-		return -EINVAL;
-	else {
-		*data = resp.data;
-		return 0;
-	}
-}
-
-static int32_t check_tzheap_available(void)
-{
-	int32_t ret;
-	struct qseecom_get_tzheap_status_ireq req;
-	uint32_t data;
-
-	req.qsee_cmd_id = QSEOS_GET_TZHEAP_STATUS_COMMAND;
-	ret = __qseecom_get_tzbsp_heap_status(req, &data);
-	if (ret)
-		pr_err("failed in getting tzbheap\n");
-
-	else {
-		pr_debug("tzheap : free bytes = 0x%08X\n", data);
-		ret = data;
-	}
-
-	return ret;
-}
-#endif
-
 static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 {
 	struct qseecom_registered_app_list *entry = NULL;
@@ -2701,6 +2636,11 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 			goto loadapp_err;
 		}
 
+#ifdef CONFIG_QSEECOM_DEBUG
+		/* FIXME: tz might to be failed to load TA due to tzbsp heap shortage */
+		if(max_loaded_app_num >= MAX_LOADABLE_APPS - 2)
+			qseecom_update_info(true);
+#endif
 		/*  SCM_CALL  to load the app and get the app_id back */
 		ret = qseecom_scm_call(SCM_SVC_TZSCHEDULER, 1, cmd_buf,
 			cmd_len, &resp, sizeof(resp));
@@ -2723,8 +2663,11 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 		if (resp.result == QSEOS_RESULT_INCOMPLETE) {
 			ret = __qseecom_process_incomplete_cmd(data, &resp);
 			if (ret) {
-				pr_err("process_incomplete_cmd failed err: %d\n",
-					ret);
+				/* TZ has created app_id, need to unload it */
+				pr_err("incomp_cmd err %d, %d, unload %d %s\n",
+					ret, resp.result, resp.data,
+					load_img_req.img_name);
+				__qseecom_unload_app(data, resp.data);
 				if (!IS_ERR_OR_NULL(ihandle))
 					ion_free(qseecom.ion_clnt, ihandle);
 				ret = -EFAULT;
@@ -2770,6 +2713,7 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 		/* Deallocate the handle */
 		if (!IS_ERR_OR_NULL(ihandle))
 			ion_free(qseecom.ion_clnt, ihandle);
+
 #ifdef CONFIG_QSEECOM_DEBUG
 		entry->load_time = sched_clock();
 #endif
@@ -2844,6 +2788,52 @@ static int qseecom_unmap_ion_allocated_memory(struct qseecom_dev_handle *data)
 		ion_unmap_kernel(qseecom.ion_clnt, data->client.ihandle);
 		ion_free(qseecom.ion_clnt, data->client.ihandle);
 		data->client.ihandle = NULL;
+		memset((void *)&data->client,
+			0, sizeof(struct qseecom_client_handle));
+	}
+	return ret;
+}
+
+static int __qseecom_unload_app(struct qseecom_dev_handle *data,
+				uint32_t app_id)
+{
+	struct qseecom_unload_app_ireq req;
+	struct qseecom_command_scm_resp resp;
+	int ret = 0;
+
+	/* Populate the structure for sending scm call to load image */
+	req.qsee_cmd_id = QSEOS_APP_SHUTDOWN_COMMAND;
+	req.app_id = app_id;
+
+	/* SCM_CALL to unload the app */
+	ret = qseecom_scm_call(SCM_SVC_TZSCHEDULER, 1, &req,
+			sizeof(struct qseecom_unload_app_ireq),
+			&resp, sizeof(resp));
+	if (ret) {
+		pr_err("scm_call to unload app (id = %d) failed\n", app_id);
+		return -EFAULT;
+	}
+	switch (resp.result) {
+	case QSEOS_RESULT_SUCCESS:
+		pr_warn("App (%d) is unloaded\n", app_id);
+		break;
+	case QSEOS_RESULT_INCOMPLETE:
+		ret = __qseecom_process_incomplete_cmd(data, &resp);
+		if (ret)
+			pr_err("unload app %d fail proc incom cmd: %d,%d,%d\n",
+				app_id, ret, resp.result, resp.data);
+		else
+			pr_warn("App (%d) is unloaded\n", app_id);
+		break;
+	case QSEOS_RESULT_FAILURE:
+		pr_err("app (%d) unload_failed!!\n", app_id);
+		ret = -EFAULT;
+		break;
+	default:
+		pr_err("unload app %d get unknown resp.result %d\n",
+				app_id, resp.result);
+		ret = -EFAULT;
+		break;
 	}
 	return ret;
 }
@@ -2854,12 +2844,11 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data,
 	unsigned long flags;
 	unsigned long flags1;
 	int ret = 0;
-	struct qseecom_command_scm_resp resp;
 	struct qseecom_registered_app_list *ptr_app = NULL;
 	bool unload = false;
 	bool found_app = false;
 	bool found_dead_app = false;
-	bool scm_called = false;
+	bool doublecheck = false;
 
 	if (!data) {
 		pr_err("Invalid/uninitialized device handle\n");
@@ -2909,48 +2898,9 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data,
 			(char *)data->client.app_name);
 
 	if (unload) {
-		struct qseecom_unload_app_ireq req;
-		/* Populate the structure for sending scm call to load image */
-		req.qsee_cmd_id = QSEOS_APP_SHUTDOWN_COMMAND;
-		req.app_id = data->client.app_id;
+		ret = __qseecom_unload_app(data, data->client.app_id);
 
-		/* SCM_CALL to unload the app */
-		ret = qseecom_scm_call(SCM_SVC_TZSCHEDULER, 1, &req,
-				sizeof(struct qseecom_unload_app_ireq),
-				&resp, sizeof(resp));
-		scm_called = true;
-		if (ret) {
-			pr_err("scm_call to unload app (id = %d) failed\n",
-								req.app_id);
-			ret = -EFAULT;
-			goto scm_exit;
-		} else {
-			pr_warn("App id %d now unloaded\n", req.app_id);
-		}
-		if (resp.result == QSEOS_RESULT_FAILURE) {
-			pr_err("app (%d) unload_failed!!\n",
-					data->client.app_id);
-			ret = -EFAULT;
-			goto scm_exit;
-		}
-		if (resp.result == QSEOS_RESULT_SUCCESS)
-			pr_debug("App (%d) is unloaded!!\n",
-					data->client.app_id);
-		if (resp.result == QSEOS_RESULT_INCOMPLETE) {
-			ret = __qseecom_process_incomplete_cmd(data, &resp);
-			if (ret) {
-				pr_err("process_incomplete_cmd fail err: %d\n",
-									ret);
-				goto scm_exit;
-			}
-		}
-	}
-
-scm_exit:
-	if (scm_called) {
 		/* double check if this app_entry still exists */
-		bool doublecheck = false;
-
 		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags1);
 		list_for_each_entry(ptr_app,
 			&qseecom.registered_app_list_head, list) {
@@ -2970,6 +2920,7 @@ scm_exit:
 			found_app = false;
 		}
 	}
+
 unload_exit:
 	if (found_app) {
 		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags1);
@@ -2999,6 +2950,102 @@ unload_exit:
 	qseecom_update_info(ret);
 #endif
 	return ret;
+}
+
+
+static int qseecom_prepare_unload_app(struct qseecom_dev_handle *data)
+{
+	struct qseecom_unload_app_pending_list *entry = NULL;
+
+	pr_debug("prepare to unload app(%d)(%s), pending %d\n",
+		data->client.app_id, data->client.app_name,
+		data->client.unload_pending);
+	if (data->client.unload_pending)
+		return 0;
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+	entry->data = data;
+	mutex_lock(&unload_app_pending_list_lock);
+	list_add_tail(&entry->list,
+		&qseecom.unload_app_pending_list_head);
+	mutex_unlock(&unload_app_pending_list_lock);
+	data->client.unload_pending = true;
+	pr_debug("unload ta %d pending\n", data->client.app_id);
+	return 0;
+}
+
+static void __wakeup_unload_app_kthread(void)
+{
+	atomic_set(&qseecom.unload_app_kthread_state,
+				UNLOAD_APP_KT_WAKEUP);
+	wake_up_interruptible(&qseecom.unload_app_kthread_wq);
+}
+
+static bool __qseecom_find_pending_unload_app(uint32_t app_id, char *app_name)
+{
+	struct qseecom_unload_app_pending_list *entry = NULL;
+	bool found = false;
+
+	mutex_lock(&unload_app_pending_list_lock);
+	list_for_each_entry(entry, &qseecom.unload_app_pending_list_head,
+					list) {
+		if ((entry->data->client.app_id == app_id) &&
+			(!strcmp(entry->data->client.app_name, app_name))) {
+			found = true;
+			break;
+		}
+	}
+	mutex_unlock(&unload_app_pending_list_lock);
+	return found;
+}
+
+static void __qseecom_processing_pending_unload_app(void)
+{
+	struct qseecom_unload_app_pending_list *entry = NULL;
+	struct list_head *pos;
+	int ret = 0;
+
+	mutex_lock(&unload_app_pending_list_lock);
+	while (!list_empty(&qseecom.unload_app_pending_list_head)) {
+		pos = qseecom.unload_app_pending_list_head.next;
+		entry = list_entry(pos,
+			struct qseecom_unload_app_pending_list, list);
+		if (entry && entry->data) {
+			pr_debug("process pending unload app %d (%s)\n",
+				entry->data->client.app_id,
+				entry->data->client.app_name);
+			mutex_unlock(&unload_app_pending_list_lock);
+			mutex_lock(&app_access_lock);
+			ret = qseecom_unload_app(entry->data, true);
+			if (ret)
+				pr_err("unload app %d pending failed %d\n",
+					entry->data->client.app_id, ret);
+			mutex_unlock(&app_access_lock);
+			mutex_lock(&unload_app_pending_list_lock);
+			kzfree(entry->data);
+		}
+		list_del(pos);
+		kzfree(entry);
+	}
+	mutex_unlock(&unload_app_pending_list_lock);
+}
+
+static int __qseecom_unload_app_kthread_func(void *data)
+{
+	while (!kthread_should_stop()) {
+		wait_event_interruptible(
+			qseecom.unload_app_kthread_wq,
+			atomic_read(&qseecom.unload_app_kthread_state)
+				== UNLOAD_APP_KT_WAKEUP);
+		pr_debug("kthread to unload app is called, state %d\n",
+			atomic_read(&qseecom.unload_app_kthread_state));
+		__qseecom_processing_pending_unload_app();
+		atomic_set(&qseecom.unload_app_kthread_state,
+				UNLOAD_APP_KT_SLEEP);
+	}
+	pr_warn("kthread to unload app stopped\n");
+	return 0;
 }
 
 static phys_addr_t __qseecom_uvirt_to_kphys(struct qseecom_dev_handle *data,
@@ -3401,15 +3448,9 @@ int __qseecom_process_reentrancy(struct qseecom_command_scm_resp *resp,
 	case QSEOS_RESULT_INCOMPLETE:
 		qseecom.app_block_ref_cnt++;
 		ptr_app->app_blocked = true;
-		pr_err("1. begin req lsntr %d , qseecom.app_block_ref_cnt = %d, app %d, blocked %d\n",
-			resp->data, qseecom.app_block_ref_cnt,
-			data->client.app_id, ptr_app->app_blocked);
 		ret = __qseecom_reentrancy_process_incomplete_cmd(data, resp);
 		ptr_app->app_blocked = false;
 		qseecom.app_block_ref_cnt--;
-		pr_err("2. end req lsntr %d , qseecom.app_block_ref_cnt = %d, app %d, blocked %d\n",
-			resp->data, qseecom.app_block_ref_cnt,
-			data->client.app_id, ptr_app->app_blocked);
 		wake_up_interruptible_all(&qseecom.app_block_wq);
 		if (ret)
 			pr_err("process_incomplete_cmd failed err: %d\n",
@@ -3456,6 +3497,13 @@ static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
 	if (!found_app) {
 		pr_err("app_id %d (%s) is not found\n", data->client.app_id,
 			(char *)data->client.app_name);
+		return -ENOENT;
+	}
+
+	if (__qseecom_find_pending_unload_app(data->client.app_id,
+						data->client.app_name)) {
+		pr_err("app %d (%s) unload is pending\n",
+			data->client.app_id, data->client.app_name);
 		return -ENOENT;
 	}
 
@@ -4175,7 +4223,7 @@ static int qseecom_receive_req(struct qseecom_dev_handle *data)
 		if (wait_event_interruptible(this_lstnr->rcv_req_wq,
 				__qseecom_listener_has_rcvd_req(data,
 				this_lstnr))) {
-			pr_warn("Interrupted: exiting Listener Service = %d\n",
+			pr_debug("Interrupted: exiting Listener Service = %d\n",
 						(uint32_t)data->listener.id);
 			/* woken up for different reason */
 			return -ERESTARTSYS;
@@ -4405,6 +4453,7 @@ static int __qseecom_allocate_img_data(struct ion_handle **pihandle,
 	struct ion_handle *ihandle = NULL;
 	u8 *img_data = NULL;
 	int retry = 0;
+	int ion_flag = ION_FLAG_CACHED;
 
 	do {
 		if (retry++) {
@@ -4413,7 +4462,7 @@ static int __qseecom_allocate_img_data(struct ion_handle **pihandle,
 			mutex_lock(&app_access_lock);
 		}
 		ihandle = ion_alloc(qseecom.ion_clnt, fw_size,
-			SZ_4K, ION_HEAP(ION_QSECOM_TA_HEAP_ID), ION_FLAG_CACHED);
+			SZ_4K, ION_HEAP(ION_QSECOM_TA_HEAP_ID), ion_flag);
 	} while (IS_ERR_OR_NULL(ihandle) &&
 			(retry <= QSEECOM_TA_ION_ALLOCATE_MAX_ATTEMP));
 
@@ -4576,10 +4625,14 @@ static int __qseecom_load_fw(struct qseecom_dev_handle *data, char *appname,
 		break;
 	case QSEOS_RESULT_INCOMPLETE:
 		ret = __qseecom_process_incomplete_cmd(data, &resp);
-		if (ret)
-			pr_err("process_incomplete_cmd FAILED\n");
-		else
+		if (ret) {
+			pr_err("incomp_cmd err %d, %d, unload %d %s\n",
+				ret, resp.result, resp.data, appname);
+			__qseecom_unload_app(data, resp.data);
+			ret = -EFAULT;
+		} else {
 			*app_id = resp.data;
+		}
 		break;
 	case QSEOS_RESULT_FAILURE:
 		pr_err("scm call failed with response QSEOS_RESULT FAILURE\n");
@@ -4776,6 +4829,7 @@ int qseecom_start_app(struct qseecom_handle **handle,
 	uint32_t app_id = 0;
 
 	__wakeup_unregister_listener_kthread();
+	__wakeup_unload_app_kthread();
 
 	if (atomic_read(&qseecom.qseecom_state) != QSEECOM_STATE_READY) {
 		pr_err("Not allowed to be called in %d state\n",
@@ -4869,7 +4923,6 @@ recheck:
 		strlcpy(entry->app_name, app_name, MAX_APP_NAME_SIZE);
 		if (__qseecom_get_fw_size(app_name, &fw_size, &app_arch)) {
 			ret = -EIO;
-			kfree(entry);
 			goto exit_entry_free;
 		}
 		entry->app_arch = app_arch;
@@ -4920,23 +4973,23 @@ recheck:
 	spin_unlock_irqrestore(&qseecom.registered_kclient_list_lock, flags);
 
 	mutex_unlock(&app_access_lock);
+	__wakeup_unload_app_kthread();
 	return 0;
 
 exit_ion_unmap_kernel:
 	if (!IS_ERR_OR_NULL(data->client.ihandle))
 		ion_unmap_kernel(qseecom.ion_clnt, data->client.ihandle);
 exit_entry_free:
-	if (entry)
-		kfree(entry);
+	kfree(entry);
 exit_ion_free:
 	mutex_unlock(&app_access_lock);
+	__wakeup_unload_app_kthread();
 	if (!IS_ERR_OR_NULL(data->client.ihandle)) {
 		ion_free(qseecom.ion_clnt, data->client.ihandle);
 		data->client.ihandle = NULL;
 	}
 exit_data_free:
-	if (data)
-		kfree(data);
+	kfree(data);
 exit_handle_free:
 	if (*handle) {
 		kfree(*handle);
@@ -4956,6 +5009,7 @@ int qseecom_shutdown_app(struct qseecom_handle **handle)
 	bool found_handle = false;
 
 	__wakeup_unregister_listener_kthread();
+	__wakeup_unload_app_kthread();
 
 	if (atomic_read(&qseecom.qseecom_state) != QSEECOM_STATE_READY) {
 		pr_err("Not allowed to be called in %d state\n",
@@ -4992,7 +5046,7 @@ int qseecom_shutdown_app(struct qseecom_handle **handle)
 		kzfree(kclient);
 		*handle = NULL;
 	}
-
+	__wakeup_unload_app_kthread();
 	return ret;
 }
 EXPORT_SYMBOL(qseecom_shutdown_app);
@@ -5006,6 +5060,7 @@ int qseecom_send_command(struct qseecom_handle *handle, void *send_buf,
 	bool perf_enabled = false;
 
 	__wakeup_unregister_listener_kthread();
+	__wakeup_unload_app_kthread();
 
 	if (atomic_read(&qseecom.qseecom_state) != QSEECOM_STATE_READY) {
 		pr_err("Not allowed to be called in %d state\n",
@@ -5128,7 +5183,6 @@ int qseecom_process_listener_from_smcinvoke(struct scm_desc *desc)
 	resp.result = desc->ret[0];	/*req_cmd*/
 	resp.resp_type = desc->ret[1]; /*incomplete:unused;blocked:session_id*/
 	resp.data = desc->ret[2];	/*listener_id*/
-	pr_err("cmd %d, session %d, listener %d\n", (int)desc->ret[0], (int)desc->ret[1], (int)desc->ret[2]);
 
 	dummy_private_data.client.app_id = desc->ret[1];
 	dummy_private_data.client.from_smcinvoke = true;
@@ -6254,6 +6308,9 @@ static int qseecom_create_key(struct qseecom_dev_handle *data,
 	else
 		flags |= QSEECOM_ICE_FDE_KEY_SIZE_16_BYTE;
 
+	if (qseecom.enable_key_wrap_in_ks == true)
+		flags |= ENABLE_KEY_WRAP_IN_KS;
+
 	generate_key_ireq.flags = flags;
 	generate_key_ireq.qsee_command_id = QSEOS_GENERATE_KEY;
 	memset((void *)generate_key_ireq.key_id,
@@ -6971,6 +7028,12 @@ static int __qseecom_qteec_issue_cmd(struct qseecom_dev_handle *data,
 			(char *)data->client.app_name);
 		return -ENOENT;
 	}
+	if (__qseecom_find_pending_unload_app(data->client.app_id,
+						data->client.app_name)) {
+		pr_err("app %d (%s) unload is pending\n",
+			data->client.app_id, data->client.app_name);
+		return -ENOENT;
+	}
 
 	req->req_ptr = (void *)__qseecom_uvirt_to_kvirt(data,
 						(uintptr_t)req->req_ptr);
@@ -7174,6 +7237,12 @@ static int qseecom_qteec_invoke_modfd_cmd(struct qseecom_dev_handle *data,
 			(char *)data->client.app_name);
 		return -ENOENT;
 	}
+	if (__qseecom_find_pending_unload_app(data->client.app_id,
+						data->client.app_name)) {
+		pr_err("app %d (%s) unload is pending\n",
+			data->client.app_id, data->client.app_name);
+		return -ENOENT;
+	}
 
 	/* validate offsets */
 	for (i = 0; i < MAX_ION_FD; i++) {
@@ -7304,7 +7373,7 @@ static void __qseecom_clean_data_sglistinfo(struct qseecom_dev_handle *data)
 	}
 }
 
-static inline long qseecom_ioctl(struct file *file,
+static long qseecom_ioctl(struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
@@ -7326,6 +7395,7 @@ static inline long qseecom_ioctl(struct file *file,
 		cmd != QSEECOM_IOCTL_SEND_MODFD_RESP &&
 		cmd != QSEECOM_IOCTL_SEND_MODFD_RESP_64)
 		__wakeup_unregister_listener_kthread();
+	__wakeup_unload_app_kthread();
 
 	switch (cmd) {
 	case QSEECOM_IOCTL_REGISTER_LISTENER_REQ: {
@@ -7578,6 +7648,7 @@ static inline long qseecom_ioctl(struct file *file,
 		mutex_unlock(&app_access_lock);
 		if (ret)
 			pr_err("failed load_app request: %d\n", ret);
+		__wakeup_unload_app_kthread();
 		break;
 	}
 	case QSEECOM_IOCTL_UNLOAD_APP_REQ: {
@@ -7596,6 +7667,7 @@ static inline long qseecom_ioctl(struct file *file,
 		mutex_unlock(&app_access_lock);
 		if (ret)
 			pr_err("failed unload_app request: %d\n", ret);
+		__wakeup_unload_app_kthread();
 		break;
 	}
 	case QSEECOM_IOCTL_GET_QSEOS_VERSION_REQ: {
@@ -7716,6 +7788,13 @@ static inline long qseecom_ioctl(struct file *file,
 		break;
 	}
 	case QSEECOM_IOCTL_APP_LOADED_QUERY_REQ: {
+		if ((data->type != QSEECOM_GENERIC) &&
+			(data->type != QSEECOM_CLIENT_APP)) {
+			pr_err("app loaded query req: invalid handle (%d)\n",
+								data->type);
+			ret = -EINVAL;
+			break;
+		}
 		data->type = QSEECOM_CLIENT_APP;
 		mutex_lock(&app_access_lock);
 		atomic_inc(&data->ioctl_count);
@@ -8053,9 +8132,12 @@ static int qseecom_release(struct inode *inode, struct file *file)
 			mutex_unlock(&listener_access_lock);
 			break;
 		case QSEECOM_CLIENT_APP:
-			mutex_lock(&app_access_lock);
-			ret = qseecom_unload_app(data, true);
-			mutex_unlock(&app_access_lock);
+			pr_debug("release app %d (%s)\n",
+				data->client.app_id, data->client.app_name);
+			if (data->client.app_id) {
+				free_private_data = false;
+				ret = qseecom_prepare_unload_app(data);
+			}
 			break;
 		case QSEECOM_SECURE_SERVICE:
 		case QSEECOM_GENERIC:
@@ -8862,9 +8944,6 @@ static int qseecom_probe(struct platform_device *pdev)
 	struct qseecom_command_scm_resp resp;
 	struct qseecom_ce_info_use *pce_info_use = NULL;
 
-#ifdef CONFIG_QSEECOM_DEBUG
-	struct dentry *dir;
-#endif
 	qseecom.qsee_bw_count = 0;
 	qseecom.qsee_perf_client = 0;
 	qseecom.qsee_sfpb_bw_count = 0;
@@ -8929,6 +9008,8 @@ static int qseecom_probe(struct platform_device *pdev)
 	init_waitqueue_head(&qseecom.send_resp_wq);
 	init_waitqueue_head(&qseecom.register_lsnr_pending_wq);
 	init_waitqueue_head(&qseecom.unregister_lsnr_kthread_wq);
+	INIT_LIST_HEAD(&qseecom.unload_app_pending_list_head);
+	init_waitqueue_head(&qseecom.unload_app_kthread_wq);
 	qseecom.send_resp_flag = 0;
 
 	qseecom.qsee_version = QSEEE_VERSION_00;
@@ -8997,6 +9078,14 @@ static int qseecom_probe(struct platform_device *pdev)
 				qseecom.qsee_reentrancy_support);
 		}
 
+		qseecom.enable_key_wrap_in_ks =
+			of_property_read_bool((&pdev->dev)->of_node,
+					"qcom,enable-key-wrap-in-ks");
+		if (qseecom.enable_key_wrap_in_ks) {
+			pr_warn("qseecom.enable_key_wrap_in_ks = %d\n",
+					qseecom.enable_key_wrap_in_ks);
+		}
+
 		/*
 		 * The qseecom bus scaling flag can not be enabled when
 		 * crypto clock is not handled by HLOS.
@@ -9057,9 +9146,6 @@ static int qseecom_probe(struct platform_device *pdev)
 					cmd_buf = (void *)&req;
 					cmd_len = sizeof(struct
 						qsee_apps_region_info_ireq);
-
-					sec_debug_secure_app_addr_size(req.addr,
-								req.size);
 					pr_warn("secure app region addr=0x%x size=0x%x",
 							req.addr, req.size);
 				} else {
@@ -9071,8 +9157,6 @@ static int qseecom_probe(struct platform_device *pdev)
 					cmd_buf = (void *)&req_64bit;
 					cmd_len = sizeof(struct
 					qsee_apps_region_info_64bit_ireq);
-					sec_debug_secure_app_addr_size(
-						req_64bit.addr, req_64bit.size);
 					pr_warn("secure app region addr=0x%llx size=0x%x",
 						req_64bit.addr, req_64bit.size);
 				}
@@ -9141,25 +9225,42 @@ static int qseecom_probe(struct platform_device *pdev)
 	}
 	atomic_set(&qseecom.unregister_lsnr_kthread_state,
 					LSNR_UNREG_KT_SLEEP);
+
+	/*create a kthread to process pending ta unloading task */
+	qseecom.unload_app_kthread_task = kthread_run(
+			__qseecom_unload_app_kthread_func,
+			NULL, "qseecom-unload-ta");
+	if (IS_ERR(qseecom.unload_app_kthread_task)) {
+		pr_err("failed to create kthread to unload ta\n");
+		rc = -EINVAL;
+		goto exit_kill_unreg_lsnr_kthread;
+	}
+	atomic_set(&qseecom.unload_app_kthread_state,
+						UNLOAD_APP_KT_SLEEP);
+
 	atomic_set(&qseecom.qseecom_state, QSEECOM_STATE_READY);
-
 #ifdef CONFIG_QSEECOM_DEBUG
+	{
+		struct dentry *dir;
 
-	dir = debugfs_create_dir("qseecom", NULL);
-	if (!dir) {
-		pr_err("failed to create debugfs dir\n");
-		goto exit_debugfs;
+		dir = debugfs_create_dir("qseecom", NULL);
+		if (!dir) {
+			pr_err("failed to create debugfs dir\n");
+			goto exit_debugfs;
+		}
+		if (!debugfs_create_file("app_info", 0440, dir, &qseecom, &qseecom_debug_fops)) {
+			pr_err("failed to create debugfs file\n");
+			debugfs_remove_recursive(dir);
+			goto exit_debugfs;
+		}
+		pr_info("created debugfs file\n");
 	}
-	if (!debugfs_create_file("app_info", 0440, dir, &qseecom, &qseecom_debug_fops)) {
-		pr_err("failed to create debugfs file\n");
-		debugfs_remove_recursive(dir);
-		goto exit_debugfs;
-	}
-	pr_info("created debugfs file\n");
-
 exit_debugfs:
 #endif
 	return 0;
+
+exit_kill_unreg_lsnr_kthread:
+	kthread_stop(qseecom.unregister_lsnr_kthread_task);
 
 exit_deinit_clock:
 	__qseecom_deinit_clk(CLK_QSEE);
@@ -9273,6 +9374,8 @@ static int qseecom_remove(struct platform_device *pdev)
 	}
 
 	ion_client_destroy(qseecom.ion_clnt);
+
+	kthread_stop(qseecom.unload_app_kthread_task);
 
 	kthread_stop(qseecom.unregister_lsnr_kthread_task);
 

@@ -35,3 +35,10 @@ config MOTOR_DRV_MAX77705
 	  To enable this driver, MFD_MAX77705 should be enabled and
 	  MFD_MAX77705 calls this driver.
 
+
+config BLDC_VIBRATOR
+	tristate "BLDC_VIBRATOR"
+	default n
+	help
+	  Say Y to enable MOTOR BLDC drive by PMIC support
+

@@ -19,20 +19,34 @@
  * Erase operation is not a misc device file operation.
  * This is called from sysfs.
  */
-static int ss_poc_erase_sector(struct samsung_display_driver_data *vdd)
+static int ss_poc_erase_sector(struct samsung_display_driver_data *vdd, int start, int len)
 {
 	int pos = 0;
 	int image_size = 0;
 	int ret = 0;
+	int erase_size = 0;
+	int target_pos = 0;
+
+	image_size = vdd->poc_driver.image_size;
+	target_pos = start + len;
 
 	if (!ss_is_ready_to_send_cmd(vdd)) {
 		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return -EBUSY;
 	}
 
-	image_size = vdd->poc_driver.image_size;
+	if (start < 0 || len <= 0) {
+		LCD_ERR("invalid sector erase params.. start(%d), len(%d)\n", start, len);
+		return -EINVAL;
+	}
 
-	for (pos = 0; pos < image_size; pos += POC_PAGE) {
+	if (target_pos > vdd->poc_driver.image_size) {
+		LCD_ERR("sould not erase over %d, start(%d) len(%d)\n",
+			vdd->poc_driver.image_size, start, len);
+		return -EINVAL;
+	}
+
+	for (pos = start; pos < target_pos; pos += erase_size) {
 		if (unlikely(atomic_read(&vdd->poc_driver.cancel))) {
 			LCD_ERR("cancel poc read by user\n");
 			ret = -EIO;
@@ -40,7 +54,14 @@ static int ss_poc_erase_sector(struct samsung_display_driver_data *vdd)
 		}
 
 		if (vdd->poc_driver.poc_erase) {
-			ret = vdd->poc_driver.poc_erase(vdd, pos, POC_PAGE);
+			if (pos + POC_ERASE_64KB <= target_pos)
+				erase_size = POC_ERASE_64KB;
+			else if (pos + POC_ERASE_32KB <= target_pos)
+				erase_size = POC_ERASE_32KB;
+			else
+				erase_size = POC_ERASE_SECTOR;
+
+			ret = vdd->poc_driver.poc_erase(vdd, pos, erase_size, target_pos);
 			if (ret) {
 				LCD_ERR("fail to erase, pos(%d)\n", pos);
 				return -EIO;
@@ -187,9 +208,11 @@ static int ss_poc_check_flash(struct samsung_display_driver_data *vdd)
 	return 0;
 }
 
-static int ss_dsi_poc_ctrl(struct samsung_display_driver_data *vdd, u32 cmd)
+static int ss_dsi_poc_ctrl(struct samsung_display_driver_data *vdd, u32 cmd, const char *buf)
 {
 	int ret = 0;
+	int erase_start = 0;
+	int erase_len = 0;
 
 	if (cmd >= MAX_POC_OP) {
 		LCD_ERR("invalid poc_op %d\n", cmd);
@@ -206,7 +229,18 @@ static int ss_dsi_poc_ctrl(struct samsung_display_driver_data *vdd, u32 cmd)
 		ret = ss_poc_erase(vdd);
 		break;
 	case POC_OP_ERASE_SECTOR:
-		ret = ss_poc_erase_sector(vdd);
+		if (buf == NULL) {
+			LCD_ERR("buf is null..\n");
+			return -EINVAL;
+		}
+
+		ret = sscanf(buf, "%*d %d %d", &erase_start, &erase_len);
+		if (unlikely(ret < 2)) {
+			LCD_ERR("fail to get erase param..\n");
+			return -EINVAL;
+		}
+
+		ret = ss_poc_erase_sector(vdd, erase_start, erase_len);
 		if (unlikely(ret < 0)) {
 			LCD_ERR("failed to poc-erase-sector-seq\n");
 			return ret;
@@ -289,7 +323,7 @@ static long ss_dsi_poc_ioctl(struct file *file, unsigned int cmd, unsigned long 
 
 	switch (cmd) {
 	case IOC_GET_POC_CHKSUM:
-		ret = ss_dsi_poc_ctrl(vdd, POC_OP_CHECKSUM);
+		ret = ss_dsi_poc_ctrl(vdd, POC_OP_CHECKSUM, NULL);
 		if (ret) {
 			LCD_ERR("%s error set_panel_poc\n", __func__);
 			ret = -EFAULT;
@@ -302,7 +336,7 @@ static long ss_dsi_poc_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		}
 		break;
 	case IOC_GET_POC_CSDATA:
-		ret = ss_dsi_poc_ctrl(vdd, POC_OP_CHECKSUM);
+		ret = ss_dsi_poc_ctrl(vdd, POC_OP_CHECKSUM, NULL);
 		if (ret) {
 			LCD_ERR("%s error set_panel_poc\n", __func__);
 			ret = -EFAULT;
@@ -476,7 +510,7 @@ static ssize_t ss_dsi_poc_read(struct file *file, char __user *buf, size_t count
 
 	vdd->poc_driver.rpos = *ppos;
 	vdd->poc_driver.rsize = (u32)count;
-	ret = ss_dsi_poc_ctrl(vdd, POC_OP_READ);
+	ret = ss_dsi_poc_ctrl(vdd, POC_OP_READ, NULL);
 	if (ret) {
 		LCD_ERR("fail to read poc (%d)\n", ret);
 		return ret;
@@ -538,7 +572,7 @@ static ssize_t ss_dsi_poc_write(struct file *file, const char __user *buf,
 		return ret;
 	}
 
-	ret = ss_dsi_poc_ctrl(vdd, POC_OP_WRITE);
+	ret = ss_dsi_poc_ctrl(vdd, POC_OP_WRITE, NULL);
 	if (ret) {
 		LCD_ERR("fail to write poc (%d)\n", ret);
 		return ret;

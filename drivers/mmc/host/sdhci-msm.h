@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -196,6 +196,23 @@ struct sdhci_msm_regs_restore {
 	u32 hc_3c_3e;
 	u32 hc_caps_1;
 	u32 testbus_config;
+	u32 dll_config;
+	u32 dll_config2;
+	u32 dll_config3;
+	u32 dll_usr_ctl;
+};
+
+/*
+ * DLL registers which needs be programmed with HSR settings.
+ * Add any new register only at the end and don't change the
+ * seqeunce.
+ */
+struct sdhci_msm_dll_hsr {
+	u32 dll_config;
+	u32 dll_config_2;
+	u32 dll_config_3;
+	u32 dll_usr_ctl;
+	u32 ddr_config;
 };
 
 struct sdhci_msm_debug_data {
@@ -259,6 +276,7 @@ struct sdhci_msm_host {
 	int soc_min_rev;
 	struct workqueue_struct *pm_qos_wq;
 	bool need_dll_user_ctl;
+	struct sdhci_msm_dll_hsr *dll_hsr;
 	u8 phase_on_tuning;
 };
 

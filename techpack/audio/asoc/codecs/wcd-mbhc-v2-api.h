@@ -27,6 +27,9 @@ int wcd_mbhc_get_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 			   uint32_t *zr);
 void wcd_mbhc_deinit(struct wcd_mbhc *mbhc);
 
+#ifdef CONFIG_SND_SOC_WCD_MBHC_TYPEC_JACK
+void MBHC_enable_jack_output_ctr(struct wcd_mbhc *mbhc, bool enable);
+#endif
 #else
 static inline void wcd_mbhc_stop(struct wcd_mbhc *mbhc)
 {

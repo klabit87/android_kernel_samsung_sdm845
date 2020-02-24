@@ -64,7 +64,7 @@ static bool silent_ssr;
 
 #define setup_timeout(dest_ss, source_ss, comm_type) \
 	_setup_timeout(dest_ss, source_ss, comm_type)
-#define cancel_timeout(subsys) del_timer(&subsys->timeout_data.timer)
+#define cancel_timeout(subsys) del_timer_sync(&subsys->timeout_data.timer)
 #define init_subsys_timer(subsys) _init_subsys_timer(subsys)
 
 /* Timeout values */
@@ -2050,7 +2050,8 @@ static int __init subsys_restart_init(void)
 {
 	int ret;
 
-	ssr_wq = alloc_workqueue("ssr_wq", WQ_CPU_INTENSIVE, 0);
+	ssr_wq = alloc_workqueue("ssr_wq",
+		WQ_UNBOUND | WQ_HIGHPRI | WQ_CPU_INTENSIVE, 0);
 	BUG_ON(!ssr_wq);
 
 	ret = bus_register(&subsys_bus_type);

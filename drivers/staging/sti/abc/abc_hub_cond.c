@@ -164,7 +164,7 @@ void send_ABC_event_by_num(int num, struct abc_hub_info *pinfo, int level)
 
 	/*Send ABC Event Data*/
 	if (level == 1) {
-		sprintf(ABC_event_dev_str, "MODULE:cond@ERROR:%s", pinfo->pdata->cond_pdata.name[num]);
+		sprintf(ABC_event_dev_str, "MODULE=cond@ERROR=%s", pinfo->pdata->cond_pdata.name[num]);
 		abc_hub_send_event(ABC_event_dev_str);
 
 		SEC_CONN_PRINT("send ABC_event pin[%d]:CONNECTOR_NAME=%s,CONNECTOR_TYPE=HIGH_LEVEL.\n",

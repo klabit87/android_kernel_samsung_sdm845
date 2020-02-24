@@ -21,6 +21,8 @@
 #define S2MPB02_I2C_ADDR (0xB2 >> 1)
 #define S2MPB02_REG_INVALID (0xff)
 
+#define S2MPB02_PMIC_REV(iodev)	(iodev)->rev_num
+
 enum s2mpb02_types {
 	TYPE_S2MPB02,
 };

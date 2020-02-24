@@ -115,6 +115,12 @@ static ssize_t secdp_dex_show(struct class *class,
 	struct secdp_sysfs_private *sysfs = g_secdp_sysfs;
 	struct secdp_dex *dex = &sysfs->sec->dex;
 
+	if (!secdp_get_cable_status() || !secdp_get_hpd_status() ||
+			secdp_get_poor_connection_status() || !secdp_get_link_train_status()) {
+		pr_info("cable is out\n");
+		dex->prev = dex->curr = DEX_DISABLED;
+	}
+
 	pr_info("prev: %d, curr: %d\n", dex->prev, dex->curr);
 	rc = scnprintf(buf, PAGE_SIZE, "%d\n", dex->curr);
 
@@ -167,8 +173,10 @@ static ssize_t secdp_dex_store(struct class *class,
 	}
 	mutex_unlock(&sec->notifier_lock);
 
-	if (!secdp_get_cable_status() || !secdp_get_hpd_status()) {
+	if (!secdp_get_cable_status() || !secdp_get_hpd_status() ||
+			secdp_get_poor_connection_status() || !secdp_get_link_train_status()) {
 		pr_info("cable is out\n");
+		dex->prev = dex->curr = DEX_DISABLED;
 		goto exit;
 	}
 

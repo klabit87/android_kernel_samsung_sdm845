@@ -212,6 +212,7 @@ static irqreturn_t etspi_fingerprint_interrupt(int irq, void *dev_id)
 	wake_lock_timeout(&etspi->fp_signal_lock, 1 * HZ);
 	pr_info("%s FPS triggered.int_count(%d) On(%d)\n", __func__,
 		etspi->int_count, etspi->finger_on);
+	etspi->interrupt_count++;
 	return IRQ_HANDLED;
 }
 
@@ -310,6 +311,7 @@ static void etspi_reset(struct etspi_data *etspi)
 	gpio_set_value(etspi->sleepPin, 0);
 	usleep_range(1050, 1100);
 	gpio_set_value(etspi->sleepPin, 1);
+	etspi->reset_count++;
 }
 
 static void etspi_power_control(struct etspi_data *etspi, int status)
@@ -740,7 +742,21 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		pr_info("%s FP_SET_WAKE_UP_SIGNAL\n", __func__);
 		break;
 #endif
+	case FP_SENSOR_ORIENT:
+		pr_info("%s: orient is %d(0: normal, 1: upside down)\n",
+			__func__, etspi->orient);
+
+		retval = put_user(etspi->orient, (u8 __user *) (uintptr_t)ioc->rx_buf);
+		if (retval != 0)
+			pr_err("%s FP_SENSOR_ORIENT put_user fail: %d\n", __func__, retval);
+		break;
+
+	case FP_SPI_VALUE:
+		etspi->spi_value = ioc->len;
+		pr_info("%s spi_value: 0x%x\n", __func__,etspi->spi_value);
+			break;
 	case FP_IOCTL_RESERVED_01:
+	case FP_IOCTL_RESERVED_02:
 			break;
 	default:
 		retval = -EFAULT;
@@ -982,6 +998,10 @@ static int etspi_parse_dt(struct device *dev,
 	}
 	pr_info("%s: chipid: %s\n", __func__, data->chipid);
 
+	if (of_property_read_u32(np, "etspi-orient", &data->orient))
+		data->orient = 0;
+	pr_info("%s: orient: %d\n", __func__, data->orient);
+
 	data->p = pinctrl_get_select(dev, "default");
 	if (IS_ERR(data->p)) {
 		errorno = -EINVAL;
@@ -1062,14 +1082,22 @@ static int etspi_type_check(struct etspi_data *etspi)
 	 * type check return value
 	 * ET510C : 0X00 / 0X66 / 0X00 / 0X33
 	 * ET510D : 0x03 / 0x0A / 0x05
+	 * ET512B : 0x01 / 0x0C / 0x05
 	 * ET516A : 0x00 / 0x10 / 0x05
+	 * ET523  : 0x00 / 0x17 / 0x05
 	 */
 	if ((buf1 == 0x00) && (buf2 == 0x10) && (buf3 == 0x05)) {
 		etspi->sensortype = SENSOR_EGIS;
 		pr_info("%s sensor type is EGIS ET516A sensor\n", __func__);
-	} else  if ((buf1 == 0x03) && (buf2 == 0x0A) && (buf3 == 0x05)) {
+	} else if ((buf1 == 0x03) && (buf2 == 0x0A) && (buf3 == 0x05)) {
 		etspi->sensortype = SENSOR_EGIS;
 		pr_info("%s sensor type is EGIS ET510D sensor\n", __func__);
+	} else if ((buf1 == 0x01) && (buf2 == 0x0C) && (buf3 == 0x05)) {
+		etspi->sensortype = SENSOR_EGIS;
+		pr_info("%s sensor type is EGIS ET512B sensor\n", __func__);
+	} else if ((buf1 == 0x00) && (buf2 == 0x17) && (buf3 == 0x05)) {
+		etspi->sensortype = SENSOR_EGIS;
+		pr_info("%s sensor type is EGIS ET523 sensor\n", __func__);
 	} else {
 		if ((buf4 == 0x00) && (buf5 == 0x66)
 				&& (buf6 == 0x00) && (buf7 == 0x33)) {
@@ -1133,11 +1161,53 @@ static ssize_t etspi_adm_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", DETECT_ADM);
 }
 
+static ssize_t etspi_intcnt_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "%d\n", data->interrupt_count);
+}
+
+static ssize_t etspi_intcnt_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,
+				size_t size)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+
+	if (sysfs_streq(buf, "c")) {
+		data->interrupt_count = 0;
+		pr_info("initialization is done\n");
+	}
+	return size;
+}
+
+static ssize_t etspi_resetcnt_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "%d\n", data->reset_count);
+}
+
+static ssize_t etspi_resetcnt_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,
+				size_t size)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+
+	if (sysfs_streq(buf, "c")) {
+		data->reset_count = 0;
+		pr_info("initialization is done\n");
+	}
+	return size;
+}
+
 static DEVICE_ATTR(bfs_values, 0444, etspi_bfs_values_show, NULL);
 static DEVICE_ATTR(type_check, 0444, etspi_type_check_show, NULL);
 static DEVICE_ATTR(vendor, 0444, etspi_vendor_show, NULL);
 static DEVICE_ATTR(name, 0444, etspi_name_show, NULL);
 static DEVICE_ATTR(adm, 0444, etspi_adm_show, NULL);
+static DEVICE_ATTR(intcnt, 0664, etspi_intcnt_show, etspi_intcnt_store);
+static DEVICE_ATTR(resetcnt, 0664, etspi_resetcnt_show, etspi_resetcnt_store);
 
 static struct device_attribute *fp_attrs[] = {
 	&dev_attr_bfs_values,
@@ -1145,6 +1215,8 @@ static struct device_attribute *fp_attrs[] = {
 	&dev_attr_vendor,
 	&dev_attr_name,
 	&dev_attr_adm,
+	&dev_attr_intcnt,
+	&dev_attr_resetcnt,
 	NULL,
 };
 
@@ -1169,10 +1241,10 @@ static void etspi_work_func_debug(struct work_struct *work)
 		sensor_status[g_data->sensortype + 2],
 		atomic_read(&g_data->is_boosting));
 #else
-	pr_info("%s ldo: %d, sleep: %d, tz: %d, type: %s\n",
+	pr_info("%s ldo: %d, sleep: %d, tz: %d, spi_value: 0x%x, type: %s\n",
 		__func__,
 		ldo_value, gpio_get_value(g_data->sleepPin),
-		g_data->tz_mode,
+		g_data->tz_mode, g_data->spi_value,
 		sensor_status[g_data->sensortype + 2]);
 #endif
 }
@@ -1276,7 +1348,7 @@ static int etspi_probe(struct spi_device *spi)
 		return status;
 	}
 #endif
-
+	etspi->spi_value = 0;
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	etspi->sensortype = SENSOR_UNKNOWN;
 #else
@@ -1294,6 +1366,8 @@ static int etspi_probe(struct spi_device *spi)
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	etspi->tz_mode = true;
 #endif
+	etspi->reset_count = 0;
+	etspi->interrupt_count = 0;
 	/* If we can allocate a minor number, hook up this device.
 	 * Reusing minors is fine so long as udev or mdev is working.
 	 */

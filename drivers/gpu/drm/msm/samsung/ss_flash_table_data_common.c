@@ -819,7 +819,7 @@ end:
 	vdd->panel_br_info.flash_data.init_done = true;
 
 	/* update brighntess */
-	ss_brightness_dcs(vdd, vdd->bl_level);
+	ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
 }
 
 void table_br_func(struct samsung_display_driver_data *vdd)

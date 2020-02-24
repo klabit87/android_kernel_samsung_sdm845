@@ -12,13 +12,13 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/blkdev.h>
+#include <linux/backing-dev.h>
 #include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <linux/scatterlist.h>
 #include <linux/dma-mapping.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
-#include <linux/backing-dev.h>
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
@@ -134,7 +134,14 @@ static int mmc_cmdq_thread(void *d)
 		if (kthread_should_stop())
 			break;
 
+		ret = mmc_cmdq_down_rwsem(host, mq->cmdq_req_peeked);
+		if (ret) {
+			mmc_cmdq_up_rwsem(host);
+			continue;
+		}
 		ret = mq->cmdq_issue_fn(mq, mq->cmdq_req_peeked);
+		mmc_cmdq_up_rwsem(host);
+
 		/*
 		 * Don't requeue if issue_fn fails.
 		 * Recovery will be come by completion softirq
@@ -153,9 +160,10 @@ static int mmc_queue_thread(void *d)
 	struct mmc_card *card = mq->card;
 	struct sched_param scheduler_params = {0};
 
-	scheduler_params.sched_priority = 1;
-
-	sched_setscheduler(current, SCHED_FIFO, &scheduler_params);
+	if (mq->card->type != MMC_TYPE_SD) {
+		scheduler_params.sched_priority = 1;
+		sched_setscheduler(current, SCHED_FIFO, &scheduler_params);
+	}
 
 	current->flags |= PF_MEMALLOC;
 	if (card->host->wakeup_on_idle)
@@ -167,7 +175,12 @@ static int mmc_queue_thread(void *d)
 
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
-		req = blk_fetch_request(q);
+		if (mq->mqrq_prev->req &&
+				(card && (card->type == MMC_TYPE_SD) &&
+				 card->host->pm_progress))
+			req = NULL;
+		else
+			req = blk_fetch_request(q);
 		mq->mqrq_cur->req = req;
 		spin_unlock_irq(q->queue_lock);
 
@@ -504,12 +517,14 @@ success:
 		mq->queue->nr_requests = BLKDEV_MAX_RQ / 8;
 		if (mq->queue->nr_requests < 32)
 			mq->queue->nr_requests = 32;
+
 #ifdef CONFIG_LARGE_DIRTY_BUFFER
 		/* apply more throttle on external sdcard */
 		mq->queue->backing_dev_info->capabilities |= BDI_CAP_STRICTLIMIT;
-		bdi_set_min_ratio(mq->queue->backing_dev_info, 20);
-		bdi_set_max_ratio(mq->queue->backing_dev_info, 20);
+		bdi_set_min_ratio(mq->queue->backing_dev_info, 30);
+		bdi_set_max_ratio(mq->queue->backing_dev_info, 60);
 #endif
+
 		pr_info("Parameters for external-sdcard: min/max_ratio: %u/%u "
 			"strictlimit: on nr_requests: %lu read_ahead_kb: %lu\n",
 			mq->queue->backing_dev_info->min_ratio,
@@ -557,6 +572,12 @@ void mmc_cleanup_queue(struct mmc_queue *mq)
 
 	/* Then terminate our worker thread */
 	kthread_stop(mq->thread);
+
+#ifdef CONFIG_LARGE_DIRTY_BUFFER
+	/* Restore bdi min/max ratio before device removal */
+	bdi_set_min_ratio(q->backing_dev_info, 0);
+	bdi_set_max_ratio(q->backing_dev_info, 100);
+#endif
 
 	/* Empty the queue */
 	spin_lock_irqsave(q->queue_lock, flags);
@@ -668,6 +689,7 @@ int mmc_cmdq_init(struct mmc_queue *mq, struct mmc_card *card)
 
 	init_waitqueue_head(&card->host->cmdq_ctx.queue_empty_wq);
 	init_waitqueue_head(&card->host->cmdq_ctx.wait);
+	init_rwsem(&card->host->cmdq_ctx.err_rwsem);
 
 	mq->mqrq_cmdq = kzalloc(
 			sizeof(struct mmc_queue_req) * q_depth, GFP_KERNEL);

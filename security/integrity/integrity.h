@@ -38,10 +38,10 @@ enum five_file_integrity {
 /* iint cache flags */
 #define IMA_ACTION_FLAGS	0xff000000
 #define IMA_ACTION_RULE_FLAGS	0x06000000
-#define IMA_DIGSIG		0x01000000
-#define IMA_DIGSIG_REQUIRED	0x02000000
-#define IMA_PERMIT_DIRECTIO	0x04000000
-#define IMA_NEW_FILE		0x08000000
+#define IMA_DIGSIG_REQUIRED	0x01000000
+#define IMA_PERMIT_DIRECTIO	0x02000000
+#define IMA_NEW_FILE		0x04000000
+#define EVM_IMMUTABLE_DIGSIG	0x08000000
 
 #define IMA_DO_MASK		(IMA_MEASURE | IMA_APPRAISE | IMA_AUDIT | \
 				 IMA_APPRAISE_SUBMASK)
@@ -66,11 +66,19 @@ enum five_file_integrity {
 #define IMA_APPRAISED_SUBMASK	(IMA_FILE_APPRAISED | IMA_MMAP_APPRAISED | \
 				 IMA_BPRM_APPRAISED | IMA_READ_APPRAISED)
 
+/* iint cache atomic_flags */
+#define IMA_CHANGE_XATTR	0
+#define IMA_UPDATE_XATTR	1
+#define IMA_CHANGE_ATTR		2
+#define IMA_DIGSIG		3
+#define IMA_MUST_MEASURE	4
+
 enum evm_ima_xattr_type {
 	IMA_XATTR_DIGEST = 0x01,
 	EVM_XATTR_HMAC,
 	EVM_IMA_XATTR_DIGSIG,
 	IMA_XATTR_DIGEST_NG,
+	EVM_XATTR_PORTABLE_DIGSIG,
 	IMA_XATTR_LAST
 };
 
@@ -113,10 +121,12 @@ struct signature_v2_hdr {
 /* integrity data associated with an inode */
 struct integrity_iint_cache {
 	struct rb_node rb_node;	/* rooted in integrity_iint_tree */
+	struct mutex mutex;	/* protects: version, flags, digest */
 	struct inode *inode;	/* back pointer to inode in question */
 	u64 version;		/* track inode changes */
 	unsigned long flags;
 	unsigned long measured_pcrs;
+	unsigned long atomic_flags;
 	enum integrity_status ima_file_status:4;
 	enum integrity_status ima_mmap_status:4;
 	enum integrity_status ima_bprm_status:4;
@@ -127,6 +137,7 @@ struct integrity_iint_cache {
 	unsigned long five_flags;
 	enum five_file_integrity five_status;
 	struct integrity_label *five_label;
+	bool five_signing;
 #endif
 };
 
@@ -181,7 +192,7 @@ static inline int asymmetric_verify(struct key *keyring, const char *sig,
 }
 #endif
 
-#ifdef CONFIG_FIVE_LOAD_X509
+#ifdef CONFIG_IMA_LOAD_X509
 void __init ima_load_x509(void);
 #else
 static inline void ima_load_x509(void)

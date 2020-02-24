@@ -132,6 +132,10 @@ static umode_t ccic_sysfs_attr_is_visible(struct kobject *kobj,
 			    pccic_sysfs->property_is_writeable(pccic_data, property)
 			    > 0)
 				mode |= S_IWUSR;
+			if (pccic_sysfs->property_is_writeonly &&
+			    pccic_sysfs->property_is_writeonly(pccic_data, property)
+			    > 0)
+				mode = S_IWUSR | S_IWGRP;
 
 			return mode;
 		}

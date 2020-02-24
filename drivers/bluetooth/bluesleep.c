@@ -193,6 +193,15 @@ static void hsuart_power(int on)
 			BT_DBG("%s called. But bluesleep already stopped 1", __func__);
 			return;
 		}
+		if (bsi->uport->state == NULL) {
+			BT_DBG("%s - bsi->uport->state is null", __func__);
+			return;
+		}
+		if (bsi->uport->state->port.count == 0) {
+			BT_DBG("%s - bsi->uport->state->port.count is 0, uart_close() already called", __func__);
+			return;
+		}
+
 		clk_cnt = bluesleep_get_uart_clock_count();
 
 		if (clk_cnt >= 1) {
@@ -449,7 +458,12 @@ static void bluesleep_abnormal_stop(void)
 
 	wake_lock_timeout(&bsi->wake_lock, HZ / 2);
 
-	clear_bit(BT_TXDATA, &flags);
+	if (test_bit(BT_TXDATA, &flags) || test_bit(BT_EXT_WAKE, &flags)){
+		clear_bit(BT_TXDATA, &flags);
+		clear_bit(BT_EXT_WAKE, &flags);
+		hsuart_power(0);
+	}
+
 	bsi->uport = NULL;
 }
 
@@ -495,15 +509,16 @@ struct uart_port *bluesleep_get_uart_port(void)
 
 static ssize_t bluesleep_read_proc_lpm(struct file *file, char __user *userbuf, size_t bytes, loff_t *off)
 {
-	int ret;
+	int min, ret;
+	min = (bytes > sizeof("lpm: 0 \n"))? sizeof("lpm: 0 \n"):bytes;
 
-	ret = copy_to_user(userbuf, bt_enabled?"lpm: 1 \n":"lpm: 0 \n", bytes);
+	ret = copy_to_user(userbuf, bt_enabled?"lpm: 1 \n":"lpm: 0 \n", min);
 	if (ret) {
 		BT_ERR("Failed to bluesleep_read_proc_lpm : %d", ret);
 		return ret;
 	}
 
-	return bytes;
+	return min;
 }
 
 static ssize_t bluesleep_write_proc_lpm(struct file *file, const char __user *buffer,

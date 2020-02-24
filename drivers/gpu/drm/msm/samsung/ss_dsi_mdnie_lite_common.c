@@ -170,7 +170,7 @@ int update_dsi_tcon_mdnie_register(struct samsung_display_driver_data *vdd)
 			else if((tune->mdnie_accessibility == NEGATIVE) || (tune->mdnie_accessibility == GRAYSCALE_NEGATIVE) || (tune->color_lens_enable == true)){
 				temp_bypass = BYPASS_ENABLE;
 			}
-			else if ((tune->light_notification) || (tune->mdnie_accessibility == COLOR_BLIND || tune->mdnie_accessibility == COLOR_BLIND_HBM) ||
+			else if ((tune->mdnie_accessibility == COLOR_BLIND || tune->mdnie_accessibility == COLOR_BLIND_HBM) ||
 				(tune->mdnie_accessibility == GRAYSCALE) || (tune->night_mode_enable == true) || (tune->ldu_mode_index != 0)) {
 				temp_bypass = BYPASS_DISABLE;
 			}
@@ -294,7 +294,7 @@ static ssize_t mode_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 
 	if (!vdd)
@@ -382,7 +382,7 @@ static ssize_t scenario_store(struct device *dev,
 					  const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 
 	if (!vdd)
@@ -440,7 +440,7 @@ static ssize_t outdoor_store(struct device *dev,
 					       const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 
 	if (!vdd)
@@ -496,7 +496,7 @@ static ssize_t bypass_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tun_type *tune = NULL;
-	int value;
+	int value = 0;
 
 	if (!vdd)
 		return 0;
@@ -559,7 +559,7 @@ static ssize_t accessibility_store(struct device *dev,
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tune_data *mdnie_data;
 	struct mdnie_lite_tun_type *tune = NULL;
-	int cmd_value;
+	int cmd_value = 0;
 	char buffer[MDNIE_COLOR_BLINDE_HBM_CMD_SIZE] = {0,};
 	int buffer2[MDNIE_COLOR_BLINDE_HBM_CMD_SIZE/2] = {0,};
 	int loop;
@@ -659,7 +659,7 @@ static ssize_t sensorRGB_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tune_data *mdnie_data;
-	int white_red, white_green, white_blue;
+	int white_red = 0, white_green = 0, white_blue = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 	struct dsi_cmd_desc *data_dsi = NULL;
 	struct dsi_cmd_desc *tune_data_dsi = NULL;
@@ -746,7 +746,7 @@ static ssize_t whiteRGB_store(struct device *dev,
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tune_data *mdnie_data;
 	int i;
-	int white_red, white_green, white_blue;
+	int white_red = 0, white_green = 0, white_blue = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 	struct dsi_cmd_desc *white_tunning_data = NULL;
 
@@ -761,32 +761,29 @@ static ssize_t whiteRGB_store(struct device *dev,
 
 	DPRINT("%s: white_red = %d, white_green = %d, white_blue = %d\n", __func__, white_red, white_green, white_blue);
 
-	if (tune->mdnie_mode == AUTO_MODE) {
-		if ((white_red <= 0 && white_red >= -40) && (white_green <= 0 && white_green >= -40) && (white_blue <= 0 && white_blue >= -40)) {
-			if (tune->ldu_mode_index == 0) {
-				mdnie_data->dsi_white_ldu_r = mdnie_data->dsi_white_default_r;
-				mdnie_data->dsi_white_ldu_g = mdnie_data->dsi_white_default_g;
-				mdnie_data->dsi_white_ldu_b = mdnie_data->dsi_white_default_b;
-			}
-			for (i = 0; i < MAX_APP_MODE; i++) {
-				if ((mdnie_data->mdnie_tune_value_dsi[i][AUTO_MODE][0] != NULL) && (i != eBOOK_APP)) {
-					white_tunning_data = mdnie_data->mdnie_tune_value_dsi[i][AUTO_MODE][0];
-					white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_r + white_red);
-					white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_g + white_green);
-					white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_b + white_blue);
-					mdnie_data->dsi_white_balanced_r = white_red;
-					mdnie_data->dsi_white_balanced_g = white_green;
-					mdnie_data->dsi_white_balanced_b = white_blue;
-				}
+	if ((white_red <= 0 && white_red >= -40) && (white_green <= 0 && white_green >= -40) && (white_blue <= 0 && white_blue >= -40)) {
+		if (tune->ldu_mode_index == 0) {
+			mdnie_data->dsi_white_ldu_r = mdnie_data->dsi_white_default_r;
+			mdnie_data->dsi_white_ldu_g = mdnie_data->dsi_white_default_g;
+			mdnie_data->dsi_white_ldu_b = mdnie_data->dsi_white_default_b;
+		}
+		for (i = 0; i < MAX_APP_MODE; i++) {
+			if ((mdnie_data->mdnie_tune_value_dsi[i][AUTO_MODE][0] != NULL) && (i != eBOOK_APP)) {
+				white_tunning_data = mdnie_data->mdnie_tune_value_dsi[i][AUTO_MODE][0];
+				white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_r + white_red);
+				white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_g + white_green);
+				white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_b + white_blue);
+				mdnie_data->dsi_white_balanced_r = white_red;
+				mdnie_data->dsi_white_balanced_g = white_green;
+				mdnie_data->dsi_white_balanced_b = white_blue;
 			}
 		}
-	}
-
-	white_tunning_data = mdnie_data->DSI_HBM_CE_MDNIE;
-	if(white_tunning_data != NULL) {
-		white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_r + white_red);
-		white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_g + white_green);
-		white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_b + white_blue);
+		white_tunning_data = mdnie_data->DSI_HBM_CE_MDNIE;
+		if(white_tunning_data != NULL) {
+			white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_r + white_red);
+			white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_g + white_green);
+			white_tunning_data[mdnie_data->dsi_scr_step_index].msg.tx_buf[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)(mdnie_data->dsi_white_ldu_b + white_blue);
+		}
 	}
 
 	if (!ss_is_ready_to_send_cmd(vdd)) {
@@ -824,7 +821,7 @@ static ssize_t mdnie_ldu_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tune_data *mdnie_data;
-	int i, j, idx;
+	int i, j, idx = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 	struct dsi_cmd_desc *ldu_tunning_data = NULL;
 
@@ -902,7 +899,7 @@ static ssize_t night_mode_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tune_data *mdnie_data;
-	int enable, idx;
+	int enable = 0, idx = 0;
 	char *buffer;
 	struct mdnie_lite_tun_type *tune = NULL;
 
@@ -965,7 +962,7 @@ static ssize_t color_lens_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tune_data *mdnie_data;
-	int enable, color, level;
+	int enable = 0, color = 0, level = 0;
 	char *buffer;
 	struct mdnie_lite_tun_type *tune = NULL;
 
@@ -1030,7 +1027,7 @@ static ssize_t hdr_store(struct device *dev,
 					  const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 
 	if (!vdd)
@@ -1086,7 +1083,7 @@ static ssize_t light_notification_store(struct device *dev,
 					  const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 
 	if (!vdd)
@@ -1221,7 +1218,7 @@ static ssize_t cabc_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
 	struct mdnie_lite_tun_type *tune = NULL;
-	int value;
+	int value = 0;
 
 	if (!vdd)
 		return 0;
@@ -1271,7 +1268,7 @@ static ssize_t hmt_color_temperature_store(struct device *dev,
 					  const char *buf, size_t size)
 {
 	struct samsung_display_driver_data *vdd = dev_get_drvdata(dev);
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *tune = NULL;
 
 	if (!vdd)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010, 2013-2018 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2010, 2013-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,6 +27,7 @@
 #include <linux/slab.h>
 #include <linux/regulator/consumer.h>
 #include <linux/clk.h>
+#include <linux/of_device.h>
 
 #if defined(CONFIG_CNSS)
 #include <net/cnss.h>
@@ -54,6 +55,7 @@ static bool previous;
 static int pwr_state;
 struct class *bt_class;
 static int bt_major;
+static int soc_id;
 
 static int bt_vreg_init(struct bt_power_vreg_data *vreg)
 {
@@ -68,6 +70,7 @@ static int bt_vreg_init(struct bt_power_vreg_data *vreg)
 		rc = PTR_ERR(vreg->reg);
 		pr_err("%s: regulator_get(%s) failed. rc=%d\n",
 			__func__, vreg->name, rc);
+		vreg->reg = NULL;
 		goto out;
 	}
 
@@ -610,9 +613,28 @@ static int bt_power_populate_dt_pinfo(struct platform_device *pdev)
 	return 0;
 }
 
+static int get_bt_reset_gpio_value(void)
+{
+	int rc = 0;
+	int bt_reset_gpio = bt_power_pdata->bt_gpio_sys_rst;
+
+	rc = gpio_request(bt_reset_gpio, "bt_sys_rst_n");
+	if (rc) {
+		BT_PWR_ERR("unable to request gpio %d (%d)\n",
+					bt_reset_gpio, rc);
+		return rc;
+	}
+
+	rc = gpio_get_value(bt_reset_gpio);
+	gpio_free(bt_power_pdata->bt_gpio_sys_rst);
+	return rc;
+}
+
 static int bt_power_probe(struct platform_device *pdev)
 {
 	int ret = 0;
+	const struct of_device_id *of_id =
+		of_match_device(bt_power_match_table, &pdev->dev);
 
 	dev_dbg(&pdev->dev, "%s\n", __func__);
 
@@ -653,6 +675,14 @@ static int bt_power_probe(struct platform_device *pdev)
 
 	btpdev = pdev;
 
+	if (of_id) {
+		if ((strcmp(of_id->compatible, "qca,qca6174") == 0) &&
+			(get_bt_reset_gpio_value() == BT_RESET_GPIO_HIGH_VAL)) {
+			bluetooth_toggle_radio(pdev->dev.platform_data, 0);
+			bluetooth_toggle_radio(pdev->dev.platform_data, 1);
+		}
+	}
+
 	return 0;
 
 free_pdata:
@@ -685,9 +715,16 @@ int bt_register_slimdev(struct device *dev)
 	return 0;
 }
 
+int get_chipset_version(void)
+{
+	BT_PWR_DBG("");
+	return soc_id;
+}
+
 static long bt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0, pwr_cntrl = 0;
+	int chipset_version = 0;
 
 	switch (cmd) {
 	case BT_CMD_SLIM_TEST:
@@ -710,6 +747,16 @@ static long bt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			BT_PWR_ERR("BT chip state is already :%d no change d\n"
 				, pwr_state);
 			ret = 0;
+		}
+		break;
+	case BT_CMD_CHIPSET_VERS:
+		chipset_version = (int)arg;
+		BT_PWR_ERR("BT_CMD_CHIP_VERS soc_version:%x", chipset_version);
+		if (chipset_version) {
+		soc_id = chipset_version;
+		} else {
+			BT_PWR_ERR("got invalid soc version");
+			soc_id = 0;
 		}
 		break;
 	default:

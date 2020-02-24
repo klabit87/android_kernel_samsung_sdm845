@@ -10,5 +10,3 @@ obj-$(CONFIG_SEC_DEBUG_FORCE_ERROR) += sec_debug_force_err.o
 obj-$(CONFIG_SEC_DEBUG_DOUBLE_FREE) += sec_debug-dfd.o
 obj-$(CONFIG_SEC_DEBUG_SUMMARY) += sec_debug_summary.o
 obj-$(CONFIG_SEC_NAD)		+= sec_nad.o
-
-obj-$(CONFIG_SEC_DEBUG_GAF_V4)		+= sec_gaf_v4.o

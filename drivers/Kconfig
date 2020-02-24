@@ -146,6 +146,8 @@ source "drivers/hv/Kconfig"
 
 source "drivers/xen/Kconfig"
 
+source "drivers/vservices/Kconfig"
+
 source "drivers/staging/Kconfig"
 
 source "drivers/platform/Kconfig"
@@ -237,4 +239,7 @@ source "drivers/five/Kconfig"
 source "drivers/gator/Kconfig"
 
 source "drivers/mpsd/Kconfig"
+
+source "drivers/security/samsung/icdrv/Kconfig"
+
 endmenu

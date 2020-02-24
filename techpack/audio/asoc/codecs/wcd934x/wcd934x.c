@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -637,6 +637,8 @@ struct tavil_priv {
 		[WCD934X_CHILD_DEVICES_MAX];
 	int child_count;
 	u32 dmic_rate_override;
+
+	int micb2_enabled;	
 };
 
 static const struct tavil_reg_mask_val tavil_spkr_default[] = {
@@ -1685,7 +1687,7 @@ static int tavil_codec_set_i2s_tx_ch(struct snd_soc_dapm_widget *w,
 
 		snd_soc_update_bits(codec,
 				    WCD934X_DATA_HUB_I2S_TX0_CFG,
-				    0x0C, 0x01);
+				    0x0C, 0x04);
 
 		snd_soc_update_bits(codec,
 				    WCD934X_DATA_HUB_I2S_TX1_0_CFG,
@@ -5073,6 +5075,40 @@ int tavil_codec_enable_standalone_micbias(struct snd_soc_codec *codec,
 }
 EXPORT_SYMBOL(tavil_codec_enable_standalone_micbias);
 
+static int tavil_codec_get_micb2(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct tavil_priv *tavil = snd_soc_codec_get_drvdata(codec);
+
+	ucontrol->value.integer.value[0] = tavil->micb2_enabled;
+
+	return 0;
+}
+
+static int tavil_codec_set_micb2(struct snd_kcontrol *kcontrol,
+				 struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct tavil_priv *tavil = snd_soc_codec_get_drvdata(codec);
+	int value = ucontrol->value.integer.value[0];
+	bool enable = !!value;
+	int ret;
+
+	ret = tavil_codec_enable_standalone_micbias(codec, MIC_BIAS_2,
+						    enable);
+	if (ret) {
+		dev_err(codec->dev,
+			"%s: Failed to enable standalone micb_2\n",
+			__func__);
+		return ret;
+	}
+
+	tavil->micb2_enabled = enable;
+
+	return ret;
+}
+
 static int tavil_codec_force_enable_micbias(struct snd_soc_dapm_widget *w,
 					    struct snd_kcontrol *kcontrol,
 					    int event)
@@ -6018,15 +6054,24 @@ static int tavil_mad_input_put(struct snd_kcontrol *kcontrol,
 
 	snd_soc_update_bits(codec, WCD934X_SOC_MAD_INP_SEL,
 			    0x0F, tavil_mad_input);
-	snd_soc_update_bits(codec, WCD934X_ANA_MAD_SETUP,
-			    0x07, mic_bias_found);
 	/* for all adc inputs, mad should be in micbias mode with BG enabled */
-	if (is_adc_input)
+	if (is_adc_input) {
+		if (adc == 2) {
+			snd_soc_update_bits(codec, WCD934X_ANA_MAD_SETUP,
+					    0x8F, 0x00);
+		} else {
+			snd_soc_update_bits(codec, WCD934X_ANA_MAD_SETUP,
+					    0x07, mic_bias_found);
+			snd_soc_update_bits(codec, WCD934X_ANA_MAD_SETUP,
+					    0x88, 0x88);
+		}
+	} else {
 		snd_soc_update_bits(codec, WCD934X_ANA_MAD_SETUP,
-				    0x88, 0x88);
-	else
-		snd_soc_update_bits(codec, WCD934X_ANA_MAD_SETUP,
-				    0x88, 0x00);
+				    0x07, mic_bias_found);
+ 		snd_soc_update_bits(codec, WCD934X_ANA_MAD_SETUP,
+ 				    0x88, 0x00);
+	}
+
 	return 0;
 }
 
@@ -6610,6 +6655,8 @@ static const struct snd_kcontrol_new tavil_snd_controls[] = {
 		tavil_amic_pwr_lvl_get, tavil_amic_pwr_lvl_put),
 	SOC_ENUM_EXT("DMIC_RATE OVERRIDE", dmic_rate_override,
 		dmic_rate_override_get, dmic_rate_override_put),
+	SOC_SINGLE_EXT("MICBIAS2 Enable", SND_SOC_NOPM, MIC_BIAS_2, 1, 0,
+			tavil_codec_get_micb2, tavil_codec_set_micb2),
 };
 
 static int tavil_dec_enum_put(struct snd_kcontrol *kcontrol,
@@ -8829,6 +8876,13 @@ static int tavil_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	return 0;
 }
 
+static int tavil_set_dai_sysclk(struct snd_soc_dai *dai,
+		int clk_id, unsigned int freq, int dir)
+{
+	pr_debug("%s\n", __func__);
+	return 0;
+}
+
 static struct snd_soc_dai_ops tavil_dai_ops = {
 	.startup = tavil_startup,
 	.shutdown = tavil_shutdown,
@@ -8843,6 +8897,7 @@ static struct snd_soc_dai_ops tavil_i2s_dai_ops = {
 	.shutdown = tavil_shutdown,
 	.hw_params = tavil_hw_params,
 	.prepare = tavil_prepare,
+	.set_sysclk = tavil_set_dai_sysclk,
 	.set_fmt = tavil_set_dai_fmt,
 };
 
@@ -9638,7 +9693,7 @@ static const struct tavil_reg_mask_val tavil_codec_reg_i2c_defaults[] = {
 	{WCD934X_DATA_HUB_RX2_CFG, 0x03, 0x01},
 	{WCD934X_DATA_HUB_RX3_CFG, 0x03, 0x01},
 	{WCD934X_DATA_HUB_I2S_TX0_CFG, 0x01, 0x01},
-	{WCD934X_DATA_HUB_I2S_TX0_CFG, 0x04, 0x01},
+	{WCD934X_DATA_HUB_I2S_TX0_CFG, 0x04, 0x04},
 	{WCD934X_DATA_HUB_I2S_TX1_0_CFG, 0x01, 0x01},
 	{WCD934X_DATA_HUB_I2S_TX1_1_CFG, 0x05, 0x05},
 	{WCD934X_CHIP_TIER_CTRL_ALT_FUNC_EN, 0x1, 0x1},

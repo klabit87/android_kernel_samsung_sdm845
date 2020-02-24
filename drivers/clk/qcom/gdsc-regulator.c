@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,6 +29,7 @@
 #include <linux/reset.h>
 #include <linux/mfd/syscon.h>
 #include <linux/clk/qcom.h>
+
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 
 /* GDSCR */

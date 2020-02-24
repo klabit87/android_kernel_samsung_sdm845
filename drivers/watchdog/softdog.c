@@ -54,6 +54,8 @@ module_param(soft_panic, int, 0);
 MODULE_PARM_DESC(soft_panic,
 	"Softdog action, set to 1 to panic, 0 to reboot (default=0)");
 
+static struct watchdog_device softdog_dev;
+
 static void softdog_fire(unsigned long data)
 {
 	module_put(THIS_MODULE);
@@ -61,7 +63,7 @@ static void softdog_fire(unsigned long data)
 		pr_crit("Triggered - Reboot ignored\n");
 	} else if (soft_panic) {
 		pr_crit("Initiating panic\n");
-		panic("Software Watchdog Timer expired");
+		panic("Software Watchdog Timer expired %ds", softdog_dev.timeout);
 	} else {
 		pr_crit("Initiating system reboot\n");
 		emergency_restart();
@@ -71,8 +73,6 @@ static void softdog_fire(unsigned long data)
 
 static struct timer_list softdog_ticktock =
 		TIMER_INITIALIZER(softdog_fire, 0, 0);
-
-static struct watchdog_device softdog_dev;
 
 static void softdog_pretimeout(unsigned long data)
 {

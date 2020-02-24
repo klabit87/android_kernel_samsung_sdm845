@@ -417,7 +417,7 @@ static int __cam_req_mgr_send_req(struct cam_req_mgr_core_link *link,
 			pd = dev->dev_info.p_delay;
 			idx = link->req.apply_data[pd].idx;
 			/*
-			 *  Just let flash go for this frame only 
+			 *  Just let flash go for this frame only
 			 */
 			if (link->req.in_q->slot[idx].skip_frm[pd].
 				skip_next_frame &&
@@ -2312,15 +2312,16 @@ int cam_req_mgr_link(struct cam_req_mgr_link_info *link_info)
 		return -EINVAL;
 	}
 
+	mutex_lock(&g_crm_core_dev->crm_lock);
+
 	/* session hdl's priv data is cam session struct */
 	cam_session = (struct cam_req_mgr_core_session *)
 		cam_get_device_priv(link_info->session_hdl);
 	if (!cam_session) {
 		CAM_DBG(CAM_CRM, "NULL pointer");
+		mutex_unlock(&g_crm_core_dev->crm_lock);
 		return -EINVAL;
 	}
-
-	mutex_lock(&g_crm_core_dev->crm_lock);
 
 	/* Allocate link struct and map it with session's request queue */
 	link = __cam_req_mgr_reserve_link(cam_session);
@@ -2679,7 +2680,7 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 					link->link_hdl);
 				rc = -EFAULT;
 			}
-			
+
 			/* notify nodes */
 			for (j = 0; j < link->num_devs; j++) {
 				dev = &link->l_dev[j];

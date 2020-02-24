@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -139,10 +139,6 @@
 	firmware: firmware {
 		android {
 			compatible = "android,firmware";
-			vbmeta {
-				compatible = "android,vbmeta";
-				parts = "vbmeta,boot,system,vendor,recovery";
-			};
 			fstab {
 				compatible = "android,fstab";
 				vendor_fstab: vendor {
@@ -151,7 +147,7 @@
 			"/dev/block/platform/soc/7824900.sdhci/by-name/vendor";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,avb";
+					fsmgr_flags = "wait,verify";
 					status = "ok";
 				};
 				system_fstab: system {
@@ -160,7 +156,7 @@
 			"/dev/block/platform/soc/7824900.sdhci/by-name/system";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,avb";
+					fsmgr_flags = "wait,verify";
 					status = "ok";
 				};
 			};
@@ -478,6 +474,16 @@
 		clock-names = "core", "iface";
 	};
 
+	blsp1_uart2: serial@78b0000 {
+		compatible = "qcom,msm-uartdm-v1.4", "qcom,msm-uart";
+		reg = <0x78b0000 0x200>;
+		interrupts = <0 108 0>;
+		status = "disabled";
+		clocks = <&clock_gcc clk_gcc_blsp1_uart2_apps_clk>,
+			 <&clock_gcc clk_gcc_blsp1_ahb_clk>;
+		clock-names = "core", "iface";
+	};
+
 	blsp1_uart2_hs: uart@78b0000 {		/*BLSP1 UART2*/
 		compatible = "qcom,msm-hsuart-v14";
 		reg = <0x78b0000 0x200>,
@@ -729,6 +735,12 @@
 			qcom,smdpkt-remote = "modem";
 			qcom,smdpkt-port-name = "DATA40_CNTL";
 			qcom,smdpkt-dev-name = "smdcntl8";
+		};
+
+		qcom,smdpkt-data2 {
+			qcom,smdpkt-remote = "modem";
+			qcom,smdpkt-port-name = "DATA2";
+			qcom,smdpkt-dev-name = "at_mdm0";
 		};
 
 		qcom,smdpkt-apr-apps2 {
@@ -1156,6 +1168,11 @@
 			compatible = "qcom,msm-imem-restart_reason";
 			reg = <0x65c 4>;
 		};
+
+		diag_dload@c8 {
+			compatible = "qcom,msm-imem-diag-dload";
+			reg = <0xc8 200>;
+		};
 	};
 
 	qcom,mpm2-sleep-counter@4a3000 {
@@ -1467,6 +1484,12 @@
 
 	loopback: qcom,msm-pcm-loopback {
 		compatible = "qcom,msm-pcm-loopback";
+	};
+
+	pcm_noirq: qcom,msm-pcm-dsp-noirq {
+		compatible = "qcom,msm-pcm-dsp-noirq";
+		qcom,msm-pcm-low-latency;
+		qcom,latency-level = "ultra";
 	};
 
 	qcom,msm-dai-mi2s {
@@ -1891,6 +1914,7 @@
 
 		qcom,firmware-name = "modem";
 		qcom,pil-self-auth;
+		qcom,sequential-fw-load;
 		qcom,sysmon-id = <0>;
 		qcom,ssctl-instance-id = <0x12>;
 		qcom,reset-clk;
