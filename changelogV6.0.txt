@@ -1,0 +1,15 @@
+7e123dad108c Import crownqlte && starqlte defconfigs
+824f70f8d070 Add .gitignore
+7d3612a88cbf Import G9600 and N9600 defconfig && initialize
+c1e7a35e59a7 Import G9600 and N9600 dts with verity removed
+0a587fae1745 Add option for gsi mtp driver
+10b851dfaa03 star2qlte: Initialize defconfig
+5f38f4cc0d99 Remove verity
+101dedaf7aec scripts: remove localversion + from kernel version strings
+c1b726584344 selinux: enable selinux faking
+70ed91e9c15a star2qltechn: Enable Samsung MTP driver
+9c88019d96fd drivers: usb: add separated Samsung MTP option
+6c54f88a648b star2qltechn: Update defconfig
+13a223ea3ed9 dts: disable avb,verify
+5c36fed8d37b Regen configs
+9a37c1921037 (osrc) OSRC: G9650ZCU6DTA9
