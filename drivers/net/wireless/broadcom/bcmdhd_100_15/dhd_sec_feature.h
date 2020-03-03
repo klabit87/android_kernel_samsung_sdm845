@@ -64,6 +64,8 @@
 
 #include <linuxver.h>
 
+#define ANDROID_PLATFORM_VERSION 10
+
 #if defined(ANDROID_PLATFORM_VERSION)
 #if (ANDROID_PLATFORM_VERSION >= 10)
 //#define STA_RANDMAC_ENFORCED

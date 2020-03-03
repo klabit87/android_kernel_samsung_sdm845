@@ -107,6 +107,8 @@
 #define IW_ENCODE_ALG_SM4 0x20
 #endif // endif
 
+#define ANDROID_PLATFORM_VERSION 10
+
 #ifndef IW_AUTH_WAPI_ENABLED
 #define IW_AUTH_WAPI_ENABLED 0x20
 #endif // endif
