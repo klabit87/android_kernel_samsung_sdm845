@@ -2449,7 +2449,7 @@ static inline void get_conservative_gov_params(struct cpufreq_policy *policy,
 	union cpufreq_gov_data *data)
 {
 	struct dbs_data *gov_data = policy->governor_data;
-	struct cs_dbs_tuners *tuners = gov_data->tuners;
+	struct cs_gov_tuners *tuners = gov_data->tuners;
 
 	if (unlikely(!tuners)) {
 #ifdef CONFIG_MPSD_DEBUG
