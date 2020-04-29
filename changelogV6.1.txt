@@ -1,3 +1,3 @@
-Add powersave governor
-Add conservative governor
-Add ondemand governor
+- Add powersave governor
+- Add conservative governor
+- Add ondemand governor
