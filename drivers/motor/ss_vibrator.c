@@ -679,13 +679,13 @@ static ssize_t intensity_store(struct device *dev,
 		return ret;
 	}
 
-	if ((set_intensity < 0) || (set_intensity > MAX_INTENSITY)) {
+	if ((set_intensity < 0) || (set_intensity > (MAX_INTENSITY / 100))) {
 		pr_err("[VIB]: %sout of rage\n", __func__);
 		return -EINVAL;
 	}
 
-	vibe_set_intensity(set_intensity);
-	vib->intensity = set_intensity;
+	vibe_set_intensity((set_intensity * 100));
+	vib->intensity = (set_intensity * 100);
 
 	return count;
 }
@@ -695,8 +695,38 @@ static ssize_t intensity_show(struct device *dev,
 {
 	struct ss_vib *vib = dev_get_drvdata(dev);
 
-	return sprintf(buf, "intensity: %u\n", vib->intensity);
+	return sprintf(buf, "%u\n", (vib->intensity / 100));
 }
+
+static ssize_t pwm_default_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%u\n", (DEFAULT_INTENSITY / 100));
+}
+
+static ssize_t pwm_max_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%u\n", (MAX_INTENSITY / 100));
+}
+
+static ssize_t pwm_min_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%u\n", 0);
+}
+
+static ssize_t pwm_threshold_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%u\n", 75);
+}
+
+static DEVICE_ATTR(pwm_default, 0444, pwm_default_show, NULL);
+static DEVICE_ATTR(pwm_max, 0444, pwm_max_show, NULL);
+static DEVICE_ATTR(pwm_min, 0444, pwm_min_show, NULL);
+static DEVICE_ATTR(pwm_threshold, 0444, pwm_threshold_show, NULL);
+static DEVICE_ATTR(pwm_value, 0644, intensity_show, intensity_store);
 
 static DEVICE_ATTR(intensity, 0660, intensity_show, intensity_store);
 
@@ -1043,7 +1073,7 @@ static int ss_vibrator_probe(struct platform_device *pdev)
 #else
 	vib->power_onoff = regulator_power_onoff;
 #endif
-	vib->intensity = MAX_INTENSITY;
+	vib->intensity = DEFAULT_INTENSITY;
 	vib->force_touch_intensity = MAX_INTENSITY;
 
 	if (f_multi_freq) {
@@ -1126,6 +1156,12 @@ static int ss_vibrator_probe(struct platform_device *pdev)
 	rc = sysfs_create_file(&vib_dev->kobj, &dev_attr_vib_tuning.attr);
 	if (rc)
 		pr_info("Failed to create sysfs group for samsung specific led\n");
+
+	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_pwm_default.attr);
+	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_pwm_min.attr);
+	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_pwm_max.attr);
+	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_pwm_threshold.attr);
+	rc = sysfs_create_file(&vib->to_dev->kobj, &dev_attr_pwm_value.attr);
 
 	wake_lock_init(&vib_wake_lock, WAKE_LOCK_SUSPEND, "vib_present");
 	pm_qos_add_request(&pm_qos_req, PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
