@@ -1040,7 +1040,7 @@ extern int get_lcd_attached(char *mode);
 extern int get_lcd_info(char *arg);
 #endif
 
-#if defined(CONFIG_MOTOR_DRV_MAX77705) || defined(CONFIG_MOTOR_DRV_MAX77865) || defined(CONFIG_SS_VIBRATOR)
+#if defined(CONFIG_MOTOR_DRV_MAX77705)
 extern int haptic_homekey_press(void);
 extern int haptic_homekey_release(void);
 #else
