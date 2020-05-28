@@ -23,7 +23,7 @@
 		samsung,freq_high = <3 140>;
 		samsung,freq_alert = <2 119>;
 		samsung,strength_od = <70>;
-		samsung,strength_default = <50>;
+		samsung,strength_default = <75>;
 		samsung,vib_type = "LINEAR_1040";	// MD05(PWM)+1040
 	};
 };
