@@ -181,11 +181,6 @@ static void parse_static_rules(const struct static_rule *rules, size_t max_len, 
 #endif /* DEFEX_PERMISSIVE_PED */
 			task_defex_privesc_store_status(global_privesc_obj, NULL, current_rule, count);
 			break;
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		case feature_ped_tgid:
-			task_defex_privesc_store_tgid(global_privesc_obj, NULL, current_rule, count);
-			break;
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 #endif /* DEFEX_PED_ENABLE */
 #ifdef DEFEX_SAFEPLACE_ENABLE
 		case feature_safeplace_status:

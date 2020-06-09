@@ -183,7 +183,7 @@ static int __uhid_report_queue_and_wait(struct uhid_device *uhid,
 
 	ret = wait_event_interruptible_timeout(uhid->report_wait,
 				!uhid->report_running || !uhid->running,
-				10/*5 * HZ*/);  // from 5000 to 10 due to BT stuck when connecting apple magic mouse
+				5 * HZ);
 	if (!ret || !uhid->running || uhid->report_running)
 		ret = -EIO;
 	else if (ret < 0)

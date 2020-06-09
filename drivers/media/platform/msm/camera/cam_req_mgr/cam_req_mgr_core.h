@@ -32,6 +32,10 @@
 
 #define MAX_SYNC_COUNT 65535
 
+#define SYNC_LINK_SOF_CNT_MAX_LMT 1
+
+#define MAXIMUM_LINKS_PER_SESSION  4
+
 /**
  * enum crm_workq_task_type
  * @codes: to identify which type of task is present
@@ -130,6 +134,7 @@ enum cam_req_mgr_link_state {
  * @apply_data    : pointer which various tables will update during traverse
  * @in_q          : input request queue pointer
  * @validate_only : Whether to validate only and/or update settings
+ * @open_req_cnt  : Count of open requests yet to be serviced in the kernel.
  */
 struct cam_req_mgr_traverse {
 	int32_t                       idx;
@@ -138,6 +143,7 @@ struct cam_req_mgr_traverse {
 	struct cam_req_mgr_apply     *apply_data;
 	struct cam_req_mgr_req_queue *in_q;
 	bool                          validate_only;
+	int32_t                      open_req_cnt;
 };
 
 /**
@@ -309,6 +315,13 @@ struct cam_req_mgr_connected_device {
  * @sync_self_ref        : reference sync count against which the difference
  *                         between sync_counts for a given link is checked
  * @frame_skip_flag      : flag that determines if a frame needs to be skipped
+ * @sync_link_sof_skip   : flag determines if a pkt is not available for a given
+ *                         frame in a particular link skip corresponding
+ *                         frame in sync link as well.
+ * @open_req_cnt         : Counter to keep track of open requests that are yet
+ *                         to be serviced in the kernel.
+ * @last_flush_id        : Last request to flush
+ * @is_used              : 1 if link is in use else 0
  *
  */
 struct cam_req_mgr_core_link {
@@ -331,6 +344,10 @@ struct cam_req_mgr_core_link {
 	int64_t                              sof_counter;
 	int64_t                              sync_self_ref;
 	bool                                 frame_skip_flag;
+	bool                                 sync_link_sof_skip;
+	int32_t                              open_req_cnt;
+	uint32_t                             last_flush_id;
+    atomic_t                             is_used;
 };
 
 /**
@@ -352,7 +369,7 @@ struct cam_req_mgr_core_link {
 struct cam_req_mgr_core_session {
 	int32_t                       session_hdl;
 	uint32_t                      num_links;
-	struct cam_req_mgr_core_link *links[MAX_LINKS_PER_SESSION];
+	struct cam_req_mgr_core_link *links[MAXIMUM_LINKS_PER_SESSION];
 	struct list_head              entry;
 	struct mutex                  lock;
 	int32_t                       force_err_recovery;
