@@ -1450,6 +1450,45 @@ static phys_addr_t arm_smmu_verify_fault(struct iommu_domain *domain,
 	return (phys == 0 ? phys_post_tlbiall : phys);
 }
 
+static char* arm_smmu_get_devname(struct arm_smmu_domain *smmu_domain, u32 sid)
+{
+	struct iommu_fwspec *fwspec = NULL;
+	struct device* dev = NULL;
+	u32 i;
+	char *colon, *comma, *dot, *ch = NULL;
+
+	if (smmu_domain->dev)
+		fwspec = smmu_domain->dev->iommu_fwspec;
+
+	for (i = 0; fwspec && i < fwspec->num_ids; i++) {
+		if ((fwspec->ids[i] & smmu_domain->smmu->streamid_mask) == sid) {
+			dev = smmu_domain->dev;
+			break;
+		}
+	}
+
+	if (dev) {
+		if (dev_is_pci(dev))
+			return (char *)dev_name(dev);
+			
+		colon = strrchr(dev_name(dev), ':');
+		comma = strrchr(dev_name(dev), ',');
+		dot = strrchr(dev_name(dev), '.');
+
+		if (colon == NULL && comma == NULL && dot == NULL)
+			return (char *)dev_name(dev);
+		
+		if (colon > comma)
+			ch = colon;
+		else
+			ch = comma;
+
+		return dot > ch ? dot + 1 : ch + 1;
+	}
+
+	return "No Device";
+}
+
 static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 {
 	int flags, ret, tmp;
@@ -1582,7 +1621,8 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 
 			sec_debug_save_smmu_info(&sec_dbg_smmu);
 
-			BUG();
+			//BUG();
+			panic("%s SMMU Fault - SID=0x%x", arm_smmu_get_devname(smmu_domain, frsynra), frsynra);
 		}
 	}
 

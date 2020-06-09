@@ -22,13 +22,12 @@ enum feature_types {
 	feature_ped_path = 4,
 	feature_ped_exception = 8,
 	feature_ped_status = 16,
-	feature_ped_tgid = 32,
-	feature_safeplace_path = 64,
-	feature_safeplace_status = 128,
-	feature_immutable_path_open = 256,
-	feature_immutable_path_write = 512,
-	feature_immutable_src_exception = 1024,
-	feature_immutable_status = 2048
+	feature_safeplace_path = 32,
+	feature_safeplace_status = 64,
+	feature_immutable_path_open = 128,
+	feature_immutable_path_write = 256,
+	feature_immutable_src_exception = 512,
+	feature_immutable_status = 1024
 };
 
 struct feature_match_entry {

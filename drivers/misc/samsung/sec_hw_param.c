@@ -77,8 +77,8 @@ static void check_format(char *buf, ssize_t *size, int max_len_str)
 			pos = i;
 		}
 
-		if (buf[i] == '\n')
-			buf[i] = '/';
+		if ((buf[i] < 0x20) || (buf[i] == 0x5C) || (buf[i] > 0x7E))
+			buf[i] = ' ';
 		i++;
 	}
 

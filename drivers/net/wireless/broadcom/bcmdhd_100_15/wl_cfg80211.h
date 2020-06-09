@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver
  *
- * Copyright (C) 1999-2019, Broadcom.
+ * Copyright (C) 1999-2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_cfg80211.h 850437 2019-11-13 13:01:26Z $
+ * $Id: wl_cfg80211.h 854461 2019-12-09 02:16:27Z $
  */
 
 /**
