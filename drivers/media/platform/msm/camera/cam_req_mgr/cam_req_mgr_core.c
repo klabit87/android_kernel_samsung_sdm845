@@ -26,6 +26,33 @@
 
 static struct cam_req_mgr_core_device *g_crm_core_dev;
 
+static struct cam_req_mgr_core_link g_links[MAXIMUM_LINKS_PER_SESSION];
+
+static void cam_req_mgr_core_link_reset(struct cam_req_mgr_core_link *link)
+{
+	link->link_hdl = 0;
+	link->num_devs = 0;
+	link->max_delay = CAM_PIPELINE_DELAY_0;
+	link->workq = NULL;
+	link->pd_mask = 0;
+	link->l_dev = NULL;
+	link->req.in_q = NULL;
+	link->req.l_tbl = NULL;
+	link->req.num_tbl = 0;
+	link->watchdog = NULL;
+	link->state = CAM_CRM_LINK_STATE_AVAILABLE;
+	link->parent = NULL;
+	link->subscribe_event = 0;
+	link->trigger_mask = 0;
+	link->sync_link = NULL;
+	link->sof_counter = 0;
+	link->sync_self_ref = 0;
+	link->frame_skip_flag = false;
+	link->sync_link_sof_skip = false;
+	link->open_req_cnt = 0;
+	link->last_flush_id = 0;
+}
+
 void cam_req_mgr_handle_core_shutdown(void)
 {
 	struct cam_req_mgr_core_session *session;
@@ -244,6 +271,13 @@ static int __cam_req_mgr_traverse(struct cam_req_mgr_traverse *traverse_data)
 		}
 	} else {
 		/* This pd table is not ready to proceed with asked idx */
+		
+		CAM_INFO(CAM_CRM,
+			"Skip Frame: req: %lld not ready pd: %d open_req count: %d",
+			CRM_GET_REQ_ID(traverse_data->in_q, curr_idx),
+			tbl->pd,
+			traverse_data->open_req_cnt);
+			
 		SET_FAILURE_BIT(traverse_data->result, tbl->pd);
 		return -EAGAIN;
 	}
@@ -496,6 +530,9 @@ static int __cam_req_mgr_send_req(struct cam_req_mgr_core_link *link,
 				rc = dev->ops->apply_req(&apply_req);
 				if (rc < 0)
 					break;
+				
+				if (pd == link->max_delay)
+					link->open_req_cnt--;
 			}
 		}
 	}
@@ -552,6 +589,7 @@ static int __cam_req_mgr_check_link_is_ready(struct cam_req_mgr_core_link *link,
 	traverse_data.in_q = in_q;
 	traverse_data.result = 0;
 	traverse_data.validate_only = validate_only;
+	traverse_data.open_req_cnt = link->open_req_cnt;
 	/*
 	 *  Traverse through all pd tables, if result is success,
 	 *  apply the settings
@@ -691,7 +729,7 @@ static int __cam_req_mgr_validate_sof_cnt(
 		link->link_hdl,
 		link->sof_counter, sync_link->sof_counter, sync_diff);
 
-	if (sync_diff != link->sync_self_ref) {
+	if (sync_diff > SYNC_LINK_SOF_CNT_MAX_LMT) {
 		link->sync_link->frame_skip_flag = true;
 		CAM_WARN(CAM_CRM,
 			"Detected anomaly, skip link:%d, self=%lld, other=%lld",
@@ -734,6 +772,14 @@ static int __cam_req_mgr_process_sync_req(
 		"Link[%x] Req[%lld]  selfRef[%lld], sof_counter[%lld]",
 		link->link_hdl, req_id, link->sync_self_ref, link->sof_counter);
 
+	if (sync_link->sync_link_sof_skip) {
+		CAM_DBG(CAM_CRM,
+			"No req applied on corresponding SOF on sync link: %x",
+			sync_link->link_hdl);
+		sync_link->sync_link_sof_skip = false;
+		return -EINVAL;
+	}
+
 	if (link->sof_counter == -1) {
 		__cam_req_mgr_sof_cnt_initialize(link);
 	} else if ((link->frame_skip_flag) && (sync_link->sync_self_ref != -1)) {
@@ -750,6 +796,7 @@ static int __cam_req_mgr_process_sync_req(
 		CAM_DBG(CAM_CRM,
 			"Req: %lld [My link]not available link: %x, rc=%d",
 			req_id, link->link_hdl, rc);
+		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -786,6 +833,7 @@ static int __cam_req_mgr_process_sync_req(
 			"Req: %lld [Other link] not ready to apply on link: %x",
 			req_id, sync_link->link_hdl);
 		rc = -EPERM;
+		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -903,6 +951,9 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 			link->state = CAM_CRM_LINK_STATE_READY;
 		}
 		spin_unlock_bh(&link->link_state_spin_lock);
+		
+		if (link->sync_link_sof_skip)
+			link->sync_link_sof_skip = false;
 
 		if (link->trigger_mask == link->subscribe_event) {
 			slot->status = CRM_SLOT_STATUS_REQ_APPLIED;
@@ -1220,30 +1271,32 @@ static struct cam_req_mgr_core_link *__cam_req_mgr_reserve_link(
 		return NULL;
 	}
 
-	if (session->num_links >= MAX_LINKS_PER_SESSION) {
+	if (session->num_links >= MAXIMUM_LINKS_PER_SESSION) {
 		CAM_ERR(CAM_CRM, "Reached max links %d per session limit %d",
-			session->num_links, MAX_LINKS_PER_SESSION);
+			session->num_links, MAXIMUM_LINKS_PER_SESSION);
 		return NULL;
 	}
 
-	link = (struct cam_req_mgr_core_link *)
-		kzalloc(sizeof(struct cam_req_mgr_core_link), GFP_KERNEL);
-	if (!link) {
-		CAM_ERR(CAM_CRM, "failed to create link, no mem");
-		return NULL;
+	for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
+		if (!atomic_cmpxchg(&g_links[i].is_used, 0, 1)) {
+			link = &g_links[i];
+			CAM_DBG(CAM_CRM, "alloc link index %d", i);
+			cam_req_mgr_core_link_reset(link);
+			break;
+		}
 	}
+	
+	if (i == MAXIMUM_LINKS_PER_SESSION)
+		return NULL;
+	
 	in_q = (struct cam_req_mgr_req_queue *)
 		kzalloc(sizeof(struct cam_req_mgr_req_queue), GFP_KERNEL);
 	if (!in_q) {
 		CAM_ERR(CAM_CRM, "failed to create input queue, no mem");
-		kfree(link);
 		return NULL;
 	}
-	mutex_init(&link->lock);
-	spin_lock_init(&link->link_state_spin_lock);
 
 	mutex_lock(&link->lock);
-	link->state = CAM_CRM_LINK_STATE_AVAILABLE;
 	link->num_devs = 0;
 	link->max_delay = 0;
 	memset(in_q->slot, 0,
@@ -1257,7 +1310,7 @@ static struct cam_req_mgr_core_link *__cam_req_mgr_reserve_link(
 
 	mutex_lock(&session->lock);
 	/*  Loop through and find a free index */
-	for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+	for (i = 0; i <MAXIMUM_LINKS_PER_SESSION; i++) {
 		if (!session->links[i]) {
 			CAM_DBG(CAM_CRM,
 				"Free link index %d found, num_links=%d",
@@ -1267,7 +1320,7 @@ static struct cam_req_mgr_core_link *__cam_req_mgr_reserve_link(
 		}
 	}
 
-	if (i == MAX_LINKS_PER_SESSION) {
+	if (i == MAXIMUM_LINKS_PER_SESSION) {
 		CAM_ERR(CAM_CRM, "Free link index not found");
 		goto error;
 	}
@@ -1280,7 +1333,6 @@ static struct cam_req_mgr_core_link *__cam_req_mgr_reserve_link(
 	return link;
 error:
 	mutex_unlock(&session->lock);
-	kfree(link);
 	kfree(in_q);
 	return NULL;
 }
@@ -1295,9 +1347,12 @@ error:
  */
 static void __cam_req_mgr_free_link(struct cam_req_mgr_core_link *link)
 {
+	ptrdiff_t i;
 	kfree(link->req.in_q);
 	link->req.in_q = NULL;
-	kfree(link);
+	i = link - g_links;
+	CAM_DBG(CAM_CRM, "free link index %d", i);
+	atomic_set(&g_links[i].is_used, 0);
 }
 
 /**
@@ -1328,7 +1383,7 @@ static void __cam_req_mgr_unreserve_link(
 		return;
 	}
 
-	for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+	for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
 		if (session->links[i] == link)
 			session->links[i] = NULL;
 	}
@@ -1340,7 +1395,7 @@ static void __cam_req_mgr_unreserve_link(
 		 * of only having 2 links in a given session
 		 */
 		session->sync_mode = CAM_REQ_MGR_SYNC_MODE_NO_SYNC;
-		for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+		for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
 			if (session->links[i])
 				session->links[i]->sync_link = NULL;
 		}
@@ -1521,6 +1576,7 @@ int cam_req_mgr_process_sched_req(void *priv, void *data)
 	slot->sync_mode = sched_req->sync_mode;
 	slot->skip_idx = 0;
 	slot->recover = sched_req->bubble_enable;
+	link->open_req_cnt++;
 	__cam_req_mgr_inc_idx(&in_q->wr_idx, 1, in_q->num_slots);
 	mutex_unlock(&link->req.lock);
 
@@ -2268,7 +2324,7 @@ int cam_req_mgr_destroy_session(
 			ses_info->session_hdl,
 			cam_session->num_links);
 
-		for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+		for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
 			link = cam_session->links[i];
 
 			if (!link)
@@ -2557,6 +2613,8 @@ int cam_req_mgr_sync_config(
 	link1->sof_counter = -1;
 	link1->sync_self_ref = -1;
 	link1->frame_skip_flag = false;
+	link1->sync_link_sof_skip = false;
+	link2->sync_link_sof_skip = false;
 	link1->sync_link = link2;
 
 	link2->sof_counter = -1;
@@ -2657,6 +2715,13 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 		goto end;
 	}
 
+	if (control->num_links > MAX_LINKS_PER_SESSION) {
+		CAM_ERR(CAM_CRM, "Invalid number of links %d",
+			control->num_links);
+		rc = -EINVAL;
+		goto end;
+	}
+	
 	mutex_lock(&g_crm_core_dev->crm_lock);
 	for (i = 0; i < control->num_links; i++) {
 		link = (struct cam_req_mgr_core_link *)
@@ -2720,6 +2785,7 @@ end:
 
 int cam_req_mgr_core_device_init(void)
 {
+	int i;
 	CAM_DBG(CAM_CRM, "Enter g_crm_core_dev %pK", g_crm_core_dev);
 
 	if (g_crm_core_dev) {
@@ -2735,6 +2801,13 @@ int cam_req_mgr_core_device_init(void)
 	INIT_LIST_HEAD(&g_crm_core_dev->session_head);
 	mutex_init(&g_crm_core_dev->crm_lock);
 	cam_req_mgr_debug_register(g_crm_core_dev);
+ 
+	for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
+		mutex_init(&g_links[i].lock);
+		spin_lock_init(&g_links[i].link_state_spin_lock);
+		atomic_set(&g_links[i].is_used, 0);
+		cam_req_mgr_core_link_reset(&g_links[i]);
+	}
 
 	return 0;
 }

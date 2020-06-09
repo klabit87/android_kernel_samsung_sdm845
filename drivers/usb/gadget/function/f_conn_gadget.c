@@ -640,7 +640,13 @@ static ssize_t conn_gadget_write(struct file *fp, const char __user *buf,
 
 		if (ret < 0) {
 			r = ret;
-			pr_err("%s: wait_event_interruptible(wrwq,reqget) failed %d\n", __func__, ret);
+			printk(KERN_ERR "%s: wait_event_interruptible(wrwq,reqget) failed %d\n", __func__, ret);
+			break;
+		}
+
+		if (dev->error) {
+			r = -EIO;
+			printk(KERN_ERR "%s: wait_event_interruptible(), dev->error\n", __func__);
 			break;
 		}
 

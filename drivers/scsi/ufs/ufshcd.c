@@ -10046,6 +10046,7 @@ static int ufshcd_set_dev_pwr_mode(struct ufs_hba *hba,
 	struct scsi_device *sdp;
 	unsigned long flags;
 	int ret;
+	int retries = 0;
 
 	spin_lock_irqsave(hba->host->host_lock, flags);
 	sdp = hba->sdev_ufs_device;
@@ -10080,19 +10081,23 @@ static int ufshcd_set_dev_pwr_mode(struct ufs_hba *hba,
 
 	cmd[4] = pwr_mode << 4;
 
-	/*
-	 * Current function would be generally called from the power management
-	 * callbacks hence set the REQ_PM flag so that it doesn't resume the
-	 * already suspended childs.
-	 */
-	ret = scsi_execute_req_flags(sdp, cmd, DMA_NONE, NULL, 0, &sshdr,
-				     UFS_START_STOP_TIMEOUT, 2, NULL, REQ_PM);
-	if (ret) {
-		sdev_printk(KERN_WARNING, sdp,
-			    "START_STOP failed for power mode: %d, result %x\n",
-			    pwr_mode, ret);
-		if (driver_byte(ret) & DRIVER_SENSE)
-			scsi_print_sense_hdr(sdp, NULL, &sshdr);
+	for (retries = 0; retries < 3; retries++) {
+		/*
+		 * Current function would be generally called from the power management
+		 * callbacks hence set the REQ_PM flag so that it doesn't resume the
+		 * already suspended childs.
+		 */
+		ret = scsi_execute_req_flags(sdp, cmd, DMA_NONE, NULL, 0, &sshdr,
+				UFS_START_STOP_TIMEOUT, 2, NULL, REQ_PM);
+		if (ret) {
+			sdev_printk(KERN_WARNING, sdp,
+					"START_STOP failed for power mode: %d, result %x, retries : %d\n",
+					pwr_mode, ret, retries);
+			if (driver_byte(ret) & DRIVER_SENSE)
+				scsi_print_sense_hdr(sdp, NULL, &sshdr);
+		} else {
+			break;
+		}
 	}
 
 	if (!ret)
