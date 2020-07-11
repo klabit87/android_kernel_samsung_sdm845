@@ -68,6 +68,7 @@
 #endif
 
 #if defined(CONFIG_MFC_CHARGER)
+#if 0
 static inline struct power_supply *get_power_supply_by_name(char *name)
 {
 	if (!name)
@@ -96,6 +97,7 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 		}    \
 	}    \
 }
+#endif
 #endif
 
 /* global variables */
@@ -237,6 +239,10 @@ extern void mst_ctrl_of_mst_hw_onoff(bool on)
 		psy_do_property("mfc-charger", set,
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		mst_info("%s: MST_MODE notify : %d\n", __func__, value.intval);
+
+                value.intval = 0;
+                psy_do_property("mfc-charger", set, POWER_SUPPLY_EXT_PROP_WPC_EN_MST, value);
+                mst_info("%s : MFC_IC Disable notify : %d\n", __func__, value.intval);
 #endif
 #if defined(CONFIG_ARCH_QCOM)
 		/* Boost Disable */
@@ -300,6 +306,11 @@ static void of_mst_hw_onoff(bool on)
 
 	if (on) {
 #if defined(CONFIG_MFC_CHARGER)
+                mst_info("%s : MFC_IC Enable notify start\n", __func__);
+                value.intval = 1;
+                psy_do_property("mfc-charger", set, POWER_SUPPLY_EXT_PROP_WPC_EN_MST, value);
+                mst_info("%s : MFC_IC Enable notified : %d\n", __func__, value.intval);
+
 		value.intval = ON;
 		psy_do_property("mfc-charger", set,
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
@@ -401,6 +412,10 @@ static void of_mst_hw_onoff(bool on)
 				POWER_SUPPLY_PROP_TECHNOLOGY, value);
 		mst_info("%s: MST_MODE notify : %d\n", __func__,
 			 value.intval);
+
+                value.intval = 0;
+                psy_do_property("mfc-charger", set, POWER_SUPPLY_EXT_PROP_WPC_EN_MST, value);
+                printk("%s : MFC_IC Disable notify : %d\n", __func__, value.intval);
 #endif
 
 #if defined(CONFIG_ARCH_QCOM)

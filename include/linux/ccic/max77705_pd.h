@@ -26,6 +26,60 @@ enum {
 	CC_NO_CONN,
 };
 
+typedef enum {
+	PDO_TYPE_FIXED = 0,
+	PDO_TYPE_BATTERY,
+	PDO_TYPE_VARIABLE,
+	PDO_TYPE_APDO
+} pdo_supply_type_t;
+
+typedef union sec_pdo_object {
+	uint32_t		data;
+	struct {
+		uint8_t		bdata[4];
+	} BYTES;
+	struct {
+		uint32_t	reserved:30,
+					type:2;
+	} BITS_supply;
+	struct {
+		uint32_t	max_current:10,        /* 10mA units */
+				voltage:10,            /* 50mV units */
+				peak_current:2,
+				reserved:2,
+				unchuncked_extended_messages_supported:1,
+				data_role_data:1,
+				usb_communications_capable:1,
+				unconstrained_power:1,
+				usb_suspend_supported:1,
+				dual_role_power:1,
+				supply:2;			/* Fixed supply : 00b */
+	} BITS_pdo_fixed;
+	struct {
+		uint32_t	max_current:10,		/* 10mA units */
+				min_voltage:10,		/* 50mV units */
+				max_voltage:10,		/* 50mV units */
+				supply:2;		/* Variable Supply (non-Battery) : 10b */
+	} BITS_pdo_variable;
+	struct {
+		uint32_t	max_allowable_power:10,		/* 250mW units */
+				min_voltage:10,		/* 50mV units  */
+				max_voltage:10,		/* 50mV units  */
+				supply:2;		/* Battery : 01b */
+	} BITS_pdo_battery;
+	struct {
+		uint32_t	max_current:7, 	/* 50mA units */
+				reserved1:1,
+				min_voltage:8, 	/* 100mV units	*/
+				reserved2:1,
+				max_voltage:8, 	/* 100mV units	*/
+				reserved3:2,
+				pps_power_limited:1,
+				pps_supply:2,
+				supply:2;		/* APDO : 11b */
+	} BITS_pdo_programmable;
+} U_SEC_PDO_OBJECT;
+
 struct max77705_pd_data {
 	/* interrupt pin */
 	int irq_pdmsg;

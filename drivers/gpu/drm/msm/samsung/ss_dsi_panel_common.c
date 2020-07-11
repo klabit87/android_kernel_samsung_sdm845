@@ -3654,6 +3654,7 @@ int samsung_display_hall_ic_status(struct notifier_block *nb,
 	if (vdd->folder_com->secure_display_mode) {
 		LCD_INFO("[FOLDER]waiting for secure_display_done\n");
 		wait_for_completion_interruptible_timeout(&vdd->folder_com->secure_display_done, HZ);
+		vdd->folder_com->secure_display_mode = false; //in case timeout happen
 	}
 
 	vdd->folder_com->hall_ic_status = (bool)(param & 0x1);

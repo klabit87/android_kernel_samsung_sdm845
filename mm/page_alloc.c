@@ -3894,7 +3894,8 @@ retry:
 	}
 
 	/* Avoid allocations with no watermarks from looping endlessly */
-	if (fatal_signal_pending(current) && !(gfp_mask & __GFP_NOFAIL)) {
+	if (fatal_signal_pending(current) && !(gfp_mask & __GFP_NOFAIL) &&
+			(gfp_mask & __GFP_FS)) {
                pr_warn("%s: has fatal_signal_pending\n", current->comm);
 		goto nopage;
 	}

@@ -215,7 +215,7 @@ obj-$(CONFIG_UH)        += uh/
 obj-y				+= debug/
 
 # FIVE TEE driver
-obj-$(CONFIG_FIVE_TEE_DRIVER)	+= five/
+obj-$(CONFIG_FIVE_TEE_DRIVER)	+= security/samsung/five_tee_driver/
 obj-$(CONFIG_ICD)		+= security/samsung/icdrv/
 
 # MPSD driver
@@ -227,3 +227,6 @@ ifeq ($(CONFIG_GATOR), y)
 endif
 
 obj-y				+= kperfmon/
+
+#TZIC
+obj-y  += security/samsung/tzic/

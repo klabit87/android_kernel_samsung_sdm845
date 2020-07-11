@@ -2616,6 +2616,24 @@ static int sde_kms_check_secure_transition(struct msm_kms *kms,
 		}
 	}
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (vdd->support_hall_ic) {
+		if (global_sec_session || sec_session) {
+			if (!vdd->folder_com->secure_display_mode) {
+				reinit_completion(&vdd->folder_com->secure_display_done);
+				SDE_DEBUG("enter secure display\n");
+				vdd->folder_com->secure_display_mode = true;
+			}
+		} else if (!global_sec_session && !sec_session) {
+			if (vdd->folder_com->secure_display_mode) {
+				vdd->folder_com->secure_display_mode = false;
+				SDE_DEBUG("exit secure display\n");
+				complete(&vdd->folder_com->secure_display_done);
+			}
+		}
+	}
+#endif
+
 	if (!global_sec_session && !sec_session)
 		return 0;
 
@@ -2644,23 +2662,6 @@ static int sde_kms_check_secure_transition(struct msm_kms *kms,
 		return -EPERM;
 	}
 
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-	if (vdd->support_hall_ic) {
-		if (global_sec_session || sec_session) {
-			if (!vdd->folder_com->secure_display_mode) {
-				reinit_completion(&vdd->folder_com->secure_display_done);
-				SDE_DEBUG("enter secure display\n");
-				vdd->folder_com->secure_display_mode = true;
-			}
-		} else if (!global_sec_session && !sec_session) {
-			if (vdd->folder_com->secure_display_mode) {
-				vdd->folder_com->secure_display_mode = false;
-				SDE_DEBUG("exit secure display\n");
-				complete(&vdd->folder_com->secure_display_done);
-			}
-		}
-	}
-#endif
 
 	return 0;
 }

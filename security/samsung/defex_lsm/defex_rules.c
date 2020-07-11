@@ -158,6 +158,9 @@ const struct static_rule defex_static_rules[] = {
 	{feature_safeplace_path,"/system/bin/bugreport"},
 	{feature_safeplace_path,"/system/bin/minadbd"},
 	{feature_safeplace_path,"/system/bin/migrate_legacy_obb_data.sh"},
+	{feature_safeplace_path,"/vendor/bin/shsusrd"},
+	{feature_safeplace_path,"/system/bin/defrag_f2fs"},
+	{feature_safeplace_path,"/system/bin/fastbootd"},
 	{feature_safeplace_path,"/tmp/update_binary"},
 	{feature_safeplace_path,"/system/bin/install-recovery.sh"},
 	{feature_safeplace_path,"/system/bin/install-recovery.sh"},	/* DEFAULT */
