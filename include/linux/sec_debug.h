@@ -17,6 +17,7 @@
 #define SEC_DEBUG_H
 
 #include <linux/ftrace.h>
+#include <linux/version.h>
 #include <linux/of_address.h>
 #include <linux/reboot.h>
 #include <linux/sched.h>
@@ -100,6 +101,10 @@ enum sec_restart_reason_t {
 #define UPLOAD_MSG_CRASH_KEY			"Crash Key"
 #define UPLOAD_MSG_USER_CRASH_KEY		"User Crash Key"
 #define UPLOAD_MSG_LONG_KEY_PRESS		"Long Key Press"
+#define UPLOAD_MSG_PF_WD_BITE			"Software Watchdog Timer expired"
+#define UPLOAD_MSG_PF_WD_INIT_FAIL		"Platform Watchdog couldnot be initialized"
+#define UPLOAD_MSG_PF_WD_RESTART_FAIL	"Platform Watchdog couldnot be restarted"
+#define UPLOAD_MSG_PF_WD_KICK_FAIL		"Platform Watchdog can't update sync_cnt"
 
 #ifdef CONFIG_SEC_DEBUG
 DECLARE_PER_CPU(struct sec_debug_core_t, sec_debug_core_reg);

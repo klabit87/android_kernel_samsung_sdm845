@@ -17,6 +17,7 @@
 #define __SEC_DEBUG_INTERNAL_H__
 
 /* [[BEGIN>> sec_debug.c */
+extern void dump_memory_info(void);
 extern void dump_all_task_info(void);
 extern void dump_cpu_stat(void);
 /* <<END]] sec_debug.c */

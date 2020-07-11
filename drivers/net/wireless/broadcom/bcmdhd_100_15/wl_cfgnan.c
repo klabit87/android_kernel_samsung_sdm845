@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_cfgnan.c 863148 2020-02-06 10:48:09Z $
+ * $Id: wl_cfgnan.c 866423 2020-02-27 07:08:17Z $
  */
 
 #ifdef WL_NAN
@@ -2630,8 +2630,7 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 			goto fail;
 		}
 	}
-	/* Setting warm up time */
-	cmd_data->warmup_time = 1;
+
 	if (cmd_data->warmup_time) {
 		ret = wl_cfgnan_warmup_time_handler(cmd_data, nan_iov_data);
 		if (unlikely(ret)) {
@@ -2994,6 +2993,7 @@ void wl_cfgnan_disable_cleanup(struct bcm_cfg80211 *cfg)
 			cfg->nancfg.max_ndp_count * sizeof(nan_ndp_peer_t));
 		cfg->nancfg.nan_ndp_peer_info = NULL;
 	}
+	wl_cfg80211_concurrent_roam(cfg, false);
 	return;
 }
 
@@ -8398,6 +8398,7 @@ wl_cfgnan_update_dp_info(struct bcm_cfg80211 *cfg, bool add,
 			cfg->nancfg.ndp_id[i] = ndp_id;
 			WL_DBG(("%s:Added ndp id = [%d] at i = %d\n",
 					__FUNCTION__, cfg->nancfg.ndp_id[i], i));
+			wl_cfg80211_concurrent_roam(cfg, true);
 		}
 	} else {
 		ASSERT(cfg->nan_dp_count);
@@ -8419,6 +8420,10 @@ wl_cfgnan_update_dp_info(struct bcm_cfg80211 *cfg, bool add,
 			}
 			if (match_found == false) {
 				WL_ERR(("Received unsaved NDP Id = %d !!\n", ndp_id));
+			} else {
+				if (cfg->nan_dp_count == 0) {
+					wl_cfg80211_concurrent_roam(cfg, false);
+				}
 			}
 		}
 

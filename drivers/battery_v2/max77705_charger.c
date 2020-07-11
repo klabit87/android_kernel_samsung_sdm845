@@ -1494,6 +1494,11 @@ static int max77705_chg_set_property(struct power_supply *psy,
 			max77705_change_charge_path(charger,
 				val->intval, charger->cable_type);
 			break;
+		case POWER_SUPPLY_EXT_PROP_PAD_VOLT_CTRL:
+			wake_unlock(&charger->wc_current_wake_lock);
+			cancel_delayed_work(&charger->wc_current_work);
+			max77705_set_input_current(charger, val->intval);
+			break;
 		default:
 			return -EINVAL;
 		}
