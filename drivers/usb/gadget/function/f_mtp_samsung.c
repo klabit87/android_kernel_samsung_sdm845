@@ -801,6 +801,13 @@ static ssize_t mtpg_write(struct file *fp, const char __user *buf,
 				((req = mtpg_req_get(dev, &dev->tx_idle))
 							|| dev->error));
 
+		if (dev->error) {
+			r = -EIO;
+			pr_info("[%s]%d dev->error so brk\n",
+							 __func__, __LINE__);
+			break;
+		}
+
 		if (ret < 0) {
 			r = ret;
 			pr_info("[%s]\t%d ret = %d\n",

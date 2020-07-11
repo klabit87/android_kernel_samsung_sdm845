@@ -205,6 +205,8 @@ struct abov_tk_info {
 	char light_version_full_efs[LIGHT_VERSION_LEN];
 	char light_version_full_bin[LIGHT_VERSION_LEN];
 	int light_table_crc;
+	volatile int change_power_status;
+	volatile int change_flip_status;
 };
 
 struct abov_touchkey_dt_data {
@@ -1514,6 +1516,11 @@ static ssize_t touchkey_fw_update(struct device *dev,
 		info->fw_update_state = FW_UP_SUCCESS;
 	}
 
+	if(info->change_flip_status){
+		input_info(true, &info->client->dev, "%s: re-try after wakeup, %d\n", __func__, info->change_flip_status);
+		schedule_delayed_work(&info->switching_work, msecs_to_jiffies(0));
+	}
+
 touchkey_fw_update_out:
 	input_dbg(true, &client->dev, "%s : %d\n", __func__, info->fw_update_state);
 
@@ -2686,19 +2693,19 @@ static void abov_switching_tkey_work(struct work_struct *work)
 		return;
 	}
 
-	if(info->fw_update_state == FW_DOWNLOADING){
-		input_err(true, &info->client->dev,
-			"%s: tk fw update is running. switching is ignored.\n",
-			__func__);
-		return;
-	}
-
 	input_info(true, &info->client->dev,
 		"%s : flip: %d(now) change to %d, tk_enabled : %d\n",
 		__func__,info->flip_status, info->flip_status_current, info->enabled);
 
 	if (info->flip_status != info->flip_status_current)
 	{
+		if (info->change_power_status == 1 || info->fw_update_state == FW_DOWNLOADING) {
+			input_err(true, &info->client->dev, "%s:IC is resuming or tring to firmup \n", __func__);
+			info->change_flip_status = 1;
+			return;
+		}
+		info->change_flip_status = 0;
+
 		info->flip_status = info->flip_status_current;
 		if (info->flip_status_current == FLIP_CLOSE) {
 			input_info(true, &info->client->dev,
@@ -2736,12 +2743,21 @@ static int abov_tk_input_open(struct input_dev *dev)
 	input_info(true, &info->client->dev, "%s: users=%d\n", __func__,
 		   info->input_dev->users);
 
+	info->change_power_status = 1;
+
 	abov_tk_resume(&info->client->dev);
 
 	if (info->pinctrl) {
 		int retval;
 		retval = abov_pinctrl_configure(info, true);
 		input_info(true, &info->client->dev, "failed to put the pin in active state\n");
+	}
+
+	info->change_power_status = 0;
+
+	if(info->change_flip_status){
+		input_info(true, &info->client->dev, "%s: re-try after wakeup, %d\n", __func__, info->change_flip_status);
+		schedule_delayed_work(&info->switching_work, msecs_to_jiffies(0));
 	}
 
 	return 0;
