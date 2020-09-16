@@ -234,12 +234,14 @@ source "drivers/adsp_factory/Kconfig"
 
 source "drivers/gud/Kconfig"
 
-source "drivers/five/Kconfig"
+source "drivers/security/samsung/five_tee_driver/Kconfig"
 
 source "drivers/gator/Kconfig"
 
 source "drivers/mpsd/Kconfig"
 
 source "drivers/security/samsung/icdrv/Kconfig"
+
+source "drivers/security/samsung/tzic/Kconfig"
 
 endmenu

@@ -29,6 +29,7 @@
 #include <linux/slab.h>
 #include <crypto/hash.h>
 #include <crypto/hash_info.h>
+#include <linux/freezer.h>
 #include "five.h"
 #include "five_crypto_comp.h"
 #include "five_porting.h"
@@ -217,6 +218,8 @@ static void ahash_complete(struct crypto_async_request *req, int err)
 
 static int ahash_wait(int err, struct ahash_completion *res)
 {
+	try_to_freeze();
+
 	switch (err) {
 	case 0:
 		break;
@@ -410,6 +413,8 @@ static int five_calc_file_hash_tfm(struct file *file,
 		if (rbuf_len == 0)
 			break;
 		offset += rbuf_len;
+
+		try_to_freeze();
 
 		rc = crypto_shash_update(shash, rbuf, rbuf_len);
 		if (rc)

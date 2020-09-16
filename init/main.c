@@ -670,9 +670,14 @@ static void rkp_init(void)
 #ifdef CONFIG_RKP_KDP
 #define VERITY_PARAM_LENGTH 20
 static char verifiedbootstate[VERITY_PARAM_LENGTH];
+RKP_RO_AREA int __check_verifiedboot = 0;
 static int __init verifiedboot_state_setup(char *str)
 {
 	strlcpy(verifiedbootstate, str, sizeof(verifiedbootstate));
+
+	if (!strncmp(verifiedbootstate, "orange", sizeof("orange")))
+		__check_verifiedboot = 1;
+
 	return 0;
 }
 __setup("androidboot.verifiedbootstate=", verifiedboot_state_setup);

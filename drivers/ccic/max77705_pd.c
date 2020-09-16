@@ -280,6 +280,7 @@ void max77705_pdo_list(struct max77705_usbc_platform_data *usbc_data, unsigned c
 void max77705_current_pdo(struct max77705_usbc_platform_data *usbc_data, unsigned char *data)
 {
 	u8 temp = 0x00;
+	U_SEC_PDO_OBJECT pdo_obj;
 	int i;
 
 	temp = ((data[1] >> 3) & 0x07);
@@ -302,20 +303,24 @@ void max77705_current_pdo(struct max77705_usbc_platform_data *usbc_data, unsigne
 		__func__, temp, data[1], pd_noti.sink_status.available_pdo_num);
 
 	for (i = 0; i < temp; i++) {
-		u32 pdo_temp;
 		int max_value = 0;
 
-		pdo_temp = (data[2 + (i * 4)]
+		pdo_obj.data = (data[2 + (i * 4)]
 			| (data[3 + (i * 4)] << 8)
 			| (data[4 + (i * 4)] << 16)
 			| (data[5 + (i * 4)] << 24));
 
-		pr_info("%s : PDO[%d] = 0x%x\n", __func__, i, pdo_temp);
+		if (pdo_obj.BITS_supply.type != PDO_TYPE_FIXED) {
+			pr_info("%s : Skip PDO TYPE(%d)\n", __func__, pdo_obj.BITS_supply.type);
+			continue;
+		}
 
-		max_value = (0x3FF & pdo_temp);
+		pr_info("%s : PDO[%d] = 0x%x\n", __func__, i, pdo_obj.data);
+
+		max_value = (0x3FF & pdo_obj.data);
 		pd_noti.sink_status.power_list[i + 1].max_current = max_value * 10;
 
-		max_value = (0x3FF & (pdo_temp >> 10));
+		max_value = (0x3FF & (pdo_obj.data >> 10));
 		pd_noti.sink_status.power_list[i + 1].max_voltage = max_value * 50;
 
 		pr_info("%s : PDO_Num[%d] MAX_CURR(%d) MAX_VOLT(%d)\n", __func__,

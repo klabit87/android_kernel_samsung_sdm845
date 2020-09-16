@@ -11,7 +11,7 @@ obj-$(CONFIG_ARCH_QCOM) += bcmdhd_100_15/dhd_custom_msm.o
 endif
 
 ifneq ($(CONFIG_BCM4359),)
-obj-$(CONFIG_BCM4359)  += bcmdhd_100_10/
-obj-$(CONFIG_ARCH_QCOM) += bcmdhd_100_10/dhd_custom_memprealloc.o
-obj-$(CONFIG_ARCH_QCOM) += bcmdhd_100_10/dhd_custom_msm.o
+obj-$(CONFIG_BCM4359)  += bcmdhd_100_15/
+obj-$(CONFIG_ARCH_QCOM) += bcmdhd_100_15/dhd_custom_memprealloc.o
+obj-$(CONFIG_ARCH_QCOM) += bcmdhd_100_15/dhd_custom_msm.o
 endif

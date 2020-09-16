@@ -439,6 +439,8 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 	int rc = 0;
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
+	struct samsung_display_driver_data *vdd = panel->panel_private;
+
 	if (!ss_panel_attach_get(panel->panel_private)) {
 		pr_info("PBA booting, skip to power on panel\n");
 		return 0;
@@ -455,6 +457,12 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 		pr_err("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
 		goto error_disable_vregs;
 	}
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	// reset panel alone in dsi_panel_prepare()
+	if (vdd->support_hall_ic)
+		goto exit;
+#endif
 
 	rc = dsi_panel_reset(panel);
 	if (rc) {
@@ -479,6 +487,40 @@ error_disable_vregs:
 exit:
 	return rc;
 }
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+int dsi_panel_reset_alone(struct dsi_panel *panel)
+{
+	int rc = 0;
+
+	if (!ss_panel_attach_get(panel->panel_private)) {
+		pr_info("PBA booting, skip to power on panel\n");
+		return 0;
+	}
+
+	rc = dsi_panel_reset(panel);
+	if (rc) {
+		pr_err("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
+		goto error_disable_gpio;
+	}
+
+	goto exit;
+
+error_disable_gpio:
+	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
+		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
+
+	if (gpio_is_valid(panel->bl_config.en_gpio))
+		gpio_set_value(panel->bl_config.en_gpio, 0);
+
+	(void)dsi_panel_set_pinctrl_state(panel, false);
+
+	(void)dsi_pwr_enable_regulator(&panel->power_info, false);
+
+exit:
+	return rc;
+}
+#endif
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 int dsi_panel_power_off(struct dsi_panel *panel)
@@ -4206,6 +4248,9 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 		}
 	}
 #if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (vdd->support_hall_ic)
+		dsi_panel_reset_alone(panel);
+
 	/* In case of lp11_init false, it should put 5ms delay
 	 * between LP11 and dcs tx.
 	 * TODO: get delay value from panel dtsi.

@@ -49,13 +49,38 @@ static inline char *secdp_utcmd_to_str(u32 cmd_type)
 	}
 }
 
+/** check if buf has range('-') format
+ * @buf		buf to be checked
+ * @size	buf size
+ * @retval	0 if args are ok, -1 if '-' included
+ */
+static int secdp_check_store_args(const char *buf, size_t size)
+{
+	int ret;
+
+	if (strnchr(buf, size, '-')) {
+		pr_err("range is forbidden!\n");
+		ret = -1;
+		goto exit;
+	}
+
+	ret = 0;
+exit:
+	return ret;
+}
+
 static ssize_t secdp_sbu_sw_sel_store(struct class *dev,
 				struct class_attribute *attr, const char *buf, size_t size)
 {
 	int val[10] = {0,};
 	int sbu_sw_sel, sbu_sw_oe;
 
-	get_options(buf, 10, val);
+	if (secdp_check_store_args(buf, size)) {
+		pr_err("args error!\n");
+		goto exit;
+	}
+
+	get_options(buf, ARRAY_SIZE(val), val);
 
 	sbu_sw_sel = val[1];
 	sbu_sw_oe = val[2];
@@ -68,6 +93,7 @@ static ssize_t secdp_sbu_sw_sel_store(struct class *dev,
 	else
 		pr_err("unknown sbu_sw_oe value: %d", sbu_sw_oe);
 
+exit:
 	return size;
 }
 
@@ -98,13 +124,19 @@ static ssize_t secdp_forced_resolution_store(struct class *dev,
 {
 	int val[10] = {0, };
 
-	get_options(buf, 10, val);
+	if (secdp_check_store_args(buf, size)) {
+		pr_err("args error!\n");
+		goto exit;
+	}
+
+	get_options(buf, ARRAY_SIZE(val), val);
 
 	if (val[1] <= 0)
 		forced_resolution = 0;
 	else
 		forced_resolution = val[1];
 
+exit:
 	return size;
 }
 
@@ -135,13 +167,18 @@ static ssize_t secdp_dex_store(struct class *class,
 {
 	int val[4] = {0,};
 	int setting_ui;	/* setting has Dex mode? if yes, 1. otherwise 0 */
-	int run;		/* dex is running now? if yes, 1. otherwise 0 */
+	int run;	/* dex is running now?   if yes, 1. otherwise 0 */
 
 	struct secdp_sysfs_private *sysfs = g_secdp_sysfs;
 	struct secdp_misc *sec = sysfs->sec;
 	struct secdp_dex *dex = &sec->dex;
 
-	get_options(buf, 4, val);
+	if (secdp_check_store_args(buf, size)) {
+		pr_err("args error!\n");
+		goto exit;
+	}
+
+	get_options(buf, ARRAY_SIZE(val), val);
 	pr_info("%d(0x%02x)\n", val[1], val[1]);
 	setting_ui = (val[1] & 0xf0) >> 4;
 	run = (val[1] & 0x0f);
@@ -293,11 +330,17 @@ static ssize_t secdp_unit_test_store(struct class *dev,
 	struct secdp_sysfs_private *sysfs = g_secdp_sysfs;
 	int val[10] = {0, };
 
-	get_options(buf, 10, val);
+	if (secdp_check_store_args(buf, size)) {
+		pr_err("args error!\n");
+		goto exit;
+	}
+
+	get_options(buf, ARRAY_SIZE(val), val);
 	sysfs->test_cmd = val[1];
 
 	pr_info("test_cmd: %d...%s\n", sysfs->test_cmd, secdp_utcmd_to_str(sysfs->test_cmd));
 
+exit:
 	return size;
 }
 
@@ -315,13 +358,18 @@ static ssize_t secdp_voltage_level_store(struct class *dev,
 {
 	int i, val[30] = {0, };
 
+	if (secdp_check_store_args(buf, size)) {
+		pr_err("args error!\n");
+		goto exit;
+	}
 	pr_debug("+++, size(%d)\n", (int)size);
 
-	get_options(buf, 20, val);
+	get_options(buf, ARRAY_SIZE(val), val);
 	for (i = 0; i < 16; i=i+4)
 		pr_debug("%02x,%02x,%02x,%02x\n", val[i+1],val[i+2],val[i+3],val[i+4]);
 
 	secdp_catalog_vx_store(&val[1], 16);
+exit:
 	return size;
 }
 
@@ -338,13 +386,18 @@ static ssize_t secdp_preemphasis_level_store(struct class *dev,
 {
 	int i, val[30] = {0, };
 
+	if (secdp_check_store_args(buf, size)) {
+		pr_err("args error!\n");
+		goto exit;
+	}
 	pr_debug("+++, size(%d)\n", (int)size);
 
-	get_options(buf, 20, val);
+	get_options(buf, ARRAY_SIZE(val), val);
 	for (i = 0; i < 16; i=i+4)
 		pr_debug("%02x,%02x,%02x,%02x\n", val[i+1],val[i+2],val[i+3],val[i+4]);
 
 	secdp_catalog_px_store(&val[1], 16);
+exit:
 	return size;
 }
 #endif

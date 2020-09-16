@@ -33,6 +33,10 @@
 #endif
 #endif
 
+#if defined(CONFIG_MFC_CHARGER)
+#include "../../drivers/battery_v2/include/sec_charging_common.h"
+#endif
+
 /* defines */
 #define MST_DRV_DEV			"mst_drv"
 #define TAG				"[sec_mst]"

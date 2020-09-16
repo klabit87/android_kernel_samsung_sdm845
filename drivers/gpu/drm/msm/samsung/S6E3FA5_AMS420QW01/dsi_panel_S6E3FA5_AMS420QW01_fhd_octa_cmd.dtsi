@@ -128,7 +128,7 @@
 		/*qcom,partial-update-roi-merge;*/
 		/*qcom,mdss-dsi-horizontal-line-idle*/
 
-		qcom,mdss-dsi-lp11-init;
+		/*qcom,mdss-dsi-lp11-init;*/
 		qcom,mdss-dsi-init-delay-us = <1000>;
 
 		qcom,mdss-dsi-rx-eot-ignore;

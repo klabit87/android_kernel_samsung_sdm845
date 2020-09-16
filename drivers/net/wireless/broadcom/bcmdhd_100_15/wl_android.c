@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_android.c 855877 2019-12-18 03:16:29Z $
+ * $Id: wl_android.c 866938 2020-03-02 15:15:11Z $
  */
 
 #include <linux/module.h>
@@ -1542,17 +1542,19 @@ wl_android_set_band(struct net_device *dev, char *command)
 
 #ifdef CUSTOMER_HW4_PRIVATE_CMD
 #ifdef ROAM_API
+#ifdef WBTEXT
 static bool wl_android_check_wbtext_support(struct net_device *dev)
 {
 	dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(dev);
 	return dhdp->wbtext_support;
 }
+#endif /* WBTEXT */
 
 static bool
 wl_android_check_wbtext_policy(struct net_device *dev)
 {
-	dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(dev);
 #ifdef WBTEXT
+	dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(dev);
 	if (dhdp->wbtext_policy == WL_BSSTRANS_POLICY_PRODUCT_WBTEXT) {
 		return TRUE;
 	}
@@ -3424,6 +3426,12 @@ wl_cfg80211_get_sta_info(struct net_device *dev, char* command, int total_len)
 			iovar_buf, WLC_IOCTL_MAXLEN, NULL);
 		if (ret < 0) {
 			WL_ERR(("Get sta_info ERR %d\n", ret));
+#ifdef CONFIG_BCM43436
+			if (ret == BCME_BADADDR) {
+				bytes_written = BCME_UNSUPPORTED;
+				WL_ERR(("ret code is changed as %d\n", bytes_written));
+			}
+#endif /* CONFIG_BCM43436 */
 #ifdef BIGDATA_SOFTAP
 			goto get_bigdata;
 #else
