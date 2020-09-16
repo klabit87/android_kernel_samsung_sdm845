@@ -1276,6 +1276,7 @@ extern struct super_block *sys_sb;	/* pointer to superblock */
 extern struct super_block *odm_sb;	/* pointer to superblock */
 extern struct super_block *vendor_sb;	/* pointer to superblock */
 extern struct super_block *rootfs_sb;	/* pointer to superblock */
+extern struct super_block *art_sb;	/* pointer to superblock */
 
 static int kdp_check_sb_mismatch(struct super_block *sb) 
 {	
@@ -1283,7 +1284,7 @@ static int kdp_check_sb_mismatch(struct super_block *sb)
 		return 0;
 	}
 	if((sb != rootfs_sb) && (sb != sys_sb)
-		&& (sb != odm_sb) && (sb != vendor_sb)) {
+		&& (sb != odm_sb) && (sb != vendor_sb)&& (sb != art_sb)) {
 		return 1;
 	}
 	return 0;
