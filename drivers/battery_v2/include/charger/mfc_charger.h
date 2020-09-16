@@ -695,7 +695,6 @@ struct mfc_charger_data {
 	struct device					*dev;
 	mfc_charger_platform_data_t 	*pdata;
 	struct mutex io_lock;
-	struct mutex wpc_en_lock;
 	const struct firmware *firm_data_bin;
 
 	int wc_w_state;
@@ -743,7 +742,6 @@ struct mfc_charger_data {
 	u8 device_event;
 
 	int i2c_error_count;
-	int wpc_en_flag;
 };
 
 #endif /* __MFC_CHARGER_H */

@@ -9,8 +9,6 @@ obj-y += dsms_policy.o
 obj-y += dsms_init.o
 obj-y += dsms_debug.o
 
-ccflags-y := -Wformat
-
 EXTRA_CFLAGS += -DDSMS_WHITELIST_IGNORE_NAME_SUFFIXES_ENABLE
 
 # Debugging options:

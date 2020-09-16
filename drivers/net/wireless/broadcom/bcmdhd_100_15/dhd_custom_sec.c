@@ -894,28 +894,11 @@ const char *softap_info_values[] = {
 #endif /* DHD_SOFTAP_DUAL_IF_INFO */
 	"yes", "10", "yes", "yes", "yes", NULL
 };
-#elif defined(BCM4359_CHIP)
-const char *softap_info_values[] = {
-	"yes",
-#ifdef DHD_SOFTAP_DUAL_IF_INFO
-#if defined(CONFIG_WLAN_GRACE) || defined(CONFIG_SEC_KELLYLTE_PROJECT) || \
-	defined(CONFIG_SEC_LYKANLTE_PROJECT)
-	"yes",
-#else
-	"no",
-#endif /* CONFIG_WLAN_GRACE || CONFIG_SEC_KELLYLTE_PROJECT || CONFIG_SEC_LYKANLTE_PROJECT */
-#endif /* DHD_SOFTAP_DUAL_IF_INFO */
-	"yes", "10", "yes", "yes", "yes", NULL
-};
-#elif defined(BCM43455_CHIP) || defined(BCM43456_CHIP)
+#elif defined(BCM43455_CHIP)
 const char *softap_info_values[] = {
 	"no",
 #ifdef DHD_SOFTAP_DUAL_IF_INFO
-#ifdef WL_RESTRICTED_APSTA_SCC
-	"yes",
-#else
 	"no",
-#endif /* WL_RESTRICTED_APSTA_SCC */
 #endif /* DHD_SOFTAP_DUAL_IF_INFO */
 	"yes", "10", "no", "yes", "yes", NULL
 };
@@ -1025,8 +1008,7 @@ dhd_force_disable_singlcore_scan(dhd_pub_t *dhd)
 	}
 }
 #endif /* FORCE_DISABLE_SINGLECORE_SCAN */
-#if defined(ARGOS_CPU_SCHEDULER) && !defined(DHD_LB_IRQSET) && \
-	!defined(CONFIG_SOC_EXYNOS7870)
+#if defined(ARGOS_CPU_SCHEDULER) && !defined(DHD_LB_IRQSET)
 void
 set_irq_cpucore(unsigned int irq, cpumask_var_t default_cpu_mask,
 	cpumask_var_t affinity_cpu_mask)
@@ -1039,4 +1021,4 @@ set_irq_cpucore(unsigned int irq, cpumask_var_t default_cpu_mask,
 		ARGOS_P2P_TABLE_LABEL,
 		affinity_cpu_mask, default_cpu_mask);
 }
-#endif /* SET_PCIE_IRQ_CPU_CORE && !DHD_LB_IRQSET && !CONFIG_SOC_EXYNOS7870 */
+#endif /* SET_PCIE_IRQ_CPU_CORE && !DHD_LB_IRQSET */
