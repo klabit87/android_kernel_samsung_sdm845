@@ -19,15 +19,7 @@
 #define _LINUX_PROCA_IDENTITY_H
 
 #include <linux/file.h>
-
-#include "proca_certificate.h"
-
-struct proca_identity {
-	void *certificate;
-	size_t certificate_size;
-	struct proca_certificate parsed_cert;
-	struct file *file;
-};
+#include <linux/proca.h>
 
 int init_proca_identity(struct proca_identity *identity,
 			struct file *file,

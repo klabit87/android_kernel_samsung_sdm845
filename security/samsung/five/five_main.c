@@ -40,14 +40,13 @@
 #include "five_porting.h"
 #include "five_cache.h"
 #include "five_dmverity.h"
-#include "five_dsms.h"
 
 static const bool unlink_on_error;	// false
 
 static const bool check_dex2oat_binary = true;
 static const bool check_memfd_file = true;
 
-static struct file *memfd_file __ro_after_init;
+static struct file *memfd_file;
 
 static struct workqueue_struct *g_five_workqueue;
 
@@ -462,33 +461,22 @@ static inline bool is_dex2oat_binary(const struct file *file)
 {
 	const char *pathname = NULL;
 	char *pathbuf = NULL;
-	const char * const dex2oat_full_path[] = {
-		"/apex/com.android.art/bin/dex2oat",	/* R OS */
-		"/apex/com.android.runtime/bin/dex2oat"	/* Q OS */
-	};
+	const char dex2oat_full_path[] =
+		"/apex/com.android.runtime/bin/dex2oat";
 	bool res = false;
-	size_t i;
 
 	if (!file || !file->f_path.dentry)
 		return false;
 
 	if (strncmp(file->f_path.dentry->d_iname, "dex2oat",
-			sizeof("dex2oat")))
+			sizeof("dex2oat") - 1))
 		return false;
 
 	pathname = five_d_path(&file->f_path, &pathbuf);
-	if (!pathname)
-		goto exit;
+	if (pathname && !strncmp(pathname, dex2oat_full_path,
+					sizeof(dex2oat_full_path) - 1))
+		res = true;
 
-	for (i = 0; i < ARRAY_SIZE(dex2oat_full_path); ++i) {
-		if (!strncmp(pathname, dex2oat_full_path[i],
-					strlen(dex2oat_full_path[i]) + 1)) {
-			res = true;
-			break;
-		}
-	}
-
-exit:
 	if (pathbuf)
 		__putname(pathbuf);
 
@@ -829,7 +817,7 @@ static struct notifier_block five_reboot_nb = {
 	.priority = INT_MAX,
 };
 
-int five_hash_algo __ro_after_init = HASH_ALGO_SHA1;
+int five_hash_algo = HASH_ALGO_SHA1;
 
 static int __init hash_setup(const char *str)
 {
@@ -884,8 +872,6 @@ static int __init init_five(void)
 	error = init_fs();
 	if (error)
 		return error;
-
-	five_dsms_init("1", 0);
 
 	error = five_init_dmverity();
 

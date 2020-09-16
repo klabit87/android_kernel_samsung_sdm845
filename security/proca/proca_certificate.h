@@ -17,19 +17,7 @@
 #ifndef _LINUX_PROCA_CERTIFICATE_H
 #define _LINUX_PROCA_CERTIFICATE_H
 
-#include <linux/types.h>
-
-#include "proca_porting.h"
-
-struct proca_certificate {
-	char *app_name;
-	size_t app_name_size;
-
-	char *five_signature_hash;
-	size_t five_signature_hash_size;
-
-	uint32_t flags;
-};
+#include <linux/proca.h>
 
 int parse_proca_certificate(const char *certificate_buff,
 			    const size_t buff_size,
@@ -45,9 +33,5 @@ int init_certificate_validation_hash(void);
 
 int proca_certificate_copy(struct proca_certificate *dst,
 			const struct proca_certificate *src);
-
-bool is_certificate_relevant_to_task(
-			const struct proca_certificate *parsed_cert,
-			struct task_struct *task);
 
 #endif //_LINUX_PROCA_CERTIFICATE_H
