@@ -9,6 +9,7 @@
 #include <linux/dsms.h>
 #include <linux/ktime.h>
 #include <linux/timekeeping.h>
+#include <linux/math64.h>
 
 #include "dsms_rate_limit.h"
 #include "dsms_debug.h"
@@ -29,7 +30,7 @@ static __always_inline int is_new_round(u64 now_ms, u64 last_round_start_ms)
 }
 
 static __always_inline u64 dsms_get_time_ms(void) {
-	return ktime_get_ns() / NSEC_PER_MSEC;
+	return div_u64(ktime_get_ns(), NSEC_PER_MSEC);
 }
 
 void dsms_rate_limit_init(void)

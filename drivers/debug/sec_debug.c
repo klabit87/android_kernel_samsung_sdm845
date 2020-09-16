@@ -607,6 +607,20 @@ static inline bool __sec_debug_strncmp(const char *s1, const char *s2,
 	return false;
 }
 
+static bool sec_debug_platform_lockup_suspected(char *panic_msg)
+{
+	if (!strcmp(panic_msg, UPLOAD_MSG_CRASH_KEY) ||
+		!strcmp(panic_msg, UPLOAD_MSG_USER_CRASH_KEY) ||
+		!strcmp(panic_msg, UPLOAD_MSG_LONG_KEY_PRESS) ||
+		!strncmp(panic_msg, UPLOAD_MSG_PF_WD_BITE, strlen(UPLOAD_MSG_PF_WD_BITE)) ||
+		!strcmp(panic_msg, UPLOAD_MSG_PF_WD_INIT_FAIL) ||
+		!strcmp(panic_msg, UPLOAD_MSG_PF_WD_RESTART_FAIL) ||
+		!strcmp(panic_msg, UPLOAD_MSG_PF_WD_KICK_FAIL))
+		return true;
+
+	return false;
+}
+
 static int sec_debug_panic_handler(struct notifier_block *nb,
 		unsigned long l, void *buf)
 {
@@ -686,7 +700,14 @@ static int sec_debug_panic_handler(struct notifier_block *nb,
 
 	/* enable after SSR feature */
 	/* ssr_panic_handler_for_sec_dbg(); */
-
+    
+    /* platform lockup suspected, it needs more info */
+	if (sec_debug_platform_lockup_suspected((char *)buf)) {
+		show_state_filter(TASK_UNINTERRUPTIBLE);
+		dump_memory_info();
+		dump_cpu_stat();
+	}
+    
 	/* wait for all cpus to be deactivated */
 	while (num_active_cpus() > 1 && timeout--) {
 		touch_nmi_watchdog();
@@ -1188,6 +1209,16 @@ static inline void __dump_one_task_info(struct task_struct *tsk,
 
 #define __HLINE_LEFT	" -------------------------------------------"
 #define __HLINE_RIGHT	"--------------------------------------------\n"
+
+void dump_memory_info(void)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
+	show_mem(0, NULL);
+#else
+	show_mem(0);
+#endif
+	dump_tasks(NULL, NULL);
+}
 
 void dump_all_task_info(void)
 {
