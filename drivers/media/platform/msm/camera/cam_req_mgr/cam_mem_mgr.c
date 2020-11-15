@@ -695,11 +695,11 @@ static int cam_mem_util_unmap_hw_va(int32_t idx,
 	int32_t *mmu_hdls;
 	int num_hdls;
 	int fd;
-	int rc = 0;
+	int rc = -EINVAL;
 
 	if (idx >= CAM_MEM_BUFQ_MAX || idx <= 0) {
 		CAM_ERR(CAM_CRM, "Incorrect index");
-		return -EINVAL;
+		return rc;
 	}
 
 	flags = tbl.bufq[idx].flags;
@@ -843,10 +843,8 @@ static int cam_mem_util_unmap(int32_t idx,
 
 	if ((tbl.bufq[idx].flags & CAM_MEM_FLAG_HW_READ_WRITE) ||
 		(tbl.bufq[idx].flags & CAM_MEM_FLAG_HW_SHARED_ACCESS) ||
-		(tbl.bufq[idx].flags & CAM_MEM_FLAG_PROTECTED_MODE)) {
-			if (cam_mem_util_unmap_hw_va(idx, region, client))
-				CAM_ERR(CAM_CRM, "Failed, dmabuf=%pK", tbl.bufq[idx].dma_buf);
-		}
+		(tbl.bufq[idx].flags & CAM_MEM_FLAG_PROTECTED_MODE))
+		rc = cam_mem_util_unmap_hw_va(idx, region, client);
 
 
 	mutex_lock(&tbl.bufq[idx].q_lock);
