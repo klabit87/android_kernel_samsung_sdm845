@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_cfgvendor.c 869542 2020-03-18 15:57:26Z $
+ * $Id: wl_cfgvendor.c 874894 2020-04-24 06:26:39Z $
  */
 
 /*
@@ -410,7 +410,7 @@ wl_cfgvendor_set_country(struct wiphy *wiphy,
 		}
 	}
 	/* country code is unique for dongle..hence using primary interface. */
-	err = wl_cfg80211_set_country_code(primary_ndev, country_code, true, true, -1);
+	err = wl_cfg80211_set_country_code(primary_ndev, country_code, true, true, 0);
 	if (err < 0) {
 		WL_ERR(("Set country failed ret:%d\n", err));
 	}
@@ -3998,6 +3998,13 @@ wl_cfgvendor_nan_parse_discover_args(struct wiphy *wiphy,
 				goto exit;
 			}
 			cmd_data->mac_list.num_mac_addr = nla_get_u16(iter);
+			if (cmd_data->mac_list.num_mac_addr >= NAN_SRF_MAX_MAC) {
+				WL_ERR(("trying to overflow num :%d\n",
+					cmd_data->mac_list.num_mac_addr));
+				cmd_data->mac_list.num_mac_addr = 0;
+				ret = -EINVAL;
+				goto exit;
+			}
 			break;
 		case NAN_ATTRIBUTE_MAC_ADDR_LIST:
 			if ((!cmd_data->mac_list.num_mac_addr) ||

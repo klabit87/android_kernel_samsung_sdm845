@@ -79,7 +79,7 @@ void five_dsms_sign_err(const char *app, int result)
 		if (sign_err_events[i].count == 0) {
 			same_event = &sign_err_events[i];
 			current_count = ++same_event->count;
-			strncpy(same_event->comm, app, TASK_COMM_LEN);
+			strlcpy(same_event->comm, app, TASK_COMM_LEN);
 			same_event->result = result;
 			break;
 		} else if (sign_err_events[i].result == result &&

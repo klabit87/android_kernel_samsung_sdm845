@@ -608,7 +608,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			psy_do_property(battery->pdata->fgsrc_switch_name, set,
 					POWER_SUPPLY_PROP_ENERGY_NOW, value);
 			for (j = 0; j < 10; j++) {
-				mdelay(175);
+				msleep(175);
 				psy_do_property(battery->pdata->fuelgauge_name, get,
 						POWER_SUPPLY_PROP_VOLTAGE_NOW, value);
 				ocv_data[j] = value.intval;
@@ -1167,7 +1167,7 @@ ssize_t sec_bat_store_attrs(
 		/* Do NOT reset fuel gauge in charging mode */
 		if (is_nocharge_type(battery->cable_type) ||
 			battery->is_jig_on) {
-			sec_bat_set_misc_event(battery, BATT_MISC_EVENT_BATT_RESET_SOC, 0);
+			sec_bat_set_misc_event(battery, BATT_MISC_EVENT_BATT_RESET_SOC, BATT_MISC_EVENT_BATT_RESET_SOC);
 
 			value.intval =
 				SEC_FUELGAUGE_CAPACITY_TYPE_RESET;
@@ -2044,8 +2044,7 @@ ssize_t sec_bat_store_attrs(
 			pr_info("%s: PMS sevice hiccup read done : %d ", __func__, x);
 			if (!battery->hiccup_status &&
 				(battery->misc_event & BATT_MISC_EVENT_HICCUP_TYPE)) {
-				sec_bat_set_misc_event(battery,
-					BATT_MISC_EVENT_HICCUP_TYPE, 1);
+				sec_bat_set_misc_event(battery, 0, BATT_MISC_EVENT_HICCUP_TYPE);
 			}
 		}
 		ret = count;

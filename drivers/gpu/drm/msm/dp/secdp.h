@@ -29,7 +29,8 @@
 #define 	DEXPAD_PRODUCT_ID		0xA029		/* EE-M5100 */
 #define 	DEXCABLE_PRODUCT_ID		0xA048		/* EE-I3100 */
 
-#define SECDP_ENUM_STR(x)		#x
+#define SECDP_ENUM_STR(x)	#x
+#define dim(x)			((sizeof(x))/(sizeof(x[0])))
 
 /*#define SECDP_HDCP_DISABLE*/
 /*#define NOT_SUPPORT_DEX_RES_CHANGE*/
@@ -156,6 +157,8 @@ enum dex_support_res_t secdp_get_dex_res(void);
 
 void secdp_clear_link_status_update_cnt(struct dp_link *dp_link);
 bool secdp_check_link_stable(struct dp_link *dp_link);
+
+bool secdp_find_supported_resolution(struct dp_panel_info *timing);
 
 #ifdef SECDP_CALIBRATE_VXPX
 void secdp_catalog_vx_show(void);

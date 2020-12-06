@@ -532,15 +532,35 @@ void self_aclock_on(int enable)
 
 void self_aclock_img_write(void)
 {
+	int wait_cnt = 1000; /* 1000 * 0.5ms = 500ms */
 	struct samsung_display_driver_data *vdd = samsung_get_vdd();
 
+	vdd->exclusive_tx.enable = 1;
+	while (!list_empty(&vdd->cmd_lock.wait_list) && --wait_cnt)
+		usleep_range(500, 500);
+
 	LCD_ERR("++\n");
+
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_ENABLE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_ACLOCK_SIDE_MEM_SET, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_ACLOCK_IMAGE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_DISABLE, 1);
+
 	mutex_lock(&vdd->self_disp.vdd_self_aclock_lock);
 	ss_send_cmd(vdd, TX_LEVEL1_KEY_ENABLE);
 	ss_send_cmd(vdd, TX_SELF_ACLOCK_SIDE_MEM_SET);
 	ss_send_cmd(vdd, TX_SELF_ACLOCK_IMAGE);
 	ss_send_cmd(vdd, TX_LEVEL1_KEY_DISABLE);
 	mutex_unlock(&vdd->self_disp.vdd_self_aclock_lock);
+
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_ENABLE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_ACLOCK_SIDE_MEM_SET, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_ACLOCK_IMAGE, 0);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_DISABLE, 0);
+
+	vdd->exclusive_tx.enable = 0;
+	wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+
 	LCD_ERR("--\n");
 }
 
@@ -682,15 +702,35 @@ void self_dclock_on(int enable)
 
 void self_dclock_img_write(void)
 {
+	int wait_cnt = 1000; /* 1000 * 0.5ms = 500ms */
 	struct samsung_display_driver_data *vdd = samsung_get_vdd();
 
 	LCD_ERR("++\n");
+
+	vdd->exclusive_tx.enable = 1;
+	while (!list_empty(&vdd->cmd_lock.wait_list) && --wait_cnt)
+		usleep_range(500, 500);
+
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_ENABLE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_DCLOCK_SIDE_MEM_SET, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_DCLOCK_IMAGE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_DISABLE, 1);
+
 	mutex_lock(&vdd->self_disp.vdd_self_dclock_lock);
 	ss_send_cmd(vdd, TX_LEVEL1_KEY_ENABLE);
 	ss_send_cmd(vdd, TX_SELF_DCLOCK_SIDE_MEM_SET);
 	ss_send_cmd(vdd, TX_SELF_DCLOCK_IMAGE);
 	ss_send_cmd(vdd, TX_LEVEL1_KEY_DISABLE);
 	mutex_unlock(&vdd->self_disp.vdd_self_dclock_lock);
+
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_ENABLE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_DCLOCK_SIDE_MEM_SET, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_SELF_DCLOCK_IMAGE, 1);
+	ss_set_exclusive_tx_packet(vdd, TX_LEVEL1_KEY_DISABLE, 1);
+
+	vdd->exclusive_tx.enable = 0;
+	wake_up_all(&vdd->exclusive_tx.ex_tx_waitq);
+
 	LCD_ERR("--\n");
 }
 

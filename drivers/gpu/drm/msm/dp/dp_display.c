@@ -1986,6 +1986,10 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 	panel_in.aux = dp->aux;
 	panel_in.catalog = &dp->catalog->panel;
 	panel_in.link = dp->link;
+#ifdef CONFIG_SEC_DISPLAYPORT
+	panel_in.connector = dp->dp_display.connector;
+	panel_in.parser = dp->parser;
+#endif
 
 	dp->panel = dp_panel_get(&panel_in);
 	if (IS_ERR(dp->panel)) {

@@ -216,16 +216,18 @@ __setup("androidboot.debug_level=", sec_bat_get_debug_level);
 #endif
 
 void sec_bat_set_misc_event(struct sec_battery_info *battery,
-	const int misc_event_type, bool do_clear) {
+	unsigned int misc_event_val, unsigned int misc_event_mask) {
+
+	unsigned int temp = battery->misc_event;
 
 	mutex_lock(&battery->misclock);
-	pr_info("%s: %s misc event(now=0x%x, value=0x%x)\n",
-		__func__, ((do_clear) ? "clear" : "set"), battery->misc_event, misc_event_type);
-	if (do_clear) {
-		battery->misc_event &= ~misc_event_type;
-	} else {
-		battery->misc_event |= misc_event_type;
-	}
+
+	battery->misc_event &= ~misc_event_mask;
+	battery->misc_event |= misc_event_val;
+
+	pr_info("%s: misc event before(0x%x), after(0x%x)\n",
+		__func__, temp, battery->misc_event);
+
 	mutex_unlock(&battery->misclock);
 
 	if (battery->prev_misc_event != battery->misc_event) {
@@ -1781,26 +1783,31 @@ void sec_bat_aging_check(struct sec_battery_info *battery)
 
 void sec_bat_check_battery_health(struct sec_battery_info *battery)
 {
-	union power_supply_propval value;
-	battery_health_condition state;
-	int i, battery_health;
+	static battery_health_condition default_table[3] =
+		{{.cycle = 900, .asoc = 75}, {.cycle = 1200, .asoc = 65}, {.cycle = 1500, .asoc = 55}};
 
-	/* check to support ASoC and Cycle */
-	psy_do_property(battery->pdata->fuelgauge_name, get,
-		POWER_SUPPLY_PROP_ENERGY_FULL, value);
-#if !defined(CONFIG_BATTERY_AGE_FORECAST)
-	value.intval = -1;
-#endif
-	if (value.intval <= 0 || battery->pdata->health_condition == NULL) {
-		pr_err("%s: does not support cycle or asoc or health_condition\n", __func__);
-		return;
+	battery_health_condition *ptable = default_table;
+	battery_health_condition state;
+	int i, battery_health, size = BATTERY_HEALTH_MAX;
+
+	if (battery->pdata->health_condition == NULL) {
+		/*
+		 * If a new type is added to misc_battery_health, default table cannot verify the actual state except "bad".
+		 * If you want to modify to return the correct values for all states,
+		 * add a table that matches the state added to the dt file.
+		*/
+		pr_info("%s: does not set health_condition_table, use default table\n", __func__);
+		size = 3;
+	} else {
+		ptable = battery->pdata->health_condition;
 	}
+
 	/* Checking Cycle and ASoC */
 	state.cycle = state.asoc = BATTERY_HEALTH_BAD;
-	for (i = BATTERY_HEALTH_MAX - 1; i >= 0; i--) {
-		if (battery->pdata->health_condition[i].cycle >= (battery->batt_cycle % 10000))
+	for (i = size - 1; i >= 0; i--) {
+		if (ptable[i].cycle >= (battery->batt_cycle % 10000))
 			state.cycle = i + BATTERY_HEALTH_GOOD;
-		if (battery->pdata->health_condition[i].asoc <= battery->batt_asoc)
+		if (ptable[i].asoc <= battery->batt_asoc)
 			state.asoc = i + BATTERY_HEALTH_GOOD;
 	}
 	battery_health = max(state.cycle, state.asoc);
@@ -3154,7 +3161,7 @@ static void sec_bat_check_slowcharging_work(struct work_struct *work)
 		battery->cable_type == SEC_BATTERY_CABLE_USB) {
 		if (!get_usb_enumeration_state() &&
 			(battery->current_event & SEC_BAT_CURRENT_EVENT_USB_100MA)) {
-			sec_bat_set_misc_event(battery, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE, 0);
+			sec_bat_set_misc_event(battery, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE);
 			battery->max_charge_power = battery->input_voltage * battery->current_max;
 		}
 	}
@@ -4387,14 +4394,14 @@ static int sec_bat_set_property(struct power_supply *psy,
 				sec_bat_set_current_event(battery, SEC_BAT_CURRENT_EVENT_USB_100MA,
 							  (SEC_BAT_CURRENT_EVENT_USB_100MA | SEC_BAT_CURRENT_EVENT_USB_SUPER));
 			} else if (val->intval == USB_CURRENT_HIGH_SPEED) {
-				sec_bat_set_misc_event(battery, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE, 1);
+				sec_bat_set_misc_event(battery, 0, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE);
 				sec_bat_set_current_event(battery, 0,
 							  (SEC_BAT_CURRENT_EVENT_USB_100MA | SEC_BAT_CURRENT_EVENT_USB_SUPER));
 				sec_bat_change_default_current(battery, SEC_BATTERY_CABLE_USB,
 					battery->pdata->default_usb_input_current,
 					battery->pdata->default_usb_charging_current);
 			} else if (val->intval == USB_CURRENT_SUPER_SPEED) {
-				sec_bat_set_misc_event(battery, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE, 1);
+				sec_bat_set_misc_event(battery, 0, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE);
 				sec_bat_set_current_event(battery, SEC_BAT_CURRENT_EVENT_USB_SUPER,
 							  (SEC_BAT_CURRENT_EVENT_USB_100MA | SEC_BAT_CURRENT_EVENT_USB_SUPER));
 				sec_bat_change_default_current(battery, SEC_BATTERY_CABLE_USB,
@@ -4790,7 +4797,7 @@ static int sec_wireless_set_property(struct power_supply *psy,
 		}
 #endif
 		/* Clear the FOD State */
-		sec_bat_set_misc_event(battery, BATT_MISC_EVENT_WIRELESS_FOD, 1);
+		sec_bat_set_misc_event(battery, 0, BATT_MISC_EVENT_WIRELESS_FOD);
 
 		if (val->intval == SEC_WIRELESS_PAD_A4WP)
 			battery->wc_status = SEC_WIRELESS_PAD_WPC;
@@ -4867,7 +4874,8 @@ static int sec_wireless_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_MAX ... POWER_SUPPLY_EXT_PROP_MAX:
 		switch (ext_psp) {
 		case POWER_SUPPLY_EXT_PROP_WIRELESS_TX_CHG_ERR:
-			sec_bat_set_misc_event(battery, BATT_MISC_EVENT_WIRELESS_FOD, !val->intval);
+			sec_bat_set_misc_event(battery, val->intval ? BATT_MISC_EVENT_WIRELESS_FOD : 0,
+				BATT_MISC_EVENT_WIRELESS_FOD);
 			break;
 		case POWER_SUPPLY_EXT_PROP_CALL_EVENT:
 			if(val->intval == 1) {
@@ -5417,12 +5425,13 @@ static int usb_typec_handle_notification(struct notifier_block *nb,
 	}
 
 skip_cable_check:
-	sec_bat_set_misc_event(battery, BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE,
-		(battery->muic_cable_type != ATTACHED_DEV_UNDEFINED_CHARGING_MUIC) &&
-		(battery->muic_cable_type != ATTACHED_DEV_UNDEFINED_RANGE_MUIC));
+	sec_bat_set_misc_event(battery,
+		(battery->muic_cable_type == ATTACHED_DEV_UNDEFINED_CHARGING_MUIC ? BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE : 0) |
+		(battery->muic_cable_type == ATTACHED_DEV_UNDEFINED_RANGE_MUIC ? BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE : 0),
+		BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE);
 
 	if (battery->muic_cable_type == ATTACHED_DEV_HICCUP_MUIC) {
-		sec_bat_set_misc_event(battery, BATT_MISC_EVENT_HICCUP_TYPE, 0);
+		sec_bat_set_misc_event(battery, BATT_MISC_EVENT_HICCUP_TYPE, BATT_MISC_EVENT_HICCUP_TYPE);
 		battery->hiccup_status = 1;
 	} else {
 		battery->hiccup_status = 0;
@@ -5434,8 +5443,9 @@ skip_cable_check:
 
 	/* showing charging icon and noti(no sound, vi, haptic) only
 	   if slow insertion is detected by MUIC */
-	sec_bat_set_misc_event(battery, BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE,
-		(battery->muic_cable_type != ATTACHED_DEV_TIMEOUT_OPEN_MUIC));
+	sec_bat_set_misc_event(battery,
+		(battery->muic_cable_type == ATTACHED_DEV_TIMEOUT_OPEN_MUIC ? BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE : 0),
+		 BATT_MISC_EVENT_TIMEOUT_OPEN_TYPE);
 
 	if (cable_type < 0 || cable_type > SEC_BATTERY_CABLE_MAX) {
 		dev_info(battery->dev, "%s: ignore event(%d)\n",
@@ -5596,15 +5606,16 @@ static int batt_handle_notification(struct notifier_block *nb,
 		break;
 	}
 
-	sec_bat_set_misc_event(battery, BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE,
+	sec_bat_set_misc_event(battery,
 #if !defined(CONFIG_ENG_BATTERY_CONCEPT) && !defined(CONFIG_SEC_FACTORY)
-		(battery->muic_cable_type != ATTACHED_DEV_JIG_UART_ON_MUIC) &&
-		(battery->muic_cable_type != ATTACHED_DEV_JIG_USB_ON_MUIC) &&
+		(battery->muic_cable_type == ATTACHED_DEV_JIG_UART_ON_MUIC ? BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE : 0) |
+		(battery->muic_cable_type == ATTACHED_DEV_JIG_USB_ON_MUIC ? BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE : 0) |
 #endif
-		(battery->muic_cable_type != ATTACHED_DEV_UNDEFINED_RANGE_MUIC));
+		(battery->muic_cable_type == ATTACHED_DEV_UNDEFINED_RANGE_MUIC) ? BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE : 0),
+		 BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE);
 
 	if (battery->muic_cable_type == ATTACHED_DEV_HICCUP_MUIC) {
-		sec_bat_set_misc_event(battery, BATT_MISC_EVENT_HICCUP_TYPE, 0);
+		sec_bat_set_misc_event(battery, BATT_MISC_EVENT_HICCUP_TYPE, BATT_MISC_EVENT_HICCUP_TYPE);
 		battery->hiccup_status = 1;
 	} else {
 		battery->hiccup_status = 0;
