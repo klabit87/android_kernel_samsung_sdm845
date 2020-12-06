@@ -817,7 +817,7 @@ static int max77705_set_otg(struct max77705_charger_data *charger, int enable)
 		max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_00,
 			0, CHG_CNFG_00_OTG_CTRL);
 
-		mdelay(50);
+		msleep(50);
 
 		/* enable charger interrupt */
 		max77705_write_reg(charger->i2c,
@@ -1446,7 +1446,7 @@ static int max77705_chg_set_property(struct power_supply *psy,
 					    MAX77705_CHG_REG_CNFG_00, 0,
 					    CHG_CNFG_00_BOOST_MASK);
 
-			mdelay(50);
+			msleep(50);
 
 			/* enable charger interrupt */
 			max77705_write_reg(charger->i2c,
@@ -1594,7 +1594,7 @@ static void max77705_is_otg_overcurrent(struct max77705_charger_data *charger)
 			psy_do_property("otg", set, POWER_SUPPLY_PROP_ONLINE, val);
 			break;
 		}
-		mdelay(2);
+		usleep_range(2000, 3000);
 	}while (vbus_state == 0x0);
 
 	max77705_update_reg(charger->i2c,
@@ -1751,7 +1751,7 @@ static void wpc_detect_work(struct work_struct *work)
 				psy_do_property(charger->pdata->wireless_charger_name,
 					set, POWER_SUPPLY_PROP_STATUS, value);
 			}
-			mdelay(50);
+			msleep(50);
 		} while (!wcin_state && !wcin_dtls && wcin_cnt < 2);
 	}
 
@@ -2532,7 +2532,7 @@ static int max77705_charger_prepare(struct device *dev)
 		max77705_set_fw_noautoibus(MAX77705_AUTOIBUS_ON);
 	}
 	if(lpcharge)
-		mdelay(50);
+		msleep(50);
 
 	return 0;
 }

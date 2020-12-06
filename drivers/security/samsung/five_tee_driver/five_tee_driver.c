@@ -195,7 +195,7 @@ static int send_cmd(unsigned int cmd,
 		pr_info("FIVE: Initialize trusted app, ret: %d\n", rc);
 		if (rc) {
 			mutex_unlock(&itee_driver_lock);
-			rc = -EIO;
+			rc = -ESRCH;
 			goto out;
 		}
 	}

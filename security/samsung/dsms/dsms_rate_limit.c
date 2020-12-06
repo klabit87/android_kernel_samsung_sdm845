@@ -20,16 +20,23 @@
 static int dsms_message_count;
 static u64 dsms_round_start_ms;
 
-static __always_inline u64 round_end_ms(u64 round_start_ms) {
+#if defined(CONFIG_KUNIT) && IS_ENABLED(CONFIG_KUNIT)
+int dsms_max_messages_per_round(void)
+{
+	return MAX_MESSAGES_PER_ROUND;
+}
+#endif
+
+__visible_for_testing __always_inline u64 round_end_ms(u64 round_start_ms) {
 	return round_start_ms + ROUND_DURATION_MS;
 }
 
-static __always_inline int is_new_round(u64 now_ms, u64 last_round_start_ms)
+__visible_for_testing __always_inline int is_new_round(u64 now_ms, u64 last_round_start_ms)
 {
 	return now_ms >= round_end_ms(last_round_start_ms);
 }
 
-static __always_inline u64 dsms_get_time_ms(void) {
+__visible_for_testing __always_inline u64 dsms_get_time_ms(void) {
 	return div_u64(ktime_get_ns(), NSEC_PER_MSEC);
 }
 

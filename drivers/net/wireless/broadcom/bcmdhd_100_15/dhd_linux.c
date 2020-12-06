@@ -25,7 +25,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_linux.c 871395 2020-04-01 06:47:36Z $
+ * $Id: dhd_linux.c 873599 2020-04-16 03:06:56Z $
  */
 
 #include <typedefs.h>
@@ -14544,7 +14544,7 @@ dhd_dev_set_whitelist_ssid(struct net_device *dev, wl_ssid_whitelist_t *ssid_whi
 		if (flush) {
 			ssid_whitelist = &whitelist_ssid_flush;
 			ssid_whitelist->ssid_count = 0;
-			len = sizeof(wl_ssid_whitelist_t);
+			len = sizeof(whitelist_ssid_flush);
 		} else {
 			DHD_ERROR(("%s : Nothing to do here\n", __FUNCTION__));
 			return BCME_BADARG;

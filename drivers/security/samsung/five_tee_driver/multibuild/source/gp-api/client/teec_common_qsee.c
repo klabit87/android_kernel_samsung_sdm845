@@ -17,6 +17,7 @@
 
 #include <linux/string.h>
 #include <linux/bug.h>
+#include <uapi/linux/qseecom.h>
 
 #include "teec_common.h"
 
@@ -25,7 +26,7 @@
 #include "teec_param_utils.h"
 #include "linux/errno.h"
 
-#define MAX_QSEE_UUID_LEN 17
+#define MAX_QSEE_UUID_LEN (MAX_APP_NAME_SIZE) // usually 64 bytes
 #define QSEE_SUCCESS      0
 
 /* 1. Actually we don't use the response buffer. But RBUF_LEN can't be zero.

@@ -483,7 +483,7 @@ static int five_update_xattr(struct task_struct *task,
 		struct inode *inode = file_inode(file);
 
 		rc = __vfs_getxattr(d_real_comp(dentry), inode, XATTR_NAME_FIVE,
-				dummy, sizeof(dummy));
+				dummy, sizeof(dummy), XATTR_NOSECURITY);
 
 		// Check if xattr is exist
 		if (rc > 0 || rc != -ENODATA) {
@@ -826,7 +826,7 @@ int five_fcntl_close(struct file *file)
 	if (iint->five_signing) {
 		dentry = file->f_path.dentry;
 		xattr_len = __vfs_getxattr(d_real_comp(dentry), inode,
-				XATTR_NAME_FIVE, NULL, 0);
+				XATTR_NAME_FIVE, NULL, 0, XATTR_NOSECURITY);
 		if (xattr_len == 0)
 			rc = __vfs_removexattr(d_real_comp(dentry),
 				XATTR_NAME_FIVE);

@@ -57,6 +57,10 @@ struct dp_panel_in {
 	struct dp_aux *aux;
 	struct dp_link *link;
 	struct dp_catalog_panel *catalog;
+#ifdef CONFIG_SEC_DISPLAYPORT
+	struct drm_connector *connector;
+	struct dp_parser *parser;
+#endif
 };
 
 struct dp_panel {
@@ -77,7 +81,12 @@ struct dp_panel {
 	u32 max_bw_code;
 
 #ifdef CONFIG_SEC_DISPLAYPORT
+	u8 monitor_name[14];
 	u32 dsp_type;
+	struct dp_panel_info max_timing_info;
+
+	/* DRM connector assosiated with this panel */
+	struct drm_connector *connector;
 #endif
 
 	int (*init)(struct dp_panel *dp_panel);

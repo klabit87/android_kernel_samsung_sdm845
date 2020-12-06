@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_cfg80211.c 872496 2020-04-09 01:52:08Z $
+ * $Id: wl_cfg80211.c 874925 2020-04-24 08:58:32Z $
  */
 /* */
 #include <typedefs.h>
@@ -358,6 +358,25 @@ static const char *wl_if_state_strs[WL_IF_STATE_MAX + 1] = {
 
 #define PM_BLOCK 1
 #define PM_ENABLE 0
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
+#define IS_REGDOM_SELF_MANAGED(wiphy)	\
+	(wiphy->regulatory_flags & REGULATORY_WIPHY_SELF_MANAGED)
+#else
+#define IS_REGDOM_SELF_MANAGED(wiphy)	(false)
+#endif /* KERNEL >= 4.0 */
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0)) && defined(WL_SELF_MANAGED_REGDOM)
+#define WL_UPDATE_CUSTOM_REGULATORY(wiphy) \
+	wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
+#define WL_UPDATE_CUSTOM_REGULATORY(wiphy) \
+	wiphy->regulatory_flags |= REGULATORY_CUSTOM_REG;
+#else /* kernel > 4.0 && WL_SELF_MANAGED_REGDOM */
+/* Kernels < 3.14 */
+#define WL_UPDATE_CUSTOM_REGULATORY(wiphy) \
+	wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)) */
 
 /* GCMP crypto supported above kernel v4.0 */
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 0, 0))
@@ -12662,30 +12681,116 @@ s32 wl_mode_to_nl80211_iftype(s32 mode)
 	return err;
 }
 
-s32
-wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
-	bool notify, bool user_enforced, int revinfo)
+static bool
+wl_is_ccode_change_required(struct net_device *net,
+        char *country_code, int revinfo)
+{
+        s32 ret = BCME_OK;
+        wl_country_t cspec = {{0}, 0, {0}};
+        wl_country_t cur_cspec = {{0}, 0, {0}};
+
+        ret = wldev_iovar_getbuf(net, "country", NULL, 0, &cur_cspec,
+                sizeof(cur_cspec), NULL);
+        if (ret < 0) {
+                WL_ERR(("get country code failed = %d\n", ret));
+                return true;
+        }
+        /* If translation table is available, update cspec */
+        cspec.rev = revinfo;
+	strlcpy(cspec.country_abbrev, country_code, WL_CCODE_LEN + 1);
+	strlcpy(cspec.ccode, country_code, WL_CCODE_LEN + 1);
+	dhd_get_customized_country_code(net, cspec.country_abbrev, &cspec);
+        if ((cur_cspec.rev == cspec.rev) &&
+		(strncmp(cur_cspec.ccode, cspec.ccode, WL_CCODE_LEN) == 0) &&
+		(strncmp(cur_cspec.country_abbrev, cspec.country_abbrev, WL_CCODE_LEN) == 0)) {
+                        WL_INFORM_MEM(("country code = %s/%d is already configured\n",
+                                country_code, revinfo));
+                        return false;
+        }
+        return true;
+}
+
+void
+wl_cfg80211_cleanup_connection(struct net_device *net, bool user_enforced)
 {
 	s32 ret = BCME_OK;
-#ifdef WL_NAN
 	struct wireless_dev *wdev = ndev_to_wdev(net);
 	struct wiphy *wiphy = wdev->wiphy;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct net_info *iter, *next;
+	scb_val_t scbval;
+
+	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
+	for_each_ndev(cfg, iter, next) {
+		GCC_DIAGNOSTIC_POP();
+		if (iter->ndev) {
+			if (wl_get_drv_status(cfg, AP_CREATED, iter->ndev)) {
+				memset(scbval.ea.octet, 0xff, ETHER_ADDR_LEN);
+				scbval.val = DOT11_RC_DEAUTH_LEAVING;
+				if ((ret = wldev_ioctl_set(iter->ndev,
+							WLC_SCB_DEAUTHENTICATE_FOR_REASON,
+							&scbval, sizeof(scb_val_t))) != 0) {
+					WL_ERR(("Failed to disconnect STAs %d\n", ret));
+				}
+
+			} else if (wl_get_drv_status(cfg, CONNECTED, iter->ndev)) {
+				if ((iter->ndev == net) && !user_enforced)
+					continue;
+				wl_cfg80211_disassoc(iter->ndev, WLAN_REASON_DEAUTH_LEAVING);
+			} else {
+				WL_INFORM(("Disconnected state. Interface clean "
+					"up skipped for ifname:%s", iter->ndev->name));
+			}
+		}
+	}
+
+	wl_cfg80211_scan_abort(cfg);
+
+	/* Clean up NAN connection */
+#ifdef WL_NAN
 	if (cfg->nan_enable) {
 		mutex_lock(&cfg->if_sync);
 		ret = wl_cfgnan_check_nan_disable_pending(cfg, true, true);
 		mutex_unlock(&cfg->if_sync);
 		if (ret != BCME_OK) {
 			WL_ERR(("failed to disable nan, error[%d]\n", ret));
-			return ret;
 		}
 	}
 #endif /* WL_NAN */
+}
+
+s32
+wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
+	bool notify, bool user_enforced, int revinfo)
+{
+	s32 ret = BCME_OK;
+	struct wireless_dev *wdev = ndev_to_wdev(net);
+	struct wiphy *wiphy = wdev->wiphy;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+
+	BCM_REFERENCE(cfg);
+
+	if (revinfo < 0) {
+		WL_ERR(("country revinfo wrong : %d\n", revinfo));
+		ret = BCME_BADARG;
+		goto exit;
+	}
+
+	if ((wl_is_ccode_change_required(net, country_code, revinfo) == false) &&
+		!dhd_force_country_change(net)) {
+		goto exit;
+	}
+
+	wl_cfg80211_cleanup_connection(net, user_enforced);
+
 	ret = wldev_set_country(net, country_code,
-		notify, user_enforced, revinfo);
+		notify, revinfo);
 	if (ret < 0) {
 		WL_ERR(("set country Failed :%d\n", ret));
+		goto exit;
 	}
+
+exit:
 	return ret;
 }
 
@@ -12713,6 +12818,33 @@ int wl_features_set(u8 *array, uint8 len, u32 ftidx)
 	ft_byte = &array[ftidx / 8u];
 	*ft_byte |= BIT(ftidx % 8u);
 	return BCME_OK;
+}
+
+static
+void wl_config_custom_regulatory(struct wiphy *wiphy)
+{
+
+#if defined(WL_SELF_MANAGED_REGDOM) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
+	/* Use self managed regulatory domain */
+	wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED |
+			REGULATORY_IGNORE_STALE_KICKOFF;
+	wiphy->regd = &brcm_regdom;
+	WL_DBG(("Self managed regdom\n"));
+	return;
+#else /* WL_SELF_MANAGED_REGDOM && KERNEL >= 4.0 */
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
+	wiphy->regulatory_flags |=
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
+		REGULATORY_IGNORE_STALE_KICKOFF |
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0) */
+		REGULATORY_CUSTOM_REG;
+#else /* KERNEL VER >= 3.14 */
+	wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) */
+	wiphy_apply_custom_regulatory(wiphy, &brcm_regdom);
+	WL_DBG(("apply custom regulatory\n"));
+#endif /* WL_SELF_MANAGED_REGDOM && KERNEL >= 4.0 */
 }
 
 static s32 wl_setup_wiphy(struct wireless_dev *wdev, struct device *sdiofunc_dev, void *context)
@@ -12884,16 +13016,7 @@ static s32 wl_setup_wiphy(struct wireless_dev *wdev, struct device *sdiofunc_dev
 #endif /* CONFIG_PM && WL_CFG80211_P2P_DEV_IF */
 
 	WL_DBG(("Registering custom regulatory)\n"));
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
-	wdev->wiphy->regulatory_flags |=
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-		REGULATORY_IGNORE_STALE_KICKOFF |
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0) */
-		REGULATORY_CUSTOM_REG;
-#else
-	wdev->wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) */
-	wiphy_apply_custom_regulatory(wdev->wiphy, &brcm_regdom);
+	wl_config_custom_regulatory(wdev->wiphy);
 
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 14, 0)) || defined(WL_VENDOR_EXT_SUPPORT)
 	WL_INFORM_MEM(("Registering Vendor80211\n"));
@@ -14622,6 +14745,13 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 					/* Initial Association */
 					wl_update_prof(cfg, ndev, e, &act, WL_PROF_ACT);
 					wl_bss_connect_done(cfg, ndev, e, data, true);
+#ifdef WL_NAN
+					if (cfg->nan_enable &&
+						(event == WLC_E_SET_SSID) &&
+						(ntoh32(e->status) == WLC_E_STATUS_SUCCESS)) {
+						wl_cfgnan_get_stats(cfg);
+					}
+#endif /* WL_NAN */
 					if (ndev == bcmcfg_to_prmry_ndev(cfg)) {
 						vndr_oui_num = wl_vndr_ies_get_vendor_oui(cfg,
 							ndev, vndr_oui, ARRAY_SIZE(vndr_oui));
@@ -14916,7 +15046,11 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 					"from " MACDBG "\n",
 					ndev->name,	event, ntoh32(e->reason), reason, ie_len,
 					MAC2STRDBG((const u8*)(&e->addr))));
-
+#ifdef WL_NAN
+				if (cfg->nan_enable) {
+					wl_cfgnan_get_stats(cfg);
+				}
+#endif /* WL_NAN */
 				/* Wait for status to be cleared to prevent race condition
 				 * issues with connect context
 				 */
@@ -17368,6 +17502,7 @@ void wl_cfg80211_concurrent_roam(struct bcm_cfg80211 *cfg, int enable)
 #ifdef WL_NAN
         bool nan_connected  = wl_cfgnan_is_dp_active(bcmcfg_to_prmry_ndev(cfg));
 #endif /* WL_NAN */
+
 	struct net_info *iter, *next;
 
 	if (!(cfg->roam_flags & WL_ROAM_OFF_ON_CONCURRENT))
@@ -18859,8 +18994,12 @@ static s32 __wl_update_wiphybands(struct bcm_cfg80211 *cfg, bool notify)
 		wiphy->bands[IEEE80211_BAND_2GHZ] = &__wl_band_2ghz;
 	}
 
-	if (notify)
-		wiphy_apply_custom_regulatory(wiphy, &brcm_regdom);
+	if (notify) {
+		if (!IS_REGDOM_SELF_MANAGED(wiphy)) {
+			WL_UPDATE_CUSTOM_REGULATORY(wiphy);
+			wiphy_apply_custom_regulatory(wiphy, &brcm_regdom);
+		}
+	}
 
 	return 0;
 }
@@ -19074,12 +19213,6 @@ static s32 __wl_cfg80211_down(struct bcm_cfg80211 *cfg)
 #endif /* defined(BCMSDIO) */
 #endif /* PROP_TXSTATUS_VSDB */
 	}
-
-#ifdef WL_NAN
-	mutex_lock(&cfg->if_sync);
-	wl_cfgnan_check_nan_disable_pending(cfg, true, false);
-	mutex_unlock(&cfg->if_sync);
-#endif /* WL_NAN */
 
 	if (!dhd_download_fw_on_driverload) {
 		/* For built-in drivers/other drivers that do reset on
@@ -19383,6 +19516,12 @@ s32 wl_cfg80211_down(struct net_device *dev)
 	WL_DBG(("In\n"));
 
 	if (cfg) {
+#ifdef WL_NAN
+		mutex_lock(&cfg->if_sync);
+		wl_cfgnan_check_nan_disable_pending(cfg, true, false);
+		mutex_unlock(&cfg->if_sync);
+#endif /* WL_NAN */
+
 		mutex_lock(&cfg->usr_sync);
 		err = __wl_cfg80211_down(cfg);
 		mutex_unlock(&cfg->usr_sync);
