@@ -90,6 +90,7 @@ static void five_audit_msg(struct task_struct *task, struct file *file,
 	struct inode *inode = NULL;
 	const char *fname = NULL;
 	char *pathbuf = NULL;
+	char filename[NAME_MAX];
 	char comm[TASK_COMM_LEN];
 	const char *name = "";
 	struct task_struct *tsk = task ? task : current;
@@ -97,7 +98,7 @@ static void five_audit_msg(struct task_struct *task, struct file *file,
 
 	if (file) {
 		inode = file_inode(file);
-		fname = five_d_path(&file->f_path, &pathbuf);
+		fname = five_d_path(&file->f_path, &pathbuf, filename);
 	}
 
 	ab = audit_log_start(current->audit_context, GFP_KERNEL,
@@ -172,11 +173,12 @@ void five_audit_hexinfo(struct file *file, const char *msg, char *data,
 	struct audit_buffer *ab;
 	struct inode *inode = NULL;
 	const unsigned char *fname = NULL;
+	char filename[NAME_MAX];
 	char *pathbuf = NULL;
 	struct integrity_iint_cache *iint = NULL;
 
 	if (file) {
-		fname = five_d_path(&file->f_path, &pathbuf);
+		fname = five_d_path(&file->f_path, &pathbuf, filename);
 		inode = file_inode(file);
 	}
 

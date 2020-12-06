@@ -8,48 +8,80 @@
 
 #include <linux/kernel.h>
 #include <linux/list.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/spinlock.h>
+#include <linux/version.h>
 #include "include/defex_catch_list.h"
 #include "include/defex_internal.h"
 
-#define MAX_PID_32 32768
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/mm.h>
+#include <linux/sched/task.h>
+#endif
 
-#ifdef DEFEX_PED_ENABLE
-DECLARE_HASHTABLE(creds_hash, 15);
-#endif /* DEFEX_PED_ENABLE */
+#define MAX_PID_32		32768
+#define DEFEX_MEM_CACHE_SIZE	32
+#define DEFEX_MEM_CACHE_COUNT	3
+#define CACHE_CRED_DATA		0
+#define CACHE_CRED_DATA_ID	1
+#define CACHE_HTABLE_ITEM	2
 
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
 struct id_set {
 	unsigned int uid, fsuid, egid;
 };
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 
 struct proc_cred_data {
-	unsigned int uid, fsuid, egid;
 	unsigned short cred_flags;
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
 	unsigned short tcnt;
-	struct id_set upd_ids[];
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
+	struct id_set default_ids;
+	struct id_set main_ids[];
 };
 
-struct proc_cred_struct {
+struct hash_item_struct {
 	struct hlist_node node;
-	struct proc_cred_data cred_data;
+	struct proc_cred_data *cred_data;
+	int id;
 };
 
+struct mem_cache_list {
+	atomic_t count;
+	char name[8];
+	struct kmem_cache *allocator;
+	void *mem_cache_array[DEFEX_MEM_CACHE_SIZE];
+};
+
+#ifdef DEFEX_PED_ENABLE
+DECLARE_HASHTABLE(creds_hash, 15);
 static DEFINE_SPINLOCK(creds_hash_update_lock);
 static struct proc_cred_data *creds_fast_hash[MAX_PID_32 + 1];
-static int creds_fast_hash_ready;
+static struct mem_cache_list mem_cache[DEFEX_MEM_CACHE_COUNT];
+static int creds_fast_hash_ready __ro_after_init;
+__visible_for_testing void mem_cache_alloc(void);
 
-void creds_fast_hash_init(void)
+
+void __init creds_fast_hash_init(void)
 {
 	unsigned int i;
+	static const int sizes[DEFEX_MEM_CACHE_COUNT] __initdata = {
+		sizeof(struct proc_cred_data),
+		sizeof(struct proc_cred_data) + sizeof(struct id_set),
+		sizeof(struct hash_item_struct)
+	};
 
+	hash_init(creds_hash);
 	for (i = 0; i <= MAX_PID_32; i++)
 		creds_fast_hash[i] = NULL;
+
+	for(i = 0; i < ARRAY_SIZE(sizes); i++) {
+		snprintf(mem_cache[i].name, sizeof(mem_cache[i].name), "defex%d", i);
+		mem_cache[i].allocator = kmem_cache_create(mem_cache[i].name, sizes[i], 0, 0, NULL);
+	}
+
+	for(i = 0; i < (DEFEX_MEM_CACHE_SIZE / 2); i++)
+		mem_cache_alloc();
+
 	creds_fast_hash_ready = 1;
 }
 
@@ -58,339 +90,295 @@ int is_task_creds_ready(void)
 	return creds_fast_hash_ready;
 }
 
-#ifdef DEFEX_PED_ENABLE
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-void get_task_creds(struct task_struct *p, unsigned int *uid_ptr, unsigned int *fsuid_ptr, unsigned int *egid_ptr, unsigned short *cred_flags_ptr)
-#else
-void get_task_creds(int pid, unsigned int *uid_ptr, unsigned int *fsuid_ptr, unsigned int *egid_ptr, unsigned short *cred_flags_ptr)
-#endif
+__visible_for_testing inline void *mem_cache_get(int cache_number)
 {
-	struct proc_cred_struct *obj;
-	struct proc_cred_data *cred_data;
+	int n;
+	n = atomic_read(&mem_cache[cache_number].count);
+	if (n) {
+		atomic_dec(&mem_cache[cache_number].count);
+		return mem_cache[cache_number].mem_cache_array[n - 1];
+	}
+	return NULL;
+}
+
+__visible_for_testing inline void *mem_cache_reclaim(int cache_number, void *ptr)
+{
+	int n;
+	n = atomic_read(&mem_cache[cache_number].count);
+	if (n < DEFEX_MEM_CACHE_SIZE) {
+		atomic_inc(&mem_cache[cache_number].count);
+		mem_cache[cache_number].mem_cache_array[n] = ptr;
+		ptr = NULL;
+	}
+	return ptr;
+}
+
+__visible_for_testing void mem_cache_alloc(void)
+{
+	int mem_allocated = 0;
+	int i, n;
+	unsigned long flags;
+	void *mem_block[DEFEX_MEM_CACHE_COUNT];
+
+	for(i = 0; i < DEFEX_MEM_CACHE_COUNT; i++) {
+		mem_block[i] = NULL;
+		n = atomic_read(&mem_cache[i].count);
+		if (n < (DEFEX_MEM_CACHE_SIZE / 2)) {
+			mem_block[i] = kmem_cache_alloc(mem_cache[i].allocator, in_atomic() ? GFP_ATOMIC:GFP_KERNEL);
+			mem_allocated++;
+		}
+	}
+
+	if (!mem_allocated)
+		return;
+
+	spin_lock_irqsave(&creds_hash_update_lock, flags);
+	for(i = 0; i < DEFEX_MEM_CACHE_COUNT; i++) {
+		n = atomic_read(&mem_cache[i].count);
+		if (mem_block[i] && n < DEFEX_MEM_CACHE_SIZE) {
+			mem_cache[i].mem_cache_array[n] = mem_block[i];
+			mem_block[i] = NULL;
+			atomic_inc(&mem_cache[i].count);
+			mem_allocated--;
+		}
+	}
+	spin_unlock_irqrestore(&creds_hash_update_lock, flags);
+
+	if (!mem_allocated)
+		return;
+
+	for(i = 0; i < DEFEX_MEM_CACHE_COUNT; i++) {
+		if (mem_block[i]) {
+			kmem_cache_free(mem_cache[i].allocator, mem_block[i]);
+		}
+	}
+}
+
+__visible_for_testing struct proc_cred_data *get_cred_data(int id)
+{
+	struct proc_cred_data *cred_data = NULL;
+	struct hash_item_struct *obj;
+
+	if (id < 0)
+		return NULL;
+	if (id <= MAX_PID_32) {
+		cred_data = creds_fast_hash[id];
+	} else {
+		hash_for_each_possible(creds_hash, obj, node, id) {
+			if (obj->id == id) {
+				cred_data = obj->cred_data;
+				break;
+			}
+		}
+	}
+	return cred_data;
+}
+
+__visible_for_testing struct proc_cred_data **get_cred_ptr(int id)
+{
+	struct proc_cred_data **cred_ptr = NULL;
+	struct hash_item_struct *obj;
+
+	if (id < 0)
+		return NULL;
+	if (id <= MAX_PID_32) {
+		cred_ptr = &creds_fast_hash[id];
+	} else {
+		hash_for_each_possible(creds_hash, obj, node, id) {
+			if (obj->id == id) {
+				cred_ptr = &obj->cred_data;
+				break;
+			}
+		}
+	}
+	return cred_ptr;
+}
+
+__visible_for_testing void set_cred_data(int id, struct proc_cred_data **cred_ptr, struct proc_cred_data *cred_data)
+{
+	struct hash_item_struct *obj;
+
+	if (id < 0)
+		return;
+	if (cred_ptr) {
+		*cred_ptr = cred_data;
+	} else {
+		if (id > MAX_PID_32) {
+			obj = mem_cache_get(CACHE_HTABLE_ITEM);
+			if (!obj)
+				return;
+			obj->id = id;
+			obj->cred_data = cred_data;
+			hash_add(creds_hash, &obj->node, id);
+		}
+	}
+}
+
+void get_task_creds(struct task_struct *p, unsigned int *uid_ptr, unsigned int *fsuid_ptr, unsigned int *egid_ptr, unsigned short *cred_flags_ptr)
+{
+	struct proc_cred_data *cred_data, *thread_cred_data;
+	struct id_set *ids_ptr;
 	unsigned int uid = 0, fsuid = 0, egid = 0;
 	unsigned short cred_flags = CRED_FLAGS_PROOT;
 	unsigned long flags;
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
 	int tgid = p->tgid, pid = p->pid;
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 
-	if (pid <= MAX_PID_32) {
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		cred_data = creds_fast_hash[tgid];
-		if (cred_data) {
-			if (tgid == pid) {
-				if (cred_data->cred_flags & CRED_FLAGS_MAIN_UPDATED) {
-					GET_CREDS(upd_ids->uid, upd_ids->fsuid, upd_ids->egid, cred_flags);
-				} else {
-					GET_CREDS(uid, fsuid, egid, cred_flags);
-				}
-			} else {
-				if ((cred_data->cred_flags & CRED_FLAGS_SUB_UPDATED) && creds_fast_hash[pid])
-					cred_data = creds_fast_hash[pid];
-				GET_CREDS(uid, fsuid, egid, cred_flags);
-			}
-		}
-#else
-		cred_data = creds_fast_hash[pid];
-		if (cred_data) {
-			GET_CREDS(uid, fsuid, egid, cred_flags);
-		}
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-	} else {
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
+	spin_lock_irqsave(&creds_hash_update_lock, flags);
+	cred_data = get_cred_data(tgid);
+	if (cred_data) {
 		if (tgid == pid) {
-			hash_for_each_possible(creds_hash, obj, node, tgid) {
-				if (obj->cred_data.cred_flags & CRED_FLAGS_MAIN_UPDATED) {
-					GET_CREDS_OBJ(upd_ids->uid, upd_ids->fsuid, upd_ids->egid, cred_flags);
-				} else {
-					GET_CREDS_OBJ(uid, fsuid, egid, cred_flags);
-				}
-				break;
-			}
+			ids_ptr = (cred_data->cred_flags & CRED_FLAGS_MAIN_UPDATED) ? \
+				(&cred_data->main_ids[0]) : (&cred_data->default_ids);
 		} else {
-			hash_for_each_possible(creds_hash, obj, node, tgid) {
-				GET_CREDS_OBJ(uid, fsuid, egid, cred_flags);
-				break;
+			if (cred_data->cred_flags & CRED_FLAGS_SUB_UPDATED) {
+				thread_cred_data = get_cred_data(pid);
+				if (thread_cred_data)
+					cred_data = thread_cred_data;
 			}
-			if (cred_flags & CRED_FLAGS_SUB_UPDATED) {
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-				hash_for_each_possible(creds_hash, obj, node, pid) {
-					GET_CREDS_OBJ(uid, fsuid, egid, cred_flags);
-					break;
-				}
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-			}
+			ids_ptr = &cred_data->default_ids;
 		}
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
+		GET_CREDS(ids_ptr, cred_data);
 	}
+	spin_unlock_irqrestore(&creds_hash_update_lock, flags);
 	*uid_ptr = uid;
 	*fsuid_ptr = fsuid;
 	*egid_ptr = egid;
 	*cred_flags_ptr = cred_flags;
 }
 
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
 int set_task_creds(struct task_struct *p, unsigned int uid, unsigned int fsuid, unsigned int egid, unsigned short cred_flags)
-#else
-int set_task_creds(int pid, unsigned int uid, unsigned int fsuid, unsigned int egid, unsigned short cred_flags)
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 {
-	struct proc_cred_struct *obj;
-	struct proc_cred_data *cred_data = NULL, *tmp_data = NULL;
+	struct proc_cred_data *cred_data = NULL, *tmp_data, **cred_ptr;
+	struct id_set *ids_ptr;
 	unsigned long flags;
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-	struct proc_cred_struct *tmp_obj = NULL;
-	int tgid = p->tgid, pid = p->pid;
-	unsigned short tmp_cred_flags = 0x80;
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
+	int err = -1, tgid = p->tgid, pid = p->pid;
+	void *free_buff = NULL;
 
-alloc_obj:;
-	if (pid <= MAX_PID_32) {
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		if (!creds_fast_hash[tgid]) {
-#else
-		if (!creds_fast_hash[pid]) {
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-			tmp_data = kmalloc(sizeof(struct proc_cred_data), GFP_ATOMIC);
-			if (!tmp_data)
-				return -1;
-		}
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		cred_data = creds_fast_hash[tgid];
-#else
-		cred_data = creds_fast_hash[pid];
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		if (!cred_data) {
-			if (!tmp_data) {
-				spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-				goto alloc_obj;
-			}
-			cred_data = tmp_data;
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-			cred_data->cred_flags = 0;
-			cred_data->tcnt = 1;
-			creds_fast_hash[tgid] = cred_data;
-#else
-			creds_fast_hash[pid] = cred_data;
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-			tmp_data = NULL;
-		}
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		if (cred_data && cred_data->tcnt >= 2) {
-			if (tgid == pid) {
-				if (!(cred_data->cred_flags & CRED_FLAGS_MAIN_UPDATED)) {
-					cred_data->cred_flags |= CRED_FLAGS_MAIN_UPDATED;
-					spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-					tmp_data = kmalloc(sizeof(struct proc_cred_data) + sizeof(struct id_set), GFP_ATOMIC);
-					if (!tmp_data) {
-						return -1;
-					}
-					spin_lock_irqsave(&creds_hash_update_lock, flags);
-					*tmp_data = *cred_data;
-					kfree(cred_data);
-					cred_data = tmp_data;
-					creds_fast_hash[tgid] = cred_data;
-					tmp_data = NULL;
-				}
-				SET_CREDS(upd_ids->uid, upd_ids->fsuid, upd_ids->egid, cred_flags);
-			} else {
-				cred_data->cred_flags |= CRED_FLAGS_SUB_UPDATED;
-				cred_data = creds_fast_hash[pid];
-				if (!cred_data) {
-					spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-					tmp_data = kmalloc(sizeof(struct proc_cred_data), GFP_ATOMIC);
-					if (!tmp_data) {
-						return -1;
-					}
-					spin_lock_irqsave(&creds_hash_update_lock, flags);
-					cred_data = tmp_data;
-					creds_fast_hash[pid] = cred_data;
-					tmp_data = NULL;
-				}
-				cred_data->cred_flags = 0;
-				SET_CREDS(uid, fsuid, egid, cred_flags);
-			}
-		} else {
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-			SET_CREDS(uid, fsuid, egid, cred_flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		}
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		if (tmp_data)
-			kfree(tmp_data);
-		return 0;
-	}
 
+	mem_cache_alloc();
 	spin_lock_irqsave(&creds_hash_update_lock, flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-	hash_for_each_possible(creds_hash, obj, node, tgid) {
-		if (obj->cred_data.tcnt >= 2) {
-			tmp_cred_flags = obj->cred_data.cred_flags;
-			obj->cred_data.cred_flags |= ((tgid == pid) ? CRED_FLAGS_MAIN_UPDATED : CRED_FLAGS_SUB_UPDATED);
-			break;
-		}
-#else
-	hash_for_each_possible(creds_hash, obj, node, pid) {
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		SET_CREDS_OBJ(uid, fsuid, egid, cred_flags);
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		return 0;
-	}
-	spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-	if (tmp_cred_flags == 0x80) {
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		obj = kmalloc(sizeof(struct proc_cred_struct), GFP_ATOMIC);
-		if (!obj)
-			return -1;
-		obj->cred_data.cred_flags = 0;
-		SET_CREDS_OBJ(uid, fsuid, egid, cred_flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		obj->cred_data.tcnt = 1;
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-		hash_add(creds_hash, &obj->node, tgid);
-#else
-		hash_add(creds_hash, &obj->node, pid);
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		return 0;
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-	}
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
-	if (tgid == pid) {
-		if (!(tmp_cred_flags & CRED_FLAGS_MAIN_UPDATED)) {
-			obj = kmalloc(sizeof(struct proc_cred_struct) + sizeof(struct id_set), GFP_ATOMIC);
-			if (!obj)
-				return -1;
-			spin_lock_irqsave(&creds_hash_update_lock, flags);
-			hash_for_each_possible(creds_hash, tmp_obj, node, tgid) {
-				*obj = *tmp_obj;
-				hash_del(&tmp_obj->node);
-				kfree(tmp_obj);
-				break;
+	/* Search for main proces's data */
+	cred_ptr = get_cred_ptr(tgid);
+	cred_data = (cred_ptr) ? (*cred_ptr) : NULL;
+	if (!cred_data) {
+		/* Not found? Allocate a new data */
+		cred_data = mem_cache_get(CACHE_CRED_DATA);
+		if (!cred_data)
+			goto set_finish;
+		cred_data->cred_flags = 0;
+		cred_data->tcnt = 1;
+		set_cred_data(tgid, cred_ptr, cred_data);
+	}
+	ids_ptr = &cred_data->default_ids;
+
+	if (cred_data->tcnt >= 2) {
+		if (tgid == pid) {
+			/* Allocate extended data for main process, copy and remove old data */
+			if (!(cred_data->cred_flags & CRED_FLAGS_MAIN_UPDATED)) {
+				cred_data->cred_flags |= CRED_FLAGS_MAIN_UPDATED;
+				tmp_data = mem_cache_get(CACHE_CRED_DATA_ID);
+				if (!tmp_data)
+					goto set_finish;
+				*tmp_data = *cred_data;
+				free_buff = mem_cache_reclaim(CACHE_CRED_DATA, cred_data);
+				cred_data = tmp_data;
+				set_cred_data(tgid, cred_ptr, cred_data);
 			}
-			SET_CREDS_OBJ(upd_ids->uid, upd_ids->fsuid, upd_ids->egid, cred_flags);
-			hash_add(creds_hash, &obj->node, tgid);
-			spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-			return 0;
+			ids_ptr = &cred_data->main_ids[0];
 		} else {
-			spin_lock_irqsave(&creds_hash_update_lock, flags);
-			hash_for_each_possible(creds_hash, obj, node, tgid) {
-				SET_CREDS_OBJ(upd_ids->uid, upd_ids->fsuid, upd_ids->egid, cred_flags);
-				spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-				return 0;
+			cred_data->cred_flags |= CRED_FLAGS_SUB_UPDATED;
+			/* Search for thread's data. Allocate, if not found */
+			cred_ptr = get_cred_ptr(pid);
+			cred_data = (cred_ptr) ? (*cred_ptr) : NULL;
+			if (!cred_data) {
+				cred_data = mem_cache_get(CACHE_CRED_DATA);
+				if (!cred_data)
+					goto set_finish;
+				set_cred_data(pid, cred_ptr, cred_data);
 			}
-			spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-			return -1;
+			cred_data->cred_flags = 0;
+			ids_ptr = &cred_data->default_ids;
 		}
-	} else {
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-		hash_for_each_possible(creds_hash, obj, node, pid) {
-			SET_CREDS_OBJ(uid, fsuid, egid, cred_flags);
-			spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-			return 0;
-		}
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		obj = kmalloc(sizeof(struct proc_cred_struct), GFP_ATOMIC);
-		if (!obj)
-			return -1;
-		obj->cred_data.cred_flags = 0;
-		SET_CREDS_OBJ(uid, fsuid, egid, cred_flags);
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-		hash_add(creds_hash, &obj->node, pid);
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		return 0;
 	}
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
-}
-#endif /* DEFEX_PED_ENABLE */
+	SET_CREDS(ids_ptr, cred_data);
+	err = 0;
 
-#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
+set_finish:
+	spin_unlock_irqrestore(&creds_hash_update_lock, flags);
+	/* Free the pending pointer */
+	if (free_buff)
+		kmem_cache_free(mem_cache[CACHE_CRED_DATA].allocator, free_buff);
+	mem_cache_alloc();
+	return err;
+}
+
 void set_task_creds_tcnt(struct task_struct *p, int addition)
 {
-	struct proc_cred_struct *tgid_obj, *pid_obj;
-	struct proc_cred_data *tgid_cred_data = NULL, *pid_cred_data = NULL;
-	unsigned long flags;
+	struct hash_item_struct *tgid_obj = NULL, *pid_obj = NULL;
+	struct proc_cred_data **cred_ptr, *tgid_cred_data = NULL, *pid_cred_data = NULL;
+	struct proc_cred_data *free_buff1 = NULL, *free_buff2 = NULL;
 	int tgid = p->tgid, pid = p->pid;
-
-	if (pid <= MAX_PID_32) {
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-		if (tgid != pid && addition == -1) {
-			pid_cred_data = creds_fast_hash[pid];
-			if (pid_cred_data) {
-				creds_fast_hash[pid] = NULL;
-				kfree(pid_cred_data);
-			}
-		}
-		tgid_cred_data = creds_fast_hash[tgid];
-		if (tgid_cred_data) {
-			tgid_cred_data->tcnt += addition;
-			if (!tgid_cred_data->tcnt) {
-				creds_fast_hash[tgid] = NULL;
-				spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-				kfree(tgid_cred_data);
-				return;
-			}
-		}
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		return;
-	}
+	unsigned long flags;
 
 	spin_lock_irqsave(&creds_hash_update_lock, flags);
+	/* Remove the thread's data, if found */
 	if (tgid != pid && addition == -1) {
-		hash_for_each_possible(creds_hash, pid_obj, node, pid) {
+		cred_ptr = get_cred_ptr(pid);
+		pid_cred_data = (cred_ptr) ? (*cred_ptr) : NULL;
+		if (pid_cred_data) {
+			*cred_ptr = NULL;
+			/* Return to pre-allocated pool, if possible */
+			free_buff1 = mem_cache_reclaim(CACHE_CRED_DATA, pid_cred_data);
+		}
+		/* Remove the thread's hash container */
+		if (cred_ptr && pid > MAX_PID_32) {
+			pid_obj = container_of(cred_ptr, struct hash_item_struct, cred_data);
 			hash_del(&pid_obj->node);
-			kfree(pid_obj);
-			break;
+			/* Return to pre-allocated pool, if possible */
+			pid_obj = mem_cache_reclaim(CACHE_HTABLE_ITEM, pid_obj);
 		}
 	}
-	hash_for_each_possible(creds_hash, tgid_obj, node, tgid) {
-		tgid_obj->cred_data.tcnt += addition;
-		if (!tgid_obj->cred_data.tcnt) {
-			hash_del(&tgid_obj->node);
-			spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-			kfree(tgid_obj);
-			return;
+	/* Search for the main process's data */
+	cred_ptr = get_cred_ptr(tgid);
+	tgid_cred_data = (cred_ptr) ? (*cred_ptr) : NULL;
+	if (tgid_cred_data) {
+		tgid_cred_data->tcnt += addition;
+		/* No threads, remove process data */
+		if (!tgid_cred_data->tcnt) {
+			*cred_ptr = NULL;
+			/* Return to pre-allocated pool, if possible */
+			free_buff2 = mem_cache_reclaim((tgid_cred_data->cred_flags & CRED_FLAGS_MAIN_UPDATED) ? \
+				CACHE_CRED_DATA_ID : CACHE_CRED_DATA, tgid_cred_data);
+			/* Remove the process's hash container */
+			if (tgid > MAX_PID_32) {
+				tgid_obj = container_of(cred_ptr, struct hash_item_struct, cred_data);
+				hash_del(&tgid_obj->node);
+				/* Return to pre-allocated pool, if possible */
+				tgid_obj = mem_cache_reclaim(CACHE_HTABLE_ITEM, tgid_obj);
+			}
 		}
-		break;
 	}
 	spin_unlock_irqrestore(&creds_hash_update_lock, flags);
+	/* Free all pending pointers */
+	if (free_buff1)
+		kmem_cache_free(mem_cache[CACHE_CRED_DATA].allocator, free_buff1);
+	if (free_buff2)
+		kmem_cache_free(mem_cache[(free_buff2->cred_flags & CRED_FLAGS_MAIN_UPDATED) ? \
+			CACHE_CRED_DATA_ID : CACHE_CRED_DATA].allocator, free_buff2);
+	if (pid_obj)
+		kmem_cache_free(mem_cache[CACHE_HTABLE_ITEM].allocator, pid_obj);
+	if (tgid_obj)
+		kmem_cache_free(mem_cache[CACHE_HTABLE_ITEM].allocator, tgid_obj);
 	return;
 }
+
 #else
-void delete_task_creds(int pid)
+
+void set_task_creds_tcnt(struct task_struct *p, int addition)
 {
-	struct proc_cred_struct *obj;
-	struct proc_cred_data *cred_data;
-	unsigned long flags;
-
-	if (pid <= MAX_PID_32) {
-		spin_lock_irqsave(&creds_hash_update_lock, flags);
-		cred_data = creds_fast_hash[pid];
-		creds_fast_hash[pid] = NULL;
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		kfree(cred_data);
-		return;
-	}
-
-	spin_lock_irqsave(&creds_hash_update_lock, flags);
-	hash_for_each_possible(creds_hash, obj, node, pid) {
-		hash_del(&obj->node);
-		spin_unlock_irqrestore(&creds_hash_update_lock, flags);
-		kfree(obj);
-		return;
-	}
-	spin_unlock_irqrestore(&creds_hash_update_lock, flags);
+	(void)p;
+	(void)addition;
 }
-#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 
+#endif /* DEFEX_PED_ENABLE */

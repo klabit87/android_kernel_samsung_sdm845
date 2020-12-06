@@ -658,6 +658,29 @@ static enum mon_aspect_ratio_t secdp_get_aspect_ratio(struct drm_display_mode *m
 	return aspect_ratio;
 }
 
+bool secdp_find_supported_resolution(struct dp_panel_info *timing)
+{
+	struct secdp_display_timing *secdp_timing = secdp_supported_resolution;
+	int  i, res_cnt = ARRAY_SIZE(secdp_supported_resolution);
+	u32  h_active, v_active, refresh_rate;
+	bool support = false;
+
+	h_active     = timing->h_active;
+	v_active     = timing->v_active;
+	refresh_rate = timing->refresh_rate;
+
+	for (i = 0; i < res_cnt; i++) {
+		if (h_active == secdp_timing[i].active_h &&
+				v_active == secdp_timing[i].active_v &&
+				refresh_rate == secdp_timing[i].refresh_rate) {
+			support = true;
+			break;
+		}
+	}
+
+	return support;
+}
+
 static bool secdp_check_supported_resolution(struct drm_display_mode *mode, bool supported)
 {
 	int i, fps_diff;

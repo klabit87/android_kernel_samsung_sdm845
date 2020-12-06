@@ -72,6 +72,9 @@ struct dp_panel_private {
 	struct dp_panel dp_panel;
 	struct dp_aux *aux;
 	struct dp_link *link;
+#ifdef CONFIG_SEC_DISPLAYPORT
+	struct dp_parser *parser;
+#endif
 	struct dp_catalog_panel *catalog;
 	bool custom_edid;
 	bool custom_dpcd;
@@ -332,6 +335,78 @@ static int dp_panel_set_dpcd(struct dp_panel *dp_panel, u8 *dpcd)
 	return 0;
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+static int dp_panel_get_modes(struct dp_panel *dp_panel,
+	struct drm_connector *connector, struct dp_display_mode *mode);
+static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
+		const struct drm_display_mode *drm_mode,
+		struct dp_display_mode *dp_mode);
+
+/** stores max timing's pclk and bpp values
+ * dp_panel_get_min_req_link_rate() needs two info :
+ * 1. pinfo->pixel_clk_khz
+ * 2. pinfo->bpp
+ * this function is made for future use of "SECDP_OPTIMAL_LINK_RATE"
+ */
+static void secdp_get_max_timing(struct dp_panel *dp_panel)
+{
+	struct drm_device *dev;
+	struct drm_connector *conn;
+	struct drm_display_mode *mode, *temp;
+	struct dp_display_mode dp_mode;
+	struct dp_panel_info *pinfo, *timing;
+	int  rc;
+
+	conn = dp_panel->connector;
+	dev = conn->dev;
+
+	mutex_lock(&dev->mode_config.mutex);
+
+	pinfo = &dp_panel->max_timing_info;
+	memset(pinfo, 0, sizeof(*pinfo));
+	memset(&dp_mode, 0, sizeof(dp_mode));
+
+	rc = dp_panel_get_modes(dp_panel, conn, &dp_mode);
+	if (!rc) {
+		pr_info("no valid mode\n");
+		goto end;
+	}
+
+	list_for_each_entry(mode, &conn->probed_modes, head) {
+		dp_panel_convert_to_dp_mode(dp_panel, mode, &dp_mode);
+		timing = &dp_mode.timing;
+
+		if (pinfo->pixel_clk_khz < timing->pixel_clk_khz) {
+#ifndef SECDP_HIGH_REFRESH_SUPPORT
+			if (timing->refresh_rate > 60) {
+				pr_info("skip %ux%u@%uhz, too high refresh rate!\n",
+					timing->h_active, timing->v_active,
+					timing->refresh_rate);
+				continue;
+			}
+#endif
+			pinfo->h_active      = timing->h_active;
+			pinfo->v_active      = timing->v_active;
+			pinfo->refresh_rate  = timing->refresh_rate;
+			pinfo->pixel_clk_khz = timing->pixel_clk_khz;
+			pinfo->bpp           = timing->bpp;
+			pr_info("updated, %ux%u@%uhz, pclk:%u, bpp:%u\n",
+				pinfo->h_active, pinfo->v_active,
+				pinfo->refresh_rate, pinfo->pixel_clk_khz,
+				pinfo->bpp);
+		}
+	}
+
+	list_for_each_entry_safe(mode, temp, &conn->probed_modes, head) {
+		list_del(&mode->head);
+		drm_mode_destroy(dev, mode);
+	}
+end:
+	mutex_unlock(&dev->mode_config.mutex);
+	return;
+}
+#endif
+
 static int dp_panel_read_edid(struct dp_panel *dp_panel,
 	struct drm_connector *connector)
 {
@@ -362,6 +437,9 @@ static int dp_panel_read_edid(struct dp_panel *dp_panel,
 		ret = -EINVAL;
 		goto end;
 	}
+#ifdef CONFIG_SEC_DISPLAYPORT
+	secdp_get_max_timing(dp_panel);
+#endif
 end:
 	return ret;
 }
@@ -372,9 +450,6 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 	int rc = 0, rlen, count, downstream_ports;
 	const int count_len = 1;
 	struct dp_panel_private *panel;
-#ifdef CONFIG_SEC_DISPLAYPORT
-	char monitor_name[14];
-#endif
 
 	if (!dp_panel || !connector) {
 		pr_err("invalid input\n");
@@ -442,11 +517,12 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 
 end:
 #ifdef CONFIG_SEC_DISPLAYPORT
+	pr_info("dpcd_rev: 0x%02x\n", dp_panel->dpcd[DP_DPCD_REV]);
 	pr_info("vendor_id: <%s>\n", dp_panel->edid_ctrl->vendor_id);
-	drm_edid_get_monitor_name(dp_panel->edid_ctrl->edid, monitor_name, 14);
-	pr_info("monitor_name: <%s>\n", monitor_name);
+	drm_edid_get_monitor_name(dp_panel->edid_ctrl->edid, dp_panel->monitor_name, 14);
+	pr_info("monitor_name: <%s>\n", dp_panel->monitor_name);
 #ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
-	secdp_bigdata_save_item(BD_SINK_NAME, monitor_name);
+	secdp_bigdata_save_item(BD_SINK_NAME, dp_panel->monitor_name);
 	secdp_bigdata_save_item(BD_EDID, (char *)(dp_panel->edid_ctrl->edid));
 #endif
 #endif
@@ -811,7 +887,11 @@ static u32 dp_panel_get_min_req_link_rate(struct dp_panel *dp_panel)
 	}
 
 	lane_cnt = dp_panel->link_info.num_lanes;
+#ifndef CONFIG_SEC_DISPLAYPORT
 	pinfo = &dp_panel->pinfo;
+#else
+	pinfo = &dp_panel->max_timing_info;
+#endif
 
 	/* num_lanes * lane_count * 8 >= pclk * bpp * 10 */
 	min_link_rate_khz = pinfo->pixel_clk_khz /
@@ -933,6 +1013,49 @@ end:
 	return rc;
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
+		const struct drm_display_mode *drm_mode,
+		struct dp_display_mode *dp_mode)
+{
+	const u32 num_components = 3, default_bpp = 24;
+
+	dp_mode->timing.h_active = drm_mode->hdisplay;
+	dp_mode->timing.h_back_porch = drm_mode->htotal - drm_mode->hsync_end;
+	dp_mode->timing.h_sync_width = drm_mode->htotal -
+			(drm_mode->hsync_start + dp_mode->timing.h_back_porch);
+	dp_mode->timing.h_front_porch = drm_mode->hsync_start -
+					 drm_mode->hdisplay;
+	dp_mode->timing.h_skew = drm_mode->hskew;
+
+	dp_mode->timing.v_active = drm_mode->vdisplay;
+	dp_mode->timing.v_back_porch = drm_mode->vtotal - drm_mode->vsync_end;
+	dp_mode->timing.v_sync_width = drm_mode->vtotal -
+		(drm_mode->vsync_start + dp_mode->timing.v_back_porch);
+
+	dp_mode->timing.v_front_porch = drm_mode->vsync_start -
+					 drm_mode->vdisplay;
+
+	dp_mode->timing.refresh_rate = drm_mode->vrefresh;
+
+	dp_mode->timing.pixel_clk_khz = drm_mode->clock;
+
+	dp_mode->timing.v_active_low =
+		!!(drm_mode->flags & DRM_MODE_FLAG_NVSYNC);
+
+	dp_mode->timing.h_active_low =
+		!!(drm_mode->flags & DRM_MODE_FLAG_NHSYNC);
+
+	dp_mode->timing.bpp =
+		dp_panel->connector->display_info.bpc * num_components;
+	if (!dp_mode->timing.bpp)
+		dp_mode->timing.bpp = default_bpp;
+
+	dp_mode->timing.bpp = dp_panel_get_mode_bpp(dp_panel,
+			dp_mode->timing.bpp, dp_mode->timing.pixel_clk_khz);
+}
+#endif
+
 struct dp_panel *dp_panel_get(struct dp_panel_in *in)
 {
 	int rc = 0;
@@ -955,6 +1078,7 @@ struct dp_panel *dp_panel_get(struct dp_panel_in *in)
 	panel->aux = in->aux;
 	panel->catalog = in->catalog;
 	panel->link = in->link;
+	panel->parser = in->parser;
 
 	dp_panel = &panel->dp_panel;
 #ifndef CONFIG_SEC_DISPLAYPORT
@@ -965,6 +1089,9 @@ struct dp_panel *dp_panel_get(struct dp_panel_in *in)
 	dp_panel->spd_enabled = true;
 	memcpy(panel->spd_vendor_name, vendor_name, (sizeof(u8) * 8));
 	memcpy(panel->spd_product_description, product_desc, (sizeof(u8) * 16));
+#ifdef CONFIG_SEC_DISPLAYPORT
+	dp_panel->connector = in->connector;
+#endif
 
 	dp_panel->init = dp_panel_init_panel_info;
 	dp_panel->deinit = dp_panel_deinit_panel_info;

@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_cfg80211.h 866158 2020-02-26 03:09:04Z $
+ * $Id: wl_cfg80211.h 874925 2020-04-24 08:58:32Z $
  */
 
 /**
@@ -90,6 +90,11 @@ struct wl_ibss;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0) && !defined(WL_FILS_ROAM_OFFLD))
 #define WL_FILS_ROAM_OFFLD
 #endif // endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
+/* Use driver managed regd */
+#define WL_SELF_MANAGED_REGDOM
+#endif /* KERNEL >= 4.0 */
 
 #ifdef WL_SAE
 #define IS_AKM_SAE(akm) (akm == WLAN_AKM_SUITE_SAE)
@@ -1029,6 +1034,8 @@ typedef struct wl_btm_event_type_data wl_btm_event_type_data_t;
 #if defined(WL_MBO) || defined(WL_OCE)
 typedef struct wl_bssid_prune_evt_info wl_bssid_pruned_evt_info_t;
 #endif /* WL_MBO || WL_OCE */
+
+#define WL_CCODE_LEN 2
 
 #ifdef WL_NAN
 #define NAN_MAX_NDI		1u
@@ -2511,5 +2518,6 @@ do {	\
 	}	\
 } while (0)
 extern s32 wl_cfg80211_handle_macaddr_change(struct net_device *dev, u8 *macaddr);
+extern bool dhd_force_country_change(struct net_device *dev);
 extern void wl_cfg80211_concurrent_roam(struct bcm_cfg80211 *cfg, int enable);
 #endif /* _wl_cfg80211_h_ */
