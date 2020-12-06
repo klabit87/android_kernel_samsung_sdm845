@@ -2740,7 +2740,7 @@ wl_cfg80211_random_mac_disable(struct net_device *dev)
 	s32 err = BCME_OK;
 #if defined(DHD_RANDOM_MAC_SCAN)
 	err = wl_cfg80211_dhd_driven_random_mac_disable(dev);
-#elif !defined(WL_USE_RANDOMIZED_SCAN)
+#else
 	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
 	/* Disable scanmac if enabled */
 	if (cfg->scanmac_enabled) {

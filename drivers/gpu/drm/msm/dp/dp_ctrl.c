@@ -1446,26 +1446,69 @@ static void dp_ctrl_reset(struct dp_ctrl *dp_ctrl)
 }
 
 #ifdef SECDP_OPTIMAL_LINK_RATE
+/* DP testbox list */
+static char secdp_tbox[][14] = {
+	"UNIGRAF TE",
+	"UFG DPR-120",
+	"UCD-400 DP",
+	"AGILENT ATR",
+	"UFG DP SINK",
+};
+
+/** check if connected sink is testbox or not
+ * return true		if it's testbox
+ * return false		otherwise (real sink)
+ */
+static bool secdp_check_tbox(struct dp_ctrl_private *ctrl)
+{
+	struct dp_panel *panel;
+	int i, rc;
+	bool ret = false;
+
+	if (!ctrl || !ctrl->panel)
+		goto end;
+
+	panel = ctrl->panel;
+
+	for (i = 0; i < dim(secdp_tbox); i++) {
+		rc = strncmp(panel->monitor_name, secdp_tbox[i],
+				strlen(panel->monitor_name));
+		if (!rc) {
+			pr_info("<%s> detected!\n", panel->monitor_name);
+			ret = true;
+			goto end;
+		}
+	}
+
+	pr_info("real sink <%s>\n", panel->monitor_name);
+end:
+	return ret;
+}
+
 static u32 secdp_dp_gen_link_clk(struct dp_panel *dp_panel)
 {
-	u32 calc_link_rate;
-	u32 min_link_rate = dp_panel->get_min_req_link_rate(dp_panel);
+	u32 calc_link_rate = 540000;	/* default HBR2 */
+	u32 min_link_rate;
 
-	pr_debug("+++, min_link_rate <%u>\n", min_link_rate);
+	if (!dp_panel)
+		goto end;
 
-	if (min_link_rate <= 162000)
+	min_link_rate = dp_panel->get_min_req_link_rate(dp_panel);
+
+	if (min_link_rate == 0)
+		pr_info("timing not found, set default\n");
+	else if (min_link_rate <= 162000)
 		calc_link_rate = 162000;
 	else if (min_link_rate <= 270000)
 		calc_link_rate = 270000;
 	else if (min_link_rate <= 540000)
 		calc_link_rate = 540000;
-	else {
-		/* Cap the link rate to the max supported rate */
-		pr_debug("min_link_rate is not supported, setting 5.4G\n");
-		calc_link_rate = 540000;
-	}
+	else
+		pr_err("too big!, set default\n");
 
-	pr_debug("---, calc_link_rate <%u>\n", calc_link_rate);
+	pr_info("min_link_rate <%u>, calc_link_rate <%u>\n",
+		min_link_rate, calc_link_rate);
+end:
 	return calc_link_rate;
 }
 #endif
@@ -1495,13 +1538,12 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 		if (!ctrl->panel->pinfo.pixel_clk_khz)
 			ctrl->pixel_rate = phy_cts_pixel_clk_khz;
 	} else {
-#ifndef SECDP_OPTIMAL_LINK_RATE
+#ifdef SECDP_OPTIMAL_LINK_RATE
+		if (!secdp_check_tbox(ctrl))
+			rate = secdp_dp_gen_link_clk(ctrl->panel);
+#endif
 		ctrl->link->link_params.bw_code =
 			drm_dp_link_rate_to_bw_code(rate);
-#else
-		ctrl->link->link_params.bw_code =
-			drm_dp_link_rate_to_bw_code(secdp_dp_gen_link_clk(ctrl->panel));
-#endif
 		ctrl->link->link_params.lane_count =
 			ctrl->panel->link_info.num_lanes;
 		ctrl->pixel_rate = ctrl->panel->pinfo.pixel_clk_khz;

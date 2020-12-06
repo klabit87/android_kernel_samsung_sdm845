@@ -1918,7 +1918,7 @@ static int mfc_chg_get_property(struct power_supply *psy,
 				gpio_direction_output(charger->pdata->mst_pwr_en, 1);
 				usleep_range(3600, 4000);
 				gpio_direction_output(charger->pdata->mst_pwr_en, 0);
-				mdelay(50);
+				msleep(50);
 				charger->mst_off_lock = 0;
 
 				gpio_direction_output(charger->pdata->mst_pwr_en, 1);
@@ -2368,7 +2368,7 @@ static int mfc_chg_set_property(struct power_supply *psy,
 				mfc_send_packet(charger, MFC_HEADER_AFC_CONF,
 					0x20, &tmp, 1);
 				pr_info("%s: send command after wc control\n", __func__);
-				mdelay(150);
+				msleep(150);
 			}
 			break;
 		case POWER_SUPPLY_EXT_PROP_CALL_EVENT:
@@ -3027,7 +3027,7 @@ void mfc_mst_routine(struct mfc_charger_data *charger, u8 *irq_src)
 		mfc_reg_write(charger->client, MFC_INT_A_CLEAR_H_REG, irq_src[1]); // clear int
 		mfc_set_cmd_l_reg(charger, 0x20, MFC_CMD_CLEAR_INT_MASK); // command
 
-		mdelay(10);
+		msleep(10);
 	}
 }
 

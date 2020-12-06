@@ -14,9 +14,15 @@ choice
     depends on FIVE_TEE_DRIVER
     default FIVE_USE_TZDEV if TZDEV
     default FIVE_USE_QSEE if QSEECOM
-    default FIVE_USE_TRUSTONIC
+    default FIVE_USE_TRUSTONIC if TRUSTONIC_TEE || TRUSTONIC_TEE_SUPPORT
+    default FIVE_USE_EMULATOR
     ---help---
       Select Secure OS for FIVE TEE Driver
+
+    config FIVE_USE_EMULATOR
+        bool "Integrity TEE Driver for TA emualtor"
+        ---help---
+          Use Integrity TEE Driver which interacts with TA emulator over network
 
     config FIVE_USE_TRUSTONIC
         bool "Integrity TEE Driver based on Trustonic Secure OS"
@@ -44,6 +50,13 @@ config TEE_DRIVER_DEBUG
     default n
     ---help---
       Enable Debug mode in TEE Driver
+
+config FIVE_EMULATOR_IP
+    string "IP address of FIVE TA Emulator"
+    depends on FIVE_TEE_DRIVER && FIVE_USE_EMULATOR
+    default "10.0.2.2" if FIVE_USE_EMULATOR
+    ---help---
+      The driver will connect to FIVE TA at this address
 
 config FIVE_TRUSTLET_PATH
     string "FIVE trustlet"

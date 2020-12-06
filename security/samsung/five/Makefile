@@ -7,7 +7,6 @@ obj-$(CONFIG_FIVE_TEE_DRIVER) += five_tee_interface.o
 EXTRA_CFLAGS += -I$(src)
 asflags-y += -Isecurity/integrity/five
 asflags-y += -Isecurity/samsung/five
-ccflags-y += -Isecurity
 ccflags-y += -I$(srctree)
 ccflags-y += -Wformat
 

@@ -503,7 +503,7 @@ extern int sec_bat_get_adc_value(struct sec_battery_info *battery, int channel);
 extern bool sec_bat_check_vf_adc(struct sec_battery_info *battery);
 extern void btm_init(struct sec_battery_info *battery);
 extern unsigned int is_boot_recovery(void);
-extern void sec_bat_set_misc_event(struct sec_battery_info *battery, const int misc_event_type, bool do_clear);
+extern void sec_bat_set_misc_event(struct sec_battery_info *battery, unsigned int misc_event_val, unsigned int misc_event_mask);
 extern void sec_bat_set_current_event(struct sec_battery_info *battery, unsigned int current_event_val, unsigned int current_event_mask);
 extern void sec_bat_get_battery_info(struct sec_battery_info *battery);
 extern int sec_bat_set_charge(struct sec_battery_info *battery, int chg_mode);

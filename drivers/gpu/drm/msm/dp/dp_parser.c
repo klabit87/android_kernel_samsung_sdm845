@@ -626,6 +626,19 @@ exit:
 	return rc;
 }
 
+#ifdef CONFIG_SEC_DISPLAYPORT
+static void secdp_parse_misc(struct dp_parser *parser)
+{
+	struct device *dev = &parser->pdev->dev;
+
+	parser->prefer_res = of_property_read_bool(dev->of_node,
+			"secdp,prefer-res");
+	pr_debug("secdp,prefer-res: %d\n", parser->prefer_res);
+
+	return;
+}
+#endif
+
 static int dp_parser_parse(struct dp_parser *parser)
 {
 	int rc = 0;
@@ -667,6 +680,13 @@ static int dp_parser_parse(struct dp_parser *parser)
 		goto err;
 
 	rc = dp_parser_msm_hdcp_dev(parser);
+	if (rc)
+		goto err;
+
+#ifdef CONFIG_SEC_DISPLAYPORT
+	secdp_parse_misc(parser);
+#endif
+
 err:
 	return rc;
 }
