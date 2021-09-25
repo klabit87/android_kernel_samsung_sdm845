@@ -1,0 +1,157 @@
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&pm8998_gpios {
+	chg_int {
+		chg_int_default: chg_int_default {
+			pins = "gpio11";
+			function = "normal";
+			input-enable;
+			bias-disable;
+			power-source = <0>;
+		};
+	};
+};
+
+&soc {
+        muic {
+                status = "okay";
+		muic,support-list = "+OTG:GND",
+				"-MHL:1K",
+				"-VZW Accessory:28.7K",
+				"-VZW Incompatible:34K",
+				"+RDU TA:40.2K",
+				"+HMT:49.9K",
+				"-Audiodock:64.9K",
+				"-USB LANHUB:80.07K",
+				"-Charging Cable:102K",
+				"+Game Pad:121K",
+				"+Jig USB Off:255K",
+				"+Jig USB On:301K",
+				"+Deskdock:365K",
+				"-TYPE2 Charger:442K",
+				"+Jig UART Off:523K",
+				"+Jig UART On:619K",
+				"+TA:OPEN",
+				"+USB:OPEN",
+				"+CDP:OPEN",
+				"+Undefined Charging:XXX";
+                muic,afcmode-tx = /bits/ 8 <0x46>;
+		muic,qc-hv = /bits/ 8 <0x9>;
+	};
+
+	i2c13: i2c@13 {
+		cell-index = <13>;
+		compatible = "i2c-gpio";
+		gpios = <&tlmm 25 0 /* sda */
+			&tlmm 26 0 /* scl */
+			>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		sm5720@66 {
+			compatible = "siliconmitus,sm5720";
+			reg = <0x49>;
+			interrupt-parent = <&spmi_bus>;
+			interrupts = <0x0 0xca 0 IRQ_TYPE_LEVEL_LOW>;
+			interrupt-names = "sm5720_irq";
+			interrupt-controller;
+			sm5720,irq-gpio = <&pm8998_gpios 11 0x01>;
+			sm5720,wakeup;
+			muic-universal,irq-gpio = <&pm8998_gpios 11 0x01>;
+			muic-universal,chip_name = "sm,sm5720";
+			muic,undefined_range;
+			pinctrl-names = "muic_active", "muic_suspend", "default";
+			pinctrl-0 = <&muic_i2c_active>;
+			pinctrl-1 = <&muic_i2c_suspend>;
+			pinctrl-2 = <&chg_int_default &jig_irq_active>;
+			haptic,mode = <1>;
+			haptic,divisor = <128>;
+		};
+	};
+
+	rgb {
+		device_type = "star1";
+		rgb-name = "led_b", "led_r", "led_g", "led_w";
+		octa-code = "_u", "_bk", "_gd", "_sv", "_bl";
+
+		en-lowpower-mode;
+
+		normal_powermode_current = <10>;
+		low_powermode_current = <10>;
+		br_ratio_r = <750>;
+		br_ratio_g = <70>;
+		br_ratio_b = <130>;
+		br_ratio_r_low = <70>;
+		br_ratio_g_low = <1>;
+		br_ratio_b_low = <19>;
+
+		normal_powermode_current_u = <10>;
+		low_powermode_current_u = <10>;
+		br_ratio_r_u = <750>;
+		br_ratio_g_u = <70>;
+		br_ratio_b_u = <130>;
+		br_ratio_r_low_u = <70>;
+		br_ratio_g_low_u = <1>;
+		br_ratio_b_low_u = <19>;
+
+		normal_powermode_current_bk = <10>;
+		low_powermode_current_bk = <10>;
+		br_ratio_r_bk = <750>;
+		br_ratio_g_bk = <70>;
+		br_ratio_b_bk = <130>;
+		br_ratio_r_low_bk = <70>;
+		br_ratio_g_low_bk = <1>;
+		br_ratio_b_low_bk = <19>;
+
+		normal_powermode_current_gd = <10>;
+		low_powermode_current_gd = <10>;
+		br_ratio_r_gd = <750>;
+		br_ratio_g_gd = <70>;
+		br_ratio_b_gd = <130>;
+		br_ratio_r_low_gd = <70>;
+		br_ratio_g_low_gd = <1>;
+		br_ratio_b_low_gd = <19>;
+
+		normal_powermode_current_sv = <10>;
+		low_powermode_current_sv = <10>;
+		br_ratio_r_sv = <750>;
+		br_ratio_g_sv = <70>;
+		br_ratio_b_sv = <130>;
+		br_ratio_r_low_sv = <70>;
+		br_ratio_g_low_sv = <1>;
+		br_ratio_b_low_sv = <19>;
+
+		normal_powermode_current_bl = <10>;
+		low_powermode_current_bl = <10>;
+		br_ratio_r_bl = <750>;
+		br_ratio_g_bl = <70>;
+		br_ratio_b_bl = <130>;
+		br_ratio_r_low_bl = <70>;
+		br_ratio_g_low_bl = <1>;
+		br_ratio_b_low_bl = <19>;
+	};
+
+	samsung,vibrator {
+		compatible = "samsung_vib";
+		pinctrl-names = "tlmm_motor_active","tlmm_motor_suspend";
+		pinctrl-0 = <&motor_pwm_active>;
+		pinctrl-1 = <&motor_pwm_suspend>;
+		samsung,vib_pwm = <&tlmm 57 0>;
+		samsung,vib_power = <&pm8998_gpios 18 0>;
+		samsung,gp_clk = <0x00164000>;	// Address of GP1 clock
+		samsung,chip_model = <2>;	// using sm5720 driver
+		samsung,support_multi_freq = <1>;
+		status = "ok";
+	};
+};
+

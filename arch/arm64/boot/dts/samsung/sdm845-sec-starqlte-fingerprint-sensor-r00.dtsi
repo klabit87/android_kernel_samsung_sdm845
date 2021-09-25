@@ -1,0 +1,113 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/{
+	aliases {
+		spi5 = &qupv3_se5_spi;
+	};
+};
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		qupv3_se5_spi_pins: qupv3_se5_spi_pins {
+			qupv3_se5_spi_active: qupv3_se5_spi_active {
+				mux {
+					pins = "gpio85", "gpio86", "gpio87",
+								"gpio88";
+					function = "qup5";
+				};
+
+				config {
+					pins = "gpio85", "gpio86", "gpio87",
+								"gpio88";
+					drive-strength = <6>;
+					bias-disable;
+				};
+			};
+
+			qupv3_se5_spi_sleep: qupv3_se5_spi_sleep {
+				mux {
+					pins = "gpio85", "gpio86", "gpio87",
+								"gpio88";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio85", "gpio86", "gpio87",
+								"gpio88";
+					drive-strength = <6>;
+					bias-pull-down;
+					input-enable;
+				};
+			};
+		};
+		etspi_drdypin {
+			etspi_drdypin_active: etspi_drdypin_active {
+				mux {
+					pins = "gpio73";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio73";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+			etspi_drdypin_suspend: etspi_drdypin_suspend {
+				mux {
+					pins = "gpio73";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio73";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+		};
+
+		etspi_ldopin {
+			etspi_ldopin: etspi_ldopin {
+				mux {
+					pins = "gpio74";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio74";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+		};
+	};
+};
+
+&qupv3_se5_spi {
+	status = "ok";
+
+	etspi-spi@0 {
+		compatible = "etspi,et5xx";
+		reg = <0>;
+		spi-max-frequency = <16000000>;
+		etspi-sleepPin = <&expander_gpios 20 0>;
+		etspi-drdyPin = <&tlmm 73 0x01>;
+		etspi-ldoPin = <&tlmm 74 0x00>;
+		etspi-vendorPin = <&expander_gpios 22 0>;
+		etspi-min_cpufreq_limit = <2169600>;
+		etspi-chipid = "ET510";
+
+		pinctrl-names = "default", "sleep", "idle";
+		pinctrl-0 = <&etspi_drdypin_suspend &etspi_ldopin>;
+		pinctrl-1 = <&etspi_drdypin_suspend>;
+		pinctrl-2 = <&etspi_drdypin_active>;
+	};
+};

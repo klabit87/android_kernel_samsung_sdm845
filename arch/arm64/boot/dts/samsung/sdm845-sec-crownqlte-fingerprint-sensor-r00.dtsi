@@ -1,0 +1,53 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/{
+	aliases {
+		spi5 = &qupv3_se5_spi;
+	};
+};
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		btp_irq_default: btp_irq_default {
+			mux {
+				pins = "gpio26";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio26";
+				bias-pull-down;
+			};
+		};
+	};
+
+	qcom,qbt1000 {
+		compatible = "qcom,qbt1000";
+		clock-names = "core", "iface";
+		clock-frequency = <25000000>;
+		qcom,ipc-gpio = <&tlmm 26 0>;
+		qcom,ldo-gpio = <&expander_gpios 18 0>;
+	};
+};
+
+&qupv3_se5_spi {
+	status = "ok";
+	qbtspi@0 {
+		compatible = "qbtspi";
+		reg = <0>;
+		spi-max-frequency =  <50000000>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&btp_irq_default>;
+	};
+};

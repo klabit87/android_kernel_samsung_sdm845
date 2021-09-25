@@ -1,0 +1,36 @@
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		s2dos05_irq {
+			s2dos05_irq_default: s2dos05_irq_default {
+				config {
+					pins = "gpio52";
+					drive-strength = <2>;
+					bias-disable;
+					input-enable;
+				};
+			};
+		};
+	};
+
+	/* S2DOS05 Display PMIC */
+	i2c21: i2c@21 {
+		s2dos05@60 {
+			pinctrl-names = "default";
+			pinctrl-0 = <&s2dos05_irq_default>;
+			s2dos05,s2dos05_int = <&tlmm 52 0>;
+		};
+	};
+};
+

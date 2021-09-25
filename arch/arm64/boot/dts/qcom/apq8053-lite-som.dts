@@ -162,7 +162,7 @@
 		fstab {
 			/delete-node/ system;
 			vendor {
-				fsmgr_flags = "wait,slotselect";
+				fsmgr_flags = "wait,slotselect,avb";
 			};
 		};
 	};

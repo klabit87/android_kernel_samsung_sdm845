@@ -767,12 +767,12 @@ KBUILD_CFLAGS += $(call cc-ifversion, -lt, 0409, \
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
 
 ifdef CONFIG_RKP_CFP_JOPP
-REAL_CC		= $(srctree)/tools/prebuilts/gcc-cfp-jopp-only/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
-CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+JOPP_CC		?= $(srctree)/toolchain/gcc-cfp/gcc-cfp-jopp-only/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+CC		= $(srctree)/scripts/gcc-wrapper.py $(JOPP_CC)
 endif
 ifdef CONFIG_RKP_CFP_ROPP
-REAL_CC		= $(srctree)/tools/prebuilts/gcc-cfp-single/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
-CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+ROPP_CC		?= $(srctree)/toolchain/gcc-cfp/gcc-cfp-single/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+CC		= $(srctree)/scripts/gcc-wrapper.py $(ROPP_CC)
 endif
 # check for 'asm goto'
 ifeq ($(shell $(CONFIG_SHELL) $(srctree)/scripts/gcc-goto.sh $(CC) $(KBUILD_CFLAGS)), y)

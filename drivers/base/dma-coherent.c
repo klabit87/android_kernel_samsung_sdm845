@@ -200,11 +200,8 @@ int dma_alloc_from_coherent(struct device *dev, ssize_t size,
 	*ret = NULL;
 	spin_lock_irqsave(&mem->spinlock, flags);
 
-	if (unlikely(size > (mem->size << PAGE_SHIFT))) {
-		WARN_ONCE(1, "%s too big size, req-size: %zu total-size: %d\n",
-			  __func__, size, (mem->size << PAGE_SHIFT));
+	if (unlikely(size > (mem->size << PAGE_SHIFT)))
 		goto err;
-	}
 
 	pageno = bitmap_find_free_region(mem->bitmap, mem->size, order);
 	if (unlikely(pageno < 0)) {
