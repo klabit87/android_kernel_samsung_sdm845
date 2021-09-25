@@ -1,3 +1,0 @@
-- Add powersave governor
-- Add conservative governor
-- Add ondemand governor

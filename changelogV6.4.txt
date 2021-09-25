@@ -1,7 +1,0 @@
-- Merge OSRC: G9650ZHS6DTG2
-- Merge OSRC: G9650ZHS7ETH1
-- Remove additinal SafetyNet flags from /proc/cmdline
-- Proc: Fake CMDline
-- Merge OSRC: G9650ZHU7ETI3
-- Merge OSRC: G9650ZHU7ETJ2
-- Expanded GSI kernel compatibility for Android 11 support
