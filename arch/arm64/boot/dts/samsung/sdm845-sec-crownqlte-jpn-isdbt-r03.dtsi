@@ -1,0 +1,161 @@
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+&soc {
+	tlmm: pinctrl@03400000 {
+		isdbt_gpio {
+			isdbt_gpio_active: isdbt_gpio_active {
+				mux {
+					pins = "gpio103", "gpio104";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio103", "gpio104";
+					drive-strength = <2>;
+					bias-pull-down; /* PULL DOWN */
+					output-low;
+				};
+			};
+			isdbt_gpio_suspend: isdbt_gpio_suspend {
+				mux {
+					pins = "gpio103", "gpio104";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio103", "gpio104";
+					drive-strength = <2>;
+					bias-pull-down; /* PULL DOWN */
+					output-low;
+				};
+			};
+
+		};
+
+		isdbt_int {
+			isdbt_int_active: isdbt_int_active {
+				mux {
+					pins = "gpio145";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio145";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+
+			isdbt_int_suspend: isdbt_int_suspend {
+				mux {
+					pins = "gpio145";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio145";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+		};
+
+		qupv3_se2_spi_isdbt_pins: qupv3_se2_spi_isdbt_pins {
+			qupv3_se2_spi_isdbt_active: qupv3_se2_spi_isdbt_active {
+				mux {
+					pins = "gpio27", "gpio28",
+							"gpio29", "gpio30";
+					function = "qup2";
+				};
+
+				config {
+					pins = "gpio27", "gpio28",
+							"gpio29", "gpio30";
+					drive-strength = <6>;
+					bias-disable;
+				};
+			};
+			qupv3_se2_spi_isdbt_sleep: qupv3_se2_spi_isdbt_sleep {
+				mux {
+					pins = "gpio27", "gpio28",
+							"gpio29", "gpio30";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio27", "gpio28",
+							"gpio29", "gpio30";
+					drive-strength = <6>;
+					input-enable;
+					bias-pull-down;
+				};
+			};
+		};
+	};
+
+	isdbt_data {
+		compatible = "isdbt_pdata";
+		interrupts = <145 0x0>;
+		interrupt-parent = <&tlmm>;
+
+		isdbt,isdb-gpio-spi_di = <&tlmm 27 0>;
+		isdbt,isdb-gpio-spi_do = <&tlmm 28 0>;
+		isdbt,isdb-gpio-spi_cs = <&tlmm 29 0>;
+		isdbt,isdb-gpio-spi_clk = <&tlmm 30 0>;
+
+	/*	isdbt,isdb-gpio-pwr-en = <&expander_gpios 1 0>; */   /* GPIO Expander P0_1 */
+		isdbt,isdb-gpio-pwr-en = <&tlmm 103 0>; /* 1p8 power */
+		isdbt,isdb-gpio-en = <&expander_gpios 1 0>; /* ISDBT EN & LAN */
+		isdbt,isdb-gpio-irq = <&tlmm 145 0>;
+		isdbt,isdb-gpio-rst = <&tlmm 104 0>;
+	/*	isdbt,isdb-gpio-lna-en = <&expander_gpios 1 0>; */
+
+		/* isdbt,ldo_vdd_1p8 = "pm8994_l29"; */
+		isdbt,tuner_id = "fc8350";
+
+		isdbt,isdb-bbm-xtal-freq = <19200>;
+		isdbt,spi_node = <&qupv3_se2_spi>;
+
+		clocks = <&clock_rpmh RPMH_LN_BB_CLK3>;
+		qcom,clk-src = "BBCLK3";
+		clock-names = "isdbt_clkout";
+
+		pinctrl-names = "isdbt_gpio_active", "isdbt_gpio_suspend";
+	/*	pinctrl-0 = <&isdbt_gpio_active &isdbt_int_active &qupv3_se2_spi_isdbt_active>; */
+	/*	pinctrl-1 = <&isdbt_gpio_suspend &isdbt_int_suspend &qupv3_se2_spi_isdbt_sleep>; */
+		pinctrl-0 = <&isdbt_gpio_active &isdbt_int_active>;
+		pinctrl-1 = <&isdbt_gpio_suspend &isdbt_int_suspend>;
+	};
+
+	i2c_20: i2c@20 {
+		status = "disabled";
+	};
+
+};
+
+&qupv3_se2_spi {
+	status = "ok";
+/*
+	/delete-property/ qcom,use-pinctrl;
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-1;
+*/
+	pinctrl-0 = <&qupv3_se2_spi_isdbt_active>;
+	pinctrl-1 = <&qupv3_se2_spi_isdbt_sleep>;
+
+	/delete-node/ ese_spi@0;
+	qcom-spi@0 {
+		compatible = "isdbt_spi_comp";
+		reg = <0>;
+		spi-max-frequency = <50000000>;
+	};
+};

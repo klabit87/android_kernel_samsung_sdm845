@@ -1,0 +1,111 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "sdm845-sec-crownqlte-common.dtsi"
+
+
+&qupv3_se10_i2c {
+	status = "ok";
+	hrmsensor@57 {
+		compatible = "hrmsensor";
+		reg = <0x57>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <121 0>;
+		pinctrl-names = "sleep", "default", "idle";
+		pinctrl-0 = <&hrm_int_suspend>;
+		pinctrl-1 = <&hrm_int_suspend>;
+		pinctrl-2 = <&hrm_int_active>;
+		hrmsensor,hrm_int-gpio = <&tlmm 121 0x00>;
+		hrmsensor,hrm_boost_en-gpio = <&expander_gpios 23 0>;
+		hrmsensor_1p8-supply = <&pm8998_l23>;
+	};
+};
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		detect_conn {
+			detect_conn_setting: detect_conn_setting {
+				config {
+					pins = "gpio51", "gpio102";
+					drive-strength = <2>;
+					bias-disable; /* No PULL */
+					input-enable;
+				};
+			};
+		};
+	};
+
+	sec_detect_conn {
+		compatible = "samsung,sec_detect_conn";
+		sec,det_conn_gpios = <&tlmm 51 0 /* UB_CON_DETECT */
+					&tlmm 102 0>; /* SUB_DETECT */
+
+		sec,det_conn_name = "UB_CONNECT", "SUB_CONNECT";
+
+		sec,det_conn_irq_type = <3>, /* UB_CON_DETECT FALLING, RIGING EDGE*/
+					<3>; /* SUB_DETECT FALLING, RIGING EDGE*/
+
+		pinctrl-names = "det_ap_connect";
+		pinctrl-0 = <&detect_conn_setting>;
+	};
+
+	abc_hub {
+		pinctrl-names = "det_ap_connect";
+		pinctrl-0 = <&detect_conn_setting>;
+
+		cond {
+			sec,det_conn_gpios = <&tlmm 51 0 /* UB_CON_DETECT */
+						&tlmm 102 0>; /* SUB_DETECT */
+
+			sec,det_conn_name = "ub", "sub";
+		};
+	};
+};
+
+
+&soc {
+	sec_detect_conn {
+		sec,det_pm_conn_gpios = <&pm8998_gpios 4 0x1>; /* CAM_DETECT */
+		sec,det_pm_conn_name = "CAM_CONNECT";
+		pinctrl-names = "det_ap_connect", "det_pm_connect";
+		pinctrl-0 = <&detect_conn_setting>;
+		pinctrl-1 = <&detect_conn_pm_setting>;
+	};
+
+	abc_hub {
+		pinctrl-names = "det_ap_connect", "det_pm_connect";
+		pinctrl-0 = <&detect_conn_setting>;
+		pinctrl-1 = <&detect_conn_pm_setting>;
+
+		cond {
+			sec,det_pm_conn_gpios = <&pm8998_gpios 4 0x1>; /* CAM_DETECT */
+			sec,det_pm_conn_name = "cam";
+		};
+	};
+};
+
+&pm8998_gpios {
+	sec_detect_conn {
+		detect_conn_pm_setting: detect_conn_pm_setting {
+			pins = "gpio4";
+			bias-disable; /* No PULL */
+			input-enable;
+		};
+	};
+};
+
+&qusb_phy0 {
+		pinctrl-names = "default", "atest_usb13_suspend", "atest_usb13_active";
+		pinctrl-0 = <&atest_usb13_suspend>;
+		pinctrl-1 = <&atest_usb13_suspend>;
+		pinctrl-2 = <&atest_usb13_active>;
+};

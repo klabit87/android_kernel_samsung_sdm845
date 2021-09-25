@@ -1,0 +1,27 @@
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+&qupv3_se10_i2c {
+	status = "ok";
+	/delete-node/ pn547@2B;
+	sec-nfc@27 {
+		compatible = "sec-nfc";
+		reg = <0x27>;
+		interrupt-parent = <&tlmm>;
+		interrupts= <39 0>;
+		sec-nfc,irq-gpio = <&tlmm 39 0>;
+		sec-nfc,ven-gpio = <&expander_gpios 6 0>;
+		sec-nfc,firm-gpio = <&expander_gpios 7 0>;
+		sec-nfc,clk_req-gpio = <&pm8998_gpios 21 0x00>;
+		/*pn547,pwr_req =  <&expander_gpios 1 0>;*/
+		sec-nfc,nfc_pvdd = "pm8998_l14";
+		sec-nfc,ldo_control;
+	};
+};
