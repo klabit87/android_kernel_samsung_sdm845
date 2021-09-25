@@ -33,9 +33,7 @@
 #include "five.h"
 #include "five_crypto_comp.h"
 #include "five_porting.h"
-#include "../../../security/integrity/integrity.h"
-
-
+#include "../../integrity/integrity.h"
 
 struct ahash_completion {
 	struct completion completion;
