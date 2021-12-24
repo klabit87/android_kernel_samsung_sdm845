@@ -1,0 +1,111 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/* SEC displayport setting */
+&soc {
+	sde_dp: qcom,dp_display@0 {
+		cell-index = <0>;
+		compatible = "qcom,dp-display";
+
+		gdsc-supply = <&mdss_core_gdsc>;
+		vdda-1p2-supply = <&pm8998_l26>;
+		vdda-0p9-supply = <&pm8998_l1>;
+		vdda-usb1-ss-core-supply = <&pm8998_l5>;
+		aux-pullup-supply = <&pm8998_l24>;
+
+		qcom,max-pclk-frequency-khz = <675000>;
+	};
+
+	tlmm: pinctrl@03400000 {
+		/delete-node/ sde_dp_aux_active;
+		/delete-node/ sde_dp_aux_suspend;
+		/delete-node/ sde_dp_usbplug_cc_active;
+		/delete-node/ sde_dp_usbplug_cc_suspend;
+
+		sde_dp_hpd_sleep: sde_dp_hpd_sleep {
+			mux {
+				pins = "gpio80";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio80";
+				bias-disable = <0>; /* no pull */
+				drive-strength = <2>;
+				input-enable;
+			};
+		};
+
+		sde_dp_aux_sel_active: sde_dp_aux_sel_active {
+			mux {
+				pins = "gpio100";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio100";
+				bias-disable = <0>; /* no pull */
+				drive-strength = <8>;
+			};
+		};
+
+		sde_dp_aux_sel_suspend: sde_dp_aux_sel_suspend {
+			 mux {
+				pins = "gpio100";
+				function = "gpio";
+			 };
+
+			 config {
+				pins = "gpio100";
+				bias-pull-down;
+				drive-strength = <2>;
+				output-low;
+			 };
+		 };
+
+		sde_dp_aux_en_active: sde_dp_aux_en_active {
+			mux {
+				pins = "gpio7";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio7";
+				bias-disable = <0>; /* no pull */
+				drive-strength = <8>;
+			};
+		};
+
+		sde_dp_aux_en_suspend: sde_dp_aux_en_suspend {
+			mux {
+				pins = "gpio7";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio7";
+				bias-disable = <0>; /* no pull */
+				drive-strength = <2>;
+				output-high;
+			};
+		};
+	};
+};
+
+&sde_dp {
+	pinctrl-names = "mdss_dp_active", "mdss_dp_sleep";
+	pinctrl-0 = <&sde_dp_aux_sel_active &sde_dp_aux_en_active>;
+	pinctrl-1 = <&sde_dp_aux_sel_suspend &sde_dp_aux_en_suspend &sde_dp_hpd_sleep>;
+	qcom,aux-en-gpio = <&tlmm 7 0>;
+	qcom,aux-sel-gpio = <&tlmm 100 0>;
+	qcom,usbplug-cc-gpio = <&tlmm 38 0>;
+};
