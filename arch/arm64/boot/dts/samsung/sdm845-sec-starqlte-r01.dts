@@ -1,0 +1,36 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+
+#include "../qcom/sdm845.dtsi"
+#include "../qcom/sdm845-mtp.dtsi"
+#include "sdm845-sec-common.dtsi"
+#include "sdm845-sec-starqlte-pm-common.dtsi"
+#include "sdm845-sec-starqlte-pm-r01.dtsi"
+#include "sdm845-sec-starqlte-r01.dtsi"
+#include "sdm845-sec-starqlte-pinctrl-r01.dtsi"
+#include "battery-data-starq-common.dtsi"
+#include "sdm845-sec-starqlte-display-r01.dtsi"
+#include "sdm845-sec-starqlte-displayport-r00.dtsi"
+#include "sdm845-sec-starqlte-fingerprint-sensor-r00.dtsi"
+#include "sdm845-sec-starqlte-mst-r00.dtsi"
+#include "sdm845-camera-sensor-starqlte-r00.dtsi"
+#include "sdm845-s2mm005.dtsi"
+#include "sdm845-sm5720.dtsi"
+
+/ {
+	model = "Samsung STARQLTE PROJECT Rev01";
+	compatible = "qcom,sdm845-mtp", "qcom,sdm845", "qcom,mtp";
+	qcom,board-id = <8 1>;
+};
+

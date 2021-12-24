@@ -1,0 +1,252 @@
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	tlmm: pinctrl@03400000 {
+		s2dos05_i2c_sda {
+			s2dos05_i2c_sda_default: s2dos05_i2c_sda_default {
+				s2dos05_i2c_sda {
+					pins = "gpio127";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+		};
+		s2dos05_i2c_scl {
+			s2dos05_i2c_scl_default: s2dos05_i2c_scl_default {
+				s2dos05_i2c_scl {
+					pins = "gpio128";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+		};
+		s2dos05_irq {
+		       s2dos05_irq_default: s2dos05_irq_default {
+			       s2dos05_irq {
+				       pins = "gpio49";
+				       drive-strength = <2>;
+				       bias-disable;
+			       };
+		       };
+		};
+
+		s2mpb03_i2c_sda {
+			s2mpb03_i2c_sda_default: s2mpb03_i2c_sda_default {
+				s2mpb03_i2c_sda {
+					pins = "gpio11";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+		};
+		s2mpb03_i2c_scl {
+			s2mpb03_i2c_scl_default: s2mpb03_i2c_scl_default {
+				s2mpb03_i2c_scl {
+					pins = "gpio74";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+		};
+	};
+
+	/* S2MPB02 Camera PMIC */
+	i2c1: i2c@1 {
+		s2mpb02@59 {
+			regulators {
+				s2mpb02_l14: s2mpb02-ldo14 {
+					regulator-name = "s2mpb02-ldo14";
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+				};
+
+				s2mpb02_b2: s2mpb02-buck2 {
+					regulator-name = "s2mpb02-buck2";
+					regulator-min-microvolt = <1300000>;
+					regulator-max-microvolt = <1300000>;
+					regulator-always-on = <1>;
+				};
+
+				s2mpb02_l14: s2mpb02-ldo14 {
+					regulator-name = "s2mpb02-ldo14";
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+				};
+			};
+		};
+	};
+
+	/* S2DOS05 Display PMIC */
+	i2c21: i2c@21 {
+		cell-index = <21>;
+		compatible = "i2c-gpio";
+		gpios = <&tlmm 127 0 /* sda */
+			&tlmm 128 0 /* scl */
+		>;
+		#i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&s2dos05_i2c_sda_default &s2dos05_i2c_scl_default>;
+
+		s2dos05@60 {
+			compatible = "samsung,s2dos05pmic";
+			reg = <0x60>;
+			adc_mode = <2>; /* 0 : disable, 1 : current meter, 2 : power meter */
+			adc_sync_mode = <2>; /* 1 : sync mode, 2 : async mode */
+
+			pinctrl-names = "default";
+			pinctrl-0 = <&s2dos05_irq_default>;
+			s2dos05,s2dos05_int = <&tlmm 49 0>;
+
+			regulators {
+				s2dos05_l1: s2dos05-ldo1 {
+					regulator-name = "s2dos05-ldo1";
+					regulator-min-microvolt = <1500000>;
+					regulator-max-microvolt = <2000000>;
+					regulator-active-discharge = <1>;
+				};
+
+				s2dos05_l2: s2dos05-ldo2 {
+					regulator-name = "s2dos05-ldo2";
+					regulator-min-microvolt = <1500000>;
+					regulator-max-microvolt = <2000000>;
+					regulator-active-discharge = <1>;
+				};
+
+				s2dos05_l3: s2dos05-ldo3 {
+					regulator-name = "s2dos05-ldo3";
+					regulator-min-microvolt = <2700000>;
+					regulator-max-microvolt = <3775000>;
+					regulator-active-discharge = <1>;
+				};
+
+				s2dos05_l4: s2dos05-ldo4 {
+					regulator-name = "s2dos05-ldo4";
+					regulator-min-microvolt = <2700000>;
+					regulator-max-microvolt = <3775000>;
+					regulator-active-discharge = <1>;
+				};
+
+				s2dos05_buck1: s2dos05-buck1 {
+					regulator-name = "s2dos05-buck1";
+					regulator-min-microvolt = <850000>;
+					regulator-max-microvolt = <2100000>;
+					regulator-active-discharge = <1>;
+				};
+
+				s2dos05_elvss: s2dos05-elvss {
+					regulator-name = "s2dos05-elvss";
+				};
+			};
+		};
+	};
+
+	i2c2: i2c@2 {
+		cell-index = <2>;
+		compatible = "i2c-gpio";
+		gpios = <&tlmm 11 0 /* sda */
+			&tlmm 74 0 /* scl */
+		>;
+		#i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&s2mpb03_i2c_sda_default &s2mpb03_i2c_scl_default>;
+
+		/* S2MPB03 Camera PMIC */
+		s2mpb03@56 {
+			compatible = "samsung,s2mpb03pmic";
+			reg = <0x56>;
+			additional_reg_init;
+
+			regulators {
+				s2mpb03_l1: s2mpb03-ldo1 {
+					regulator-name = "s2mpb03-ldo1";
+					regulator-min-microvolt = <1000000>;
+					regulator-max-microvolt = <1000000>;
+				};
+
+				s2mpb03_l2: s2mpb03-ldo2 {
+					regulator-name = "s2mpb03-ldo2";
+					regulator-min-microvolt = <1100000>;
+					regulator-max-microvolt = <1100000>;
+				};
+
+				s2mpb03_l3: s2mpb03-ldo3 {
+					regulator-name = "s2mpb03-ldo3";
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt = <1800000>;
+				};
+
+				s2mpb03_l4: s2mpb03-ldo4 {
+					regulator-name = "s2mpb03-ldo4";
+					regulator-min-microvolt = <1100000>;
+					regulator-max-microvolt = <1100000>;
+				};
+
+				s2mpb03_l5: s2mpb03-ldo5 {
+					regulator-name = "s2mpb03-ldo5";
+					regulator-min-microvolt = <2150000>;
+					regulator-max-microvolt = <2150000>;
+				};
+
+				s2mpb03_l6: s2mpb03-ldo6 {
+					regulator-name = "s2mpb03-ldo6";
+					regulator-min-microvolt = <2850000>;
+					regulator-max-microvolt = <2850000>;
+				};
+
+				s2mpb03_l7: s2mpb03-ldo7 {
+					regulator-name = "s2mpb03-ldo7";
+					regulator-min-microvolt = <2800000>;
+					regulator-max-microvolt = <2800000>;
+				};
+			};
+		};
+	};
+
+	sec_thermistor@3 {
+		pinctrl-names = "default";
+		pinctrl-0 = <&gpio8_adc_default>;
+	};
+};
+
+&pm8998_gpios {
+	gpio8_adc {
+		gpio8_adc_default: gpio8_adc_default {
+			pins = "gpio8"; /* GPIO 8 */
+			function = "normal"; /* normal */
+			bias-high-impedance; /* DISABLE GPIO8 for ADC*/
+		};
+	};
+};
+
+&spmi_bus {
+	qcom,pm8998@0 {
+		pm8998_vadc: vadc@3100 {
+			chan@52 { /* PM8998 GPIO 8 */
+				label = "wifi_therm";
+				reg = <0x52>;
+				qcom,decimation = <2>;
+				qcom,pre-div-channel-scaling = <0>;
+				qcom,calibration-type = "ratiometric";
+				qcom,scale-function = <2>;
+				qcom,hw-settle-time = <2>;
+				qcom,fast-avg-setup = <0>;
+			};
+		};
+	};
+};

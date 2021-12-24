@@ -1,0 +1,153 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+
+#include "../qcom/sdm845-v2.dtsi"
+#include "../qcom/sdm845-mtp.dtsi"
+#include "sdm845-sec-common.dtsi"
+#include "sdm845-sec-lykanlte-pm-common.dtsi"
+#include "sdm845-sec-lykanlte-r02.dtsi"
+#include "sdm845-sec-lykanlte-chn-pinctrl-r02.dtsi"
+#include "sdm845-sec-lykanlte-fingerprint-sensor-r01.dtsi"
+#include "battery-data-lykanlte-common.dtsi"
+#include "sdm845-sec-lykanlte-display-r00.dtsi"
+#include "sdm845-sec-lykanlte-displayport-r00.dtsi"
+#include "sdm845-sec-starqlte-mst-r00.dtsi"
+#include "sdm845-camera-sensor-lykanlte-r02.dtsi"
+#include "sdm845-lykan-max77705.dtsi"
+
+/ {
+	model = "Samsung LYKANLTE CHN PROJECT Rev02";
+	compatible = "qcom,sdm845-mtp", "qcom,sdm845", "qcom,mtp";
+	qcom,board-id = <8 2>;
+
+	aliases {
+		i2c33 = &i2c_33;
+	};
+};
+
+&pm8998_l21 {
+	regulator-name = "ALS_1.8V_AP";
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+};
+
+&qupv3_se2_spi {
+	status = "ok";
+	/delete-property/ pinctrl-1;
+	pinctrl-1 = <&qupv3_se2_spi_sleep_out>;
+	ese_spi@0 {
+		compatible = "p61";
+		reg = <0>;
+		spi-max-frequency = <16000000>;
+		p61-ap_vendor = "qualcomm";
+		/*clock-names = "pclk", "sclk";
+		 */
+		/*clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
+		 *	<&clock_gcc clk_gcc_blsp1_qup1_spi_apps_clk>;
+		 */
+	};
+};
+
+&qupv3_se10_i2c {
+	status = "ok";
+	pn547@2B {
+		compatible = "pn547";
+		reg = <0x2B>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <39 0>;
+		pn547,irq-gpio = <&tlmm 39 0>;
+		pn547,ven-gpio = <&stmpegpio 15 0x00>;
+		pn547,firm-gpio = <&stmpegpio 16 0x00>;
+		pn547,clk_req-gpio = <&pm8998_gpios 21 0x00>;
+		pn547,pwr_req =  <&stmpegpio 6 0x00>;
+		pn547,nfc_pvdd = "pm8998_l14";
+		pn547,ldo_control;
+		pn547,nfc_pm_clk;
+		clocks = <&clock_rpmh RPMH_LN_BB_CLK3>;
+		clock-names = "rf_clk";
+		qcom,clk-src = "BBCLK3";
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_clk_default>;
+	};
+};
+
+&soc {
+	i2c_17: i2c@17 { /* SW I2C */
+		sx9320-i2c@28 {
+			status = "disabled";
+		};
+	};
+
+	bldc,vibrator {
+		compatible = "bldc_vib";
+	        bldc,vib-regulator = "vib-regulator";
+	        vib-regulator-supply = <&s2mpb02_sub_l7>;
+		status = "ok";
+	};
+
+	i2c@21 {
+	s2mpb02@59 {
+		regulators {
+			s2mpb02_sub_l7: s2mpb02-sub-ldo7 {
+				regulator-name = "s2mpb02-sub-ldo7";
+				regulator-min-microvolt = <2400000>;
+				regulator-max-microvolt = <3300000>;
+			};
+		};
+	};
+	};
+};
+
+&i2c_33 {
+	status = "ok";
+
+	als_rear@29 {
+		compatible = "ams,tcs3407";
+		reg = <0x29>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 0>;
+		pinctrl-names = "sleep", "default", "idle";
+		pinctrl-0 = <&als_rear_int_suspend>;
+		pinctrl-1 = <&als_rear_int_suspend>;
+		pinctrl-2 = <&als_rear_int_active>;
+		als_rear,int-gpio = <&tlmm 125 0x00>;
+		als_rear,led_en-gpio = <&tlmm 21 0x00>;
+		als_rear,vdd_1p8 = "ALS_1.8V_AP";
+		als_rear,ir_spec = <9000 27000 0 500000>;
+	};
+};
+
+&qusb_phy0 {
+		pinctrl-names = "default", "atest_usb13_suspend", "atest_usb13_active";
+		pinctrl-0 = <&atest_usb13_suspend>;
+		pinctrl-1 = <&atest_usb13_suspend>;
+		pinctrl-2 = <&atest_usb13_active>;
+};
+
+&slim_aud {
+	imp_list: imp_list {
+		#list-imp-cells = <3>;
+	};
+
+	tavil_codec {
+		imp-table = <&imp_list 0 0 6>,
+		<&imp_list 1 19 0>,
+		<&imp_list 20 31 3>,
+		<&imp_list 32 48 4>,
+		<&imp_list 49 100 5>,
+		<&imp_list 101 200 5>,
+		<&imp_list 201 1000 5>,
+		<&imp_list 1001 0x7fffffff 4>;
+    };
+};

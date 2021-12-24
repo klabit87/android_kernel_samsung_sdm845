@@ -1,0 +1,152 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include <dt-bindings/input/input.h>
+
+
+&s2dos05_l2 {	/* tsp_io */
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+	regulator-boot-on;
+};
+
+&s2dos05_l3 {	/* tsp_avdd */
+	regulator-min-microvolt = <3000000>;
+	regulator-max-microvolt = <3000000>;
+	regulator-boot-on;
+};
+
+&pm8005_gpios {
+	tsp_icid {
+		tsp_icid_default: tsp_icid_default {
+			pins = "gpio1";
+			function = "normal";
+			input-enable;
+			bias-disable;
+			power-source = <1>; /* 0:3.6v, 1:1.8v */ 
+		};
+	};
+};
+
+&qupv3_se11_i2c {
+	status = "ok";
+
+	touchscreen@48 {
+		status = "okay";
+		compatible = "sec,sec_ts";
+		reg = <0x48>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <120 0>;
+		pinctrl-names = "default", "on_state", "off_state";
+		pinctrl-0 = <&tsp_icid_default>;
+		pinctrl-1 = <&attn_irq>;
+		pinctrl-2 = <&attn_irq>;
+		pressure-sensor = "Y";
+		sync-reportrate-120 = "Y";
+		sec,force_sensor_ch_gpio  = <&pm8005_gpios 1 0>; /* L:1ch, H:2ch */
+/*		sec,icid_match_value = <1>;*/
+/*		sec,tsp-id_gpio = <&pm8005_gpios 1 0>;*/
+		sec,irq_gpio = <&tlmm 120 0x2008>;
+		sec,irq_type = <0x2008>;
+		sec,max_coords = <4096 4096>; /* x y */
+		sec,area-size = <133 266 341>; /* indicator: 24dp navigator:48dp edge:60px dpi=320 */
+		sec,mis_cal_check = <1>;
+		sec,regulator_dvdd = "s2dos05-ldo2";
+		sec,regulator_avdd = "s2dos05-ldo3";
+		sec,regulator_boot_on;
+/*		sec,always_lpmode = <1>;*/
+		sec,tclm_level = <2 2 2>; /* To be supported tclm for each firmware */
+			      /* <crown crown_v2 crown_v1> */
+		sec,afe_base = <0x0302 0x0211 0x0122>; /* To be supported tclm for each firmware */
+			    /* <crown crown_v2 crown_v1> */
+		sec,project_name = "CROWN", "N960";
+		sec,firmware_name = "tsp_sec/y771_crown.fw", "tsp_sec/y771_crown_v2.fw", "tsp_sec/y771_crown_v1.fw";
+				  /* crown : 0.5T window glass, crown_v2 : 0.6T window glass, crown_v1 : using zigzag pattern */
+		sec,support_hw_rev = <0xff>; /* using for prev panel */
+		support_dex_mode;
+		sec,i2c-burstmax = <0x40>;
+		sec,factory_item_version = <2>;
+	};
+};
+
+&pm8998_l25 {
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
+	qcom,init-mode = <RPMH_REGULATOR_MODE_HPM>;
+};
+
+&qupv3_se12_i2c {
+	status = "ok";
+
+	wacom@56 {
+		compatible = "wacom,w90xx";
+		reg = <0x56>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <40 0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&epen_int_active>;
+		vddo-supply = <&pm8998_l25>;
+		/* gpios */
+		wacom,irq-gpio = <&tlmm 40 0x0>;
+		wacom,pdct-gpio = <&tlmm 113 0x0>;
+		wacom,fwe-gpio = <&tlmm 144 0x0>;
+		wacom,irq_type = <8>; /*IRQF_TRIGGER_LOW*/
+		/* features */
+		wacom,boot_addr = <0x09>;
+		wacom,origin = <0 0>; /* x y */
+		wacom,max_coords = <14563 7085>; /* x y */
+		wacom,max_pressure = <4095>;
+		wacom,max_x_tilt = <63>;
+		wacom,max_y_tilt = <63>;
+		wacom,max_height = <255>;
+		wacom,project_name = "CROWN", "N960";
+		wacom,invert = <1 0 1>; /* x y switch */
+		wacom,fw_path = "epen/w9018_crown.fw";
+		wacom,fw_fac_path = "epen/w9018_crown_garage.fw", "epen/w9018_crown_unit.fw";
+		wacom,ic_type = <9018>;
+		wacom,use_virtual_softkey;
+		wacom,support_aop_mode = "1"; /* S-note want to check to use aop */
+		wacom,use_garage;
+		wacom,support_dex_mode;
+		wacom,dex_rate = <10>;
+		wacom,table_swap_for_dex_station;
+	};
+};
+
+&soc {
+	/delete-node/ gpio_keys;
+	gpio_keys {
+		compatible = "gpio-keys";
+		input-name = "gpio-keys";
+		status = "okay";
+		label = "gpio_keys";
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&pm8998_gpios 6 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEUP>;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+
+		key_wink {
+			label = "key_wink";
+			gpios = <&pm8998_gpios 19 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_WINK>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+	};
+};
